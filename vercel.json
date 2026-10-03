@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/vpdive/:path*",
+      "destination": "https://septentrion-env.vpdive.com/api/:path*"
+    }
+  ]
+}

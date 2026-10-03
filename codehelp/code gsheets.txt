@@ -1,0 +1,903 @@
+// ============================================================
+//  VPDive → Google Sheets | Vue Liste Calendrier
+//  Colonnes : Date | Google Agenda | VPDive | Météo
+//  Identifiants dans l'onglet "API" : A1 = email, A2 = mot de passe
+// ============================================================
+
+const CONFIG = {
+  API_BASE:       'https://septentrion-env.vpdive.com/api',
+  CALENDAR_TOKEN: 'mwLfoKcBUFeaQ0MJ1kVPHInyjbl346hrCWitv2X5qN8',
+  GCAL_ID:        '4q7l2p4v93glh3lvu37bg9j57k@group.calendar.google.com',
+  CREDS_SHEET:    'API',
+  CALENDAR_SHEET: 'Calendrier',
+  LOG_SHEET:      'Log',
+
+  // Météo — Pointe Rouge, Marseille
+  METEO_LAT: 43.248,
+  METEO_LON: 5.356,
+  METEO_DAYS: 14,   // fenêtre à partir d'aujourd'hui
+
+  MONTHS_FR: ['Janvier','Février','Mars','Avril','Mai','Juin',
+              'Juillet','Août','Septembre','Octobre','Novembre','Décembre'],
+  DAYS_FR: ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'],
+  WIND_DIRS: ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'],
+
+  // Couleurs
+  COLOR_MONTH_BG:    '#000000',
+  COLOR_MONTH_FG:    '#ffffff',
+  COLOR_WEEKEND_BG:  '#fff3e0',
+  COLOR_WEEKEND_FG:  '#bf360c',
+  COLOR_WEEKDAY_FG:  '#202124',
+  COLOR_EMPTY_BG:    '#f8f9fa',
+  COLOR_EMPTY_FG:    '#9aa0a6',
+  COLOR_HEADER_BG:   '#1a3557',
+  COLOR_HEADER_FG:   '#ffffff',
+  COLOR_GCAL_BG:     '#fdecea',
+  COLOR_GCAL_FG:     '#b71c1c',
+  COLOR_VPDIVE_BG:   '#dbeafe',
+  COLOR_VPDIVE_FG:   '#1e3a8a',
+  COLOR_METEO_BG:    '#e3f2fd',
+  COLOR_METEO_FG:    '#0d47a1',
+  COLOR_METEO_WARN:  '#fff8e1',
+  COLOR_METEO_WFONT: '#e65100',
+  METEO_WIND_WARN:   20,
+
+  // Participants / rôles
+  PARTICIPANT_STATUS: 'inscrit',  // statut pour les endpoints responsable/pilote — à ajuster selon les logs debug
+  COLOR_PART_HDR_BG: '#2d6a4f',
+  COLOR_PART_HDR_FG: '#ffffff',
+  COLOR_PART_BG:     '#e8f5e9',
+  COLOR_PART_FG:     '#1b5e20',
+  COLOR_PART_EMPTY:  '#f8f9fa',
+};
+
+const ROLE_COLS = [
+  { key: 'responsibles', label: 'Responsables' },
+  { key: 'pilots',       label: 'Pilotes' },
+  { key: 'participants', label: 'Participants' },
+  { key: 'teams',        label: 'Teams' },
+];
+
+// ── MENU ─────────────────────────────────────────────────────
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('📅 VPDive')
+    .addItem('Sync — 6 prochains mois', 'syncCalendar')
+    .addItem('Exporter les catégories', 'syncCategories')
+    .addItem('🔍 Déboguer API participants', 'debugParticipantAPI_')
+    .addToUi();
+}
+
+// ── POINT D'ENTRÉE ────────────────────────────────────────────
+function syncCalendar() {
+  const ss   = SpreadsheetApp.getActiveSpreadsheet();
+  const auth = getAuth_(ss);
+  if (!auth) {
+    Logger.log('❌ Authentification échouée.');
+    return;
+  }
+
+  // Plage : aujourd'hui - 3 jours → +6 mois
+  const now        = new Date();
+  const startDate  = new Date(now);
+  startDate.setDate(startDate.getDate() - 3);
+  const startYear  = startDate.getFullYear();
+  const startMonth = startDate.getMonth() + 1;
+  const startDay   = startDate.getDate();
+  const endDate    = new Date(now.getFullYear(), now.getMonth() + 6, 1);
+  const endYear    = endDate.getFullYear();
+  const endMonth   = endDate.getMonth() + 1;
+
+  // ── 1. Météo (en premier — un seul appel HTTP, mis en cache) ──
+  const meteoData = fetchMeteo_();
+  Logger.log(`Météo : ${meteoData ? Object.keys(meteoData).length : 0} jours chargés.`);
+  if (!meteoData) Logger.log('⚠️ Météo indisponible, colonne laissée vide.');
+
+  // ── 2. Google Calendar ──
+  const rangeStart = new Date(startYear, startMonth - 1, startDay);
+  const rangeEnd   = new Date(endYear, endMonth, 1);
+  const gcalEvents = fetchGCalEvents_(rangeStart, rangeEnd);
+  Logger.log(`GCal : ${gcalEvents.size} jours avec événements.`);
+
+  // ── 3. VPDive ──
+  const allEvents = {};   // 'YYYY-MM-DD' → [ev, …]
+  const allFlat   = [];
+  let totalFetched = 0;
+  let y = startYear, m = startMonth;
+  while (y < endYear || (y === endYear && m <= endMonth)) {
+    Logger.log(`Fetch VPDive ${CONFIG.MONTHS_FR[m-1]} ${y}…`);
+    const evts = fetchMonthEvents_(y, m, auth.jwt, auth.traceability);
+    evts.forEach(ev => {
+      const key = dateKey_(ev.start);
+      if (!allEvents[key]) allEvents[key] = [];
+      allEvents[key].push(ev);
+      allFlat.push(ev);
+    });
+    totalFetched += evts.length;
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  Logger.log(`VPDive : ${totalFetched} événements.`);
+
+  // ── 4. Enrichissement participants/rôles via API ──
+  enrichEventsWithParticipants_(allFlat, auth.jwt, auth.traceability);
+
+  // ── 5. Construction du sheet ──
+  buildCalendarSheet_(ss, startYear, startMonth, startDay, endYear, endMonth,
+                      allEvents, gcalEvents, meteoData);
+  buildCategoriesSheet_(ss, allFlat);
+  logSync_(ss, totalFetched, startYear, startMonth, endYear, endMonth);
+
+  // Mise à jour date/heure en A1 de l'onglet Log
+  const logSheet = ss.getSheetByName(CONFIG.LOG_SHEET);
+  if (logSheet) {
+    logSheet.getRange('A1').setValue('MAJ : ' + new Date().toLocaleString('fr-FR'))
+      .setFontWeight('bold').setBackground('#1a3557').setFontColor('#ffffff');
+  }
+  Logger.log(`✅ Calendrier synchronisé — ${totalFetched} événements VPDive`);
+}
+
+// ── FETCH MÉTÉO ───────────────────────────────────────────────
+/**
+ * Double appel Open-Meteo :
+ *   • API atmosphérique → vent + rafales  (toujours disponible)
+ *   • API marine        → hauteur vagues  (best-effort)
+ *
+ * Retourne : meteoData['YYYY-MM-DD'] = [{ hour, windSpeed_kt,
+ *              windGusts_kt, windDir_deg, waveHeight_m }, …]
+ * Fenêtre  : aujourd'hui → aujourd'hui + METEO_DAYS (inclus)
+ */
+function fetchMeteo_() {
+  const now      = new Date();
+  const startStr = isoDate_(now);
+  const endD     = new Date(now);
+  endD.setDate(endD.getDate() + CONFIG.METEO_DAYS);
+  const endStr   = isoDate_(endD);
+
+  const base = `latitude=${CONFIG.METEO_LAT}&longitude=${CONFIG.METEO_LON}` +
+               `&start_date=${startStr}&end_date=${endStr}&timezone=Europe%2FParis`;
+
+  // ── Vent ──
+  const atmoUrl = `https://api.open-meteo.com/v1/forecast?${base}` +
+                  `&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=ms`;
+  let atmoJson;
+  try {
+    const r = UrlFetchApp.fetch(atmoUrl, { muteHttpExceptions: true });
+    if (r.getResponseCode() !== 200) {
+      Logger.log('Météo vent HTTP ' + r.getResponseCode()); return null;
+    }
+    atmoJson = JSON.parse(r.getContentText());
+  } catch(e) { Logger.log('Météo vent fetch : ' + e); return null; }
+
+  const atmo = atmoJson.hourly;
+  if (!atmo || !atmo.time) { Logger.log('Météo vent : structure inattendue'); return null; }
+
+  // ── Vagues ──
+  const waveByHour = {};   // 'YYYY-MM-DDTHH' → metres
+  try {
+    const marineUrl = `https://marine-api.open-meteo.com/v1/marine?${base}&hourly=wave_height`;
+    const r = UrlFetchApp.fetch(marineUrl, { muteHttpExceptions: true });
+    if (r.getResponseCode() === 200) {
+      const h = JSON.parse(r.getContentText()).hourly;
+      if (h && h.time) {
+        h.time.forEach((t, i) => {
+          waveByHour[t.substring(0, 13)] = h.wave_height[i];
+        });
+      }
+      Logger.log(`Vagues : ${Object.keys(waveByHour).length} heures chargées.`);
+    } else {
+      Logger.log('API marine HTTP ' + r.getResponseCode() + ' — vagues ignorées.');
+    }
+  } catch(e) { Logger.log('Météo vagues fetch : ' + e); }
+
+  // ── Fusion heure par heure ──
+  const result = {};
+  atmo.time.forEach((iso, i) => {
+    const day  = iso.substring(0, 10);  // 'YYYY-MM-DD'
+    const hour = parseInt(iso.substring(11, 13), 10);
+    const ws   = atmo.wind_speed_10m[i]  || 0;
+    const wg   = atmo.wind_gusts_10m ? (atmo.wind_gusts_10m[i] || 0) : 0;
+    const wd   = atmo.wind_direction_10m[i] || 0;
+    const wv   = waveByHour[iso.substring(0, 13)];   // peut être undefined
+
+    if (!result[day]) result[day] = [];
+    result[day].push({
+      hour,
+      windSpeed_kt: Math.round(ws * 1.94384),
+      windGusts_kt: Math.round(wg * 1.94384),
+      windDir_deg:  wd,
+      waveHeight_m: (wv != null && wv !== undefined) ? wv : null,
+    });
+  });
+
+  Logger.log(`Météo OK : ${Object.keys(result).length} jours, ` +
+             `vagues ${Object.keys(waveByHour).length > 0 ? 'OK' : 'indisponibles'}`);
+  return result;
+}
+
+/**
+ * Calcule la météo la plus défavorable pour un événement,
+ * en tranches de 4h. Renvoie [] si hors fenêtre météo.
+ */
+function getMeteoForEvent_(meteoData, evStart, evEnd) {
+  if (!meteoData) return [];
+
+  const now     = new Date();
+  const horizon = new Date(now);
+  horizon.setDate(horizon.getDate() + CONFIG.METEO_DAYS + 1);
+
+  // Hors fenêtre (passé ou trop loin)
+  if (evEnd <= now || evStart >= horizon) return [];
+
+  // Tranches de 4h couvrant l'événement
+  const SLOT_H = 4;
+  const slots  = [];
+  let cur = new Date(evStart);
+  while (cur < evEnd) {
+    const next = new Date(Math.min(cur.getTime() + SLOT_H * 3600000, evEnd.getTime()));
+    slots.push({ from: new Date(cur), to: new Date(next) });
+    cur = next;
+  }
+
+  const lines = [];
+  slots.forEach(({ from, to }) => {
+    const dayKey  = isoDate_(from);
+    const dayData = meteoData[dayKey];
+    if (!dayData || dayData.length === 0) return;
+
+    const fromH = from.getHours();
+    const toH   = to.getHours() === 0 ? 24 : to.getHours();
+    const subset = dayData.filter(h => h.hour >= fromH && h.hour < toH);
+    if (subset.length === 0) return;
+
+    const worst = subset.reduce((a, b) => b.windSpeed_kt > a.windSpeed_kt ? b : a);
+    const worstWave = subset.reduce((a, b) =>
+      (b.waveHeight_m || 0) > (a.waveHeight_m || 0) ? b : a);
+
+    const pad = n => String(n).padStart(2, '0');
+    const fh  = `${pad(from.getHours())}h`;
+    const th  = to.getHours() === 0 ? '00h' : `${pad(to.getHours())}h`;
+    const dir = degToDir_(worst.windDir_deg);
+
+    let line = `${fh}-${th}  💨 ${worst.windSpeed_kt}nd ${dir}`;
+    if (worst.windGusts_kt > worst.windSpeed_kt) {
+      line += ` (rafales ${worst.windGusts_kt}nd)`;
+    }
+    if (worstWave.waveHeight_m !== null) {
+      line += `  🌊 ${worstWave.waveHeight_m.toFixed(1)}m`;
+    }
+    lines.push({ text: line, wind_kt: worst.windSpeed_kt });
+  });
+
+  return lines;
+}
+
+// ── FETCH GOOGLE CALENDAR ─────────────────────────────────────
+function fetchGCalEvents_(startDate, endDate) {
+  const result = new Map();
+  let cal;
+  try { cal = CalendarApp.getCalendarById(CONFIG.GCAL_ID); }
+  catch(e) { Logger.log('GCal inaccessible : ' + e); return result; }
+  if (!cal) { Logger.log('GCal introuvable : ' + CONFIG.GCAL_ID); return result; }
+
+  cal.getEvents(startDate, endDate).forEach(ev => {
+    const isAllDay = ev.isAllDayEvent();
+    const s = isAllDay ? setHour_(ev.getStartTime(), 8)  : ev.getStartTime();
+    const e = isAllDay ? setHour_(ev.getStartTime(), 16) : ev.getEndTime();
+    const key = dateKey_(s);
+    const pad = n => String(n).padStart(2, '0');
+    const label = isAllDay
+      ? ev.getTitle()
+      : `${pad(s.getHours())}h${pad(s.getMinutes())} · ${ev.getTitle()}`;
+    if (!result.has(key)) result.set(key, []);
+    result.get(key).push({ label, start: s, end: e });
+  });
+  return result;
+}
+
+// ── CONSTRUCTION ONGLET CALENDRIER ───────────────────────────
+function buildCalendarSheet_(ss, startYear, startMonth, startDay, endYear, endMonth,
+                              allEvents, gcalEvents, meteoData) {
+  let sheet = ss.getSheetByName(CONFIG.CALENDAR_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(CONFIG.CALENDAR_SHEET);
+    ss.setActiveSheet(sheet);
+    ss.moveActiveSheet(1);
+  } else {
+    sheet.clearContents();
+    sheet.clearFormats();
+    const lastRow = sheet.getMaxRows();
+    if (lastRow > 2) sheet.deleteRows(3, lastRow - 2);
+  }
+
+  const NP = ROLE_COLS.length;
+  const NC = 4 + NP;
+
+  // En-tête
+  const headerRow = ['Date', '📅 Google Agenda', 'VPDive', '🌬️ Météo Pointe Rouge',
+                     ...ROLE_COLS.map(c => c.label)];
+  sheet.getRange(1, 1, 1, NC)
+    .setValues([headerRow])
+    .setBackground(CONFIG.COLOR_HEADER_BG).setFontColor(CONFIG.COLOR_HEADER_FG)
+    .setFontWeight('bold').setFontSize(10).setVerticalAlignment('middle');
+  if (NP > 0) {
+    sheet.getRange(1, 5, 1, NP)
+      .setBackground(CONFIG.COLOR_PART_HDR_BG).setFontColor(CONFIG.COLOR_PART_HDR_FG);
+  }
+  sheet.setRowHeight(1, 28);
+  sheet.setFrozenRows(1);
+  sheet.setColumnWidth(1, 160);
+  sheet.setColumnWidth(2, 280);
+  sheet.setColumnWidth(3, 420);
+  sheet.setColumnWidth(4, 300);
+  for (let i = 0; i < NP; i++) sheet.setColumnWidth(5 + i, 90);
+
+  // ── Construction ligne par ligne ──
+  const rows      = [];
+  const rowMeta   = [];
+  const partNotes = [];  // notes pour les colonnes participants (batch setNotes)
+  let currentMonth = -1;
+  let y = startYear, m = startMonth;
+
+  while (y < endYear || (y === endYear && m <= endMonth)) {
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const dStart = (y === startYear && m === startMonth) ? startDay : 1;
+
+    for (let d = dStart; d <= daysInMonth; d++) {
+      const date      = new Date(y, m - 1, d);
+      const dow       = date.getDay();
+      const isWeekend = (dow === 0 || dow === 6);
+      const key       = dateKey_(date);
+      const vpEvts    = allEvents[key]  || [];
+      const gcEvts    = gcalEvents ? (gcalEvents.get(key) || []) : [];
+
+      // Bandeau mois
+      if (m !== currentMonth) {
+        currentMonth = m;
+        rows.push([`${CONFIG.MONTHS_FR[m-1]} ${y}`, '', '', '', ...Array(NP).fill('')]);
+        rowMeta.push({ type: 'month' });
+        partNotes.push(Array(NP).fill(''));
+      }
+
+      const dateLabel = `${CONFIG.DAYS_FR[dow]} ${d} ${CONFIG.MONTHS_FR[m-1]}`;
+
+      // Météo : calculée sur le premier événement trouvé (GCal prioritaire)
+      let meteoLines = [];
+      if (gcEvts.length > 0) {
+        meteoLines = getMeteoForEvent_(meteoData, gcEvts[0].start, gcEvts[0].end);
+      } else if (vpEvts.length > 0) {
+        meteoLines = getMeteoForEvent_(meteoData, vpEvts[0].start, vpEvts[0].end);
+      }
+      const meteoText = meteoLines.map(l => l.text).join('\n');
+      const maxWind   = meteoLines.length > 0 ? Math.max(...meteoLines.map(l => l.wind_kt)) : 0;
+      const hasWarn   = maxWind >= CONFIG.METEO_WIND_WARN;
+
+      const gcalLabel = gcEvts.map(e => e.label).join('\n');
+      const hasGcal   = gcEvts.length > 0;
+      const hasVP     = vpEvts.length > 0;
+
+      if (!hasVP) {
+        rows.push([dateLabel, gcalLabel, '', meteoText, ...Array(NP).fill('')]);
+        rowMeta.push({ type: 'day', dow, isWeekend, hasVP: false,
+                       hasGcal, meteoText, hasWarn });
+        partNotes.push(Array(NP).fill(''));
+      } else {
+        // Une ligne par événement VPDive — GCal et météo sur la 1re ligne seulement
+        vpEvts.forEach((ev, idx) => {
+          let partCountValues = Array(NP).fill('');
+          let partNoteValues  = Array(NP).fill('');
+
+          if (NP > 0) {
+            partCountValues = ROLE_COLS.map(col => {
+              const people = ev[col.key] || [];
+              return people.length > 0 ? people.length : '';
+            });
+            partNoteValues = ROLE_COLS.map(col => {
+              const people = ev[col.key] || [];
+              if (col.key === 'teams') {
+                return people.map(t => t.name || t.label || t.title || '?').join('\n');
+              }
+              return people.map(getPersonName_).join('\n');
+            });
+          }
+
+          rows.push([
+            idx === 0 ? dateLabel : '',
+            idx === 0 ? gcalLabel : '',
+            formatEventFull_(ev),
+            idx === 0 ? meteoText : '',
+            ...partCountValues,
+          ]);
+          rowMeta.push({
+            type: 'day', dow, isWeekend, hasVP: true, isFirst: idx === 0,
+            hasGcal, meteoText: idx === 0 ? meteoText : '',
+            hasWarn: idx === 0 && hasWarn,
+          });
+          partNotes.push(partNoteValues);
+        });
+      }
+    }
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+
+  if (rows.length === 0) return;
+  const R0 = 2;
+
+  // ── Écriture batch ──
+  sheet.getRange(R0, 1, rows.length, NC).setValues(rows);
+  sheet.getRange(R0, 1, rows.length, NC).setVerticalAlignment('middle');
+  sheet.getRange(R0, 2, rows.length, 3).setWrap(true);
+
+  // ── Notes participants (batch) ──
+  if (NP > 0) {
+    sheet.getRange(R0, 5, rows.length, NP).setNotes(partNotes);
+  }
+
+  // ── Formatage ──
+  rowMeta.forEach((meta, i) => {
+    const r   = R0 + i;
+    const row = rows[i];
+
+    // Bandeau mois
+    if (meta.type === 'month') {
+      sheet.getRange(r, 1, 1, NC)
+        .setBackground(CONFIG.COLOR_MONTH_BG).setFontColor(CONFIG.COLOR_MONTH_FG)
+        .setFontWeight('bold').setFontSize(11).setVerticalAlignment('middle');
+      sheet.setRowHeight(r, 28);
+      return;
+    }
+
+    // Hauteur de ligne
+    const hasContent = meta.hasGcal || meta.hasVP || meta.meteoText;
+    const rowH = meta.hasVP ? (meta.hasGcal || meta.meteoText ? 52 : 40)
+                            : (hasContent ? 36 : 22);
+    sheet.setRowHeight(r, rowH);
+
+    // Col 1 : Date
+    const dateBg = meta.isWeekend ? CONFIG.COLOR_WEEKEND_BG : '#ffffff';
+    const dateFg = meta.isWeekend ? CONFIG.COLOR_WEEKEND_FG : CONFIG.COLOR_WEEKDAY_FG;
+    sheet.getRange(r, 1)
+      .setBackground(dateBg).setFontColor(dateFg)
+      .setFontWeight('normal').setVerticalAlignment('middle');
+
+    // Col 2 : Google Agenda
+    const gcCell = sheet.getRange(r, 2);
+    if (row[1]) {
+      gcCell.setBackground(CONFIG.COLOR_GCAL_BG).setFontColor(CONFIG.COLOR_GCAL_FG)
+            .setFontWeight('normal').setVerticalAlignment('middle');
+    } else {
+      gcCell.setBackground(meta.isWeekend ? CONFIG.COLOR_WEEKEND_BG : CONFIG.COLOR_EMPTY_BG)
+            .setFontColor(CONFIG.COLOR_EMPTY_FG).setVerticalAlignment('middle');
+    }
+
+    // Col 3 : VPDive
+    const vpCell = sheet.getRange(r, 3);
+    if (row[2]) {
+      vpCell.setBackground(CONFIG.COLOR_VPDIVE_BG).setFontColor(CONFIG.COLOR_VPDIVE_FG)
+            .setFontWeight('normal').setVerticalAlignment('middle');
+    } else {
+      vpCell.setBackground(meta.isWeekend ? CONFIG.COLOR_WEEKEND_BG : CONFIG.COLOR_EMPTY_BG)
+            .setFontColor(CONFIG.COLOR_EMPTY_FG).setVerticalAlignment('middle');
+    }
+
+    // Col 4 : Météo
+    const meteoCell = sheet.getRange(r, 4);
+    if (row[3]) {
+      meteoCell
+        .setBackground(meta.hasWarn ? CONFIG.COLOR_METEO_WARN : CONFIG.COLOR_METEO_BG)
+        .setFontColor(meta.hasWarn ? CONFIG.COLOR_METEO_WFONT : CONFIG.COLOR_METEO_FG)
+        .setFontWeight(meta.hasWarn ? 'bold' : 'normal')
+        .setFontSize(9).setVerticalAlignment('middle');
+    } else {
+      meteoCell
+        .setBackground(meta.isWeekend ? CONFIG.COLOR_WEEKEND_BG : CONFIG.COLOR_EMPTY_BG)
+        .setFontColor(CONFIG.COLOR_EMPTY_FG).setVerticalAlignment('middle');
+    }
+
+    // Cols 5+ : Participants par catégorie
+    for (let ci = 0; ci < NP; ci++) {
+      const partCell = sheet.getRange(r, 5 + ci);
+      const val = row[4 + ci];
+      if (val !== '' && val !== 0) {
+        partCell.setBackground(CONFIG.COLOR_PART_BG).setFontColor(CONFIG.COLOR_PART_FG)
+                .setFontWeight('bold').setHorizontalAlignment('center')
+                .setFontSize(11).setVerticalAlignment('middle');
+      } else {
+        partCell.setBackground(meta.isWeekend ? CONFIG.COLOR_WEEKEND_BG : CONFIG.COLOR_PART_EMPTY)
+                .setFontColor(CONFIG.COLOR_EMPTY_FG)
+                .setHorizontalAlignment('center').setVerticalAlignment('middle');
+      }
+    }
+  });
+
+  // Bordures
+  sheet.getRange(1, 4, rows.length + 1, 1)
+    .setBorder(null, true, null, null, null, null,
+               '#cccccc', SpreadsheetApp.BorderStyle.SOLID);
+  if (NP > 0) {
+    sheet.getRange(1, 5, rows.length + 1, NP)
+      .setBorder(null, true, null, null, null, null,
+                 '#cccccc', SpreadsheetApp.BorderStyle.SOLID);
+  }
+}
+
+// ── FORMAT ÉVÉNEMENT VPDIVE ───────────────────────────────────
+function formatEventFull_(ev) {
+  const pad = n => String(n).padStart(2, '0');
+  const h   = pad(ev.start.getHours()), mn  = pad(ev.start.getMinutes());
+  const he  = pad(ev.end.getHours()),   mne = pad(ev.end.getMinutes());
+  const time = (h === '00' && mn === '00') ? '' : `${h}h${mn}–${he}h${mne} · `;
+  let label = `${time}${ev.title}`;
+  // Fallback comptage si le détail participants n'est pas disponible
+  if ((!ev.participants || ev.participants.length === 0) && ev.participants_count != null) {
+    label += `\n👥 ${ev.participants_count} participant(s)`;
+  }
+  return label;
+}
+
+// ── HELPERS PARTICIPANTS ──────────────────────────────────────
+function getPersonName_(p) {
+  const name = [p.first_name || p.firstName || p.prenom || '',
+                p.last_name  || p.lastName  || p.nom   || '']
+    .filter(Boolean).join(' ').trim();
+  return name || p.username || p.email || '?';
+}
+
+/**
+ * GET /api/calendar/user/{token}  → { url, success }
+ * Puis fetch de l'URL retournée   → liste des utilisateurs inscrits
+ * Retourne un tableau d'objets participant (ou []).
+ */
+function fetchUsersForEvent_(evToken, jwt, traceability) {
+  const r1 = fetchCalendar_(`${CONFIG.API_BASE}/calendar/user/${evToken}`, jwt, traceability);
+  const c1  = r1.getResponseCode();
+  if (c1 !== 200) {
+    Logger.log(`user/${evToken} HTTP ${c1} : ${r1.getContentText().substring(0, 120)}`);
+    return [];
+  }
+  let d1;
+  try { d1 = JSON.parse(r1.getContentText()); }
+  catch(e) { Logger.log(`user parse étape 1 : ${e}`); return []; }
+
+  // Réponse directe = tableau
+  if (Array.isArray(d1)) return d1;
+  if (d1.data && Array.isArray(d1.data)) return d1.data;
+  if (d1.users && Array.isArray(d1.users)) return d1.users;
+
+  // Réponse = { url, success } → fetch du fichier
+  const downloadUrl = d1.url || d1.download_url || d1.link;
+  if (!downloadUrl) {
+    Logger.log(`user/${evToken} : pas d'url dans ${JSON.stringify(d1).substring(0, 150)}`);
+    return [];
+  }
+
+  const r2 = fetchCalendar_(downloadUrl, jwt, traceability);
+  const c2  = r2.getResponseCode();
+  if (c2 !== 200) {
+    Logger.log(`download users HTTP ${c2}`);
+    return [];
+  }
+  const body = r2.getContentText();
+  // JSON
+  try {
+    const d2 = JSON.parse(body);
+    if (Array.isArray(d2))                    return d2;
+    if (d2.data  && Array.isArray(d2.data))   return d2.data;
+    if (d2.users && Array.isArray(d2.users))  return d2.users;
+    return [];
+  } catch(e) {
+    // CSV : 1re ligne = en-têtes, suivantes = données
+    const lines = body.trim().split('\n').filter(Boolean);
+    if (lines.length < 2) return [];
+    const headers = lines[0].split(';').map(h => h.trim().replace(/^"|"$/g, ''));
+    return lines.slice(1).map(line => {
+      const vals = line.split(';').map(v => v.trim().replace(/^"|"$/g, ''));
+      const obj  = {};
+      headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
+      return obj;
+    });
+  }
+}
+
+function enrichEventsWithParticipants_(allFlat, jwt, traceability) {
+  let enriched = 0;
+  allFlat.forEach(ev => {
+    const tok = ev.token || String(ev.id || '');
+    if (!tok) return;
+    const users = fetchUsersForEvent_(tok, jwt, traceability);
+    if (users.length > 0) {
+      ev.participants = users;
+      enriched++;
+    }
+  });
+  Logger.log(`Participants enrichis : ${enriched}/${allFlat.length} événements`);
+}
+
+// ── DEBUG API PARTICIPANTS ────────────────────────────────────
+function debugParticipantAPI() { debugParticipantAPI_(); }
+function debugParticipantAPI_() {
+  const ss   = SpreadsheetApp.getActiveSpreadsheet();
+  const auth = getAuth_(ss);
+  if (!auth) { Logger.log('Auth échouée'); return; }
+
+  Logger.log(`=== AUTH jwt="${auth.jwt.substring(0,30)}..." traceability="${auth.traceability}"`);
+
+  // Structure brute d'un événement
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const s = `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`;
+  const e = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(new Date(now.getFullYear(), now.getMonth()+1, 0).getDate())}`;
+  const rawR = fetchCalendar_(`${CONFIG.API_BASE}/calendar/events_refresh/${s}/${e}/${CONFIG.CALENDAR_TOKEN}`, auth.jwt, auth.traceability);
+  if (rawR.getResponseCode() === 200) {
+    try {
+      const raw = JSON.parse(rawR.getContentText());
+      const arr = Array.isArray(raw) ? raw : (raw.data || raw.events || []);
+      if (arr.length > 0) {
+        Logger.log('=== CHAMPS EVENT : ' + Object.keys(arr[0]).join(', '));
+        Logger.log('=== EVENT[0] complet : ' + JSON.stringify(arr[0]).substring(0, 800));
+      }
+    } catch(e) {}
+  }
+
+  const evts = fetchMonthEvents_(now.getFullYear(), now.getMonth() + 1, auth.jwt, auth.traceability);
+  if (!evts.length) { Logger.log('Aucun événement ce mois.'); return; }
+  const ev = evts[0];
+  const evTok = ev.token || String(ev.id || '');
+  Logger.log(`=== Test sur : "${ev.title}" | token=${evTok}`);
+
+  // Test sans header traceability (par curiosité)
+  const rNoTrace = fetchCalendar_(`${CONFIG.API_BASE}/calendar/user/${evTok}`, auth.jwt, null);
+  Logger.log(`[${rNoTrace.getResponseCode()}] user sans traceability → ${rNoTrace.getContentText().substring(0, 150)}`);
+
+  // Test avec traceability
+  const r1 = fetchCalendar_(`${CONFIG.API_BASE}/calendar/user/${evTok}`, auth.jwt, auth.traceability);
+  Logger.log(`[${r1.getResponseCode()}] user avec traceability="${auth.traceability}" → ${r1.getContentText().substring(0, 300)}`);
+
+  if (r1.getResponseCode() !== 200) return;
+
+  let d1;
+  try { d1 = JSON.parse(r1.getContentText()); } catch(e) { Logger.log('Parse : ' + e); return; }
+
+  if (Array.isArray(d1)) {
+    Logger.log(`Réponse directe : ${d1.length} utilisateurs. Ex: ${JSON.stringify(d1[0] || {}).substring(0, 200)}`);
+    return;
+  }
+  if (d1.data || d1.users) {
+    const arr = d1.data || d1.users;
+    Logger.log(`Réponse enveloppée : ${arr.length} utilisateurs.`);
+    return;
+  }
+  const dlUrl = d1.url || d1.download_url || d1.link;
+  Logger.log(`Réponse étape 1 : ${JSON.stringify(d1).substring(0, 200)}`);
+  if (!dlUrl) return;
+
+  const r2 = fetchCalendar_(dlUrl, auth.jwt, auth.traceability);
+  Logger.log(`[${r2.getResponseCode()}] download → ${r2.getContentText().substring(0, 400)}`);
+}
+
+// ── ONGLET CATÉGORIES ────────────────────────────────────────
+function buildCategoriesSheet_(ss, events) {
+  const domainsMap = {}, activitiesMap = {};
+  events.forEach(ev => {
+    const add = (map, k) => {
+      if (!k) return;
+      if (!map[k]) map[k] = { count: 0, bgColor: ev.bgColor };
+      map[k].count++;
+    };
+    add(domainsMap,    ev.domain);
+    add(activitiesMap, ev.activity);
+  });
+  const toRows = map => Object.entries(map)
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(([name, m]) => ({ name, count: m.count, bgColor: m.bgColor }));
+  const domains    = toRows(domainsMap);
+  const activities = toRows(activitiesMap);
+
+  let sheet = ss.getSheetByName('Catégories');
+  if (!sheet) sheet = ss.insertSheet('Catégories');
+  else { sheet.clearContents(); sheet.clearFormats(); }
+
+  [{ label: '🌍 Domaines', data: domains, col: 1 },
+   { label: '🤿 Activités', data: activities, col: 4 }].forEach(({ label, data, col }) => {
+    sheet.getRange(1, col, 1, 2).merge()
+      .setValue(label).setBackground(CONFIG.COLOR_HEADER_BG).setFontColor(CONFIG.COLOR_HEADER_FG)
+      .setFontWeight('bold').setFontSize(11).setHorizontalAlignment('center').setVerticalAlignment('middle');
+    sheet.setRowHeight(1, 32);
+    sheet.getRange(2, col, 1, 2).setValues([['Nom', 'Nb événements']])
+      .setFontWeight('bold').setBackground('#e8edf2').setFontColor('#1a3557').setVerticalAlignment('middle');
+    sheet.setRowHeight(2, 26);
+    sheet.setColumnWidth(col, 220); sheet.setColumnWidth(col + 1, 130);
+    if (!data.length) {
+      sheet.getRange(3, col).setValue('(aucune donnée)').setFontColor(CONFIG.COLOR_EMPTY_FG).setFontStyle('italic');
+      return;
+    }
+    sheet.getRange(3, col, data.length, 2).setValues(data.map(d => [d.name, d.count])).setVerticalAlignment('middle');
+    sheet.getRange(3, col, data.length, 1).setFontWeight('bold');
+    sheet.getRange(3, col + 1, data.length, 1).setHorizontalAlignment('center').setFontColor('#5f6368');
+    data.forEach((d, i) => {
+      const bg = isValidColor_(d.bgColor) ? d.bgColor : CONFIG.COLOR_HEADER_BG;
+      sheet.getRange(3 + i, col).setBackground(bg).setFontColor(getReadableFontColor_(bg));
+      sheet.setRowHeight(3 + i, 26);
+    });
+  });
+  sheet.setColumnWidth(3, 24);
+  sheet.getRange(1, 6).setValue('Mis à jour : ' + new Date().toLocaleString('fr-FR'))
+    .setFontColor(CONFIG.COLOR_EMPTY_FG).setFontStyle('italic').setFontSize(9);
+  sheet.setColumnWidth(6, 200);
+  sheet.setFrozenRows(2);
+  return { domains: domains.length, activities: activities.length };
+}
+
+function syncCategories() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const auth = getAuth_(ss);
+  if (!auth) { Logger.log('❌ Authentification échouée.'); return; }
+  const now = new Date();
+  const s = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+  const e = new Date(now.getFullYear(), now.getMonth() + 7, 1);
+  const flat = [];
+  let sy = s.getFullYear(), sm = s.getMonth() + 1;
+  const ey = e.getFullYear(), em = e.getMonth() + 1;
+  while (sy < ey || (sy === ey && sm <= em)) {
+    flat.push(...fetchMonthEvents_(sy, sm, auth.jwt, auth.traceability));
+    if (++sm > 12) { sm = 1; sy++; }
+  }
+  const c = buildCategoriesSheet_(ss, flat);
+  Logger.log(`✅ Catégories : ${c.domains} domaines · ${c.activities} activités`);
+}
+
+// ── LOG ───────────────────────────────────────────────────────
+function logSync_(ss, count, sy, sm, ey, em) {
+  let log = ss.getSheetByName(CONFIG.LOG_SHEET);
+  if (!log) {
+    log = ss.insertSheet(CONFIG.LOG_SHEET);
+    log.getRange('A1:C1').setValues([['Date & heure', 'Période', 'Événements']])
+      .setFontWeight('bold').setBackground('#e8edf2').setFontColor('#1a3557');
+    log.setColumnWidth(1, 180); log.setColumnWidth(2, 280); log.setColumnWidth(3, 120);
+  }
+  log.insertRowAfter(1);
+  log.getRange('A2:C2').setValues([[
+    new Date().toLocaleString('fr-FR'),
+    `${CONFIG.MONTHS_FR[sm-1]} ${sy} → ${CONFIG.MONTHS_FR[em-1]} ${ey}`,
+    count,
+  ]]);
+}
+
+// ── AUTHENTIFICATION ──────────────────────────────────────────
+function getAuth_(ss) {
+  const creds = ss.getSheetByName(CONFIG.CREDS_SHEET);
+  if (!creds) { Logger.log('Onglet API introuvable.'); return null; }
+  const email = creds.getRange('A1').getValue().toString().trim();
+  const pass  = creds.getRange('A2').getValue().toString().trim();
+  const manTr = creds.getRange('A3').getValue().toString().trim();
+  if (!email || !pass) { Logger.log('Email/mdp manquants.'); return null; }
+
+  // Cache JWT dans onglet Log (E1/E2)
+  let log = ss.getSheetByName(CONFIG.LOG_SHEET);
+  if (!log) {
+    log = ss.insertSheet(CONFIG.LOG_SHEET);
+    log.getRange('A1:C1').setValues([['Date & heure', 'Période', 'Événements']])
+      .setFontWeight('bold').setBackground('#e8edf2').setFontColor('#1a3557');
+    log.setColumnWidth(1, 180); log.setColumnWidth(2, 280); log.setColumnWidth(3, 120);
+  }
+
+  let jwt = null;
+  const cachedJwt = log.getRange('E1').getValue().toString().trim();
+  const cachedExp = log.getRange('E2').getValue().toString().trim();
+
+  if (cachedJwt && cachedExp && new Date(cachedExp) > new Date()) {
+    jwt = cachedJwt;
+    Logger.log('JWT depuis cache.');
+  } else {
+    const r = UrlFetchApp.fetch(`${CONFIG.API_BASE}/login_check`, {
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify({ email, password: pass }),
+      muteHttpExceptions: true,
+    });
+    if (r.getResponseCode() !== 200) {
+      Logger.log('Auth échouée (' + r.getResponseCode() + ')'); return null;
+    }
+    const d = JSON.parse(r.getContentText());
+    jwt = d.token;
+    if (!jwt) { Logger.log('Pas de token JWT.'); return null; }
+    const exp = new Date(Date.now() + 50 * 60 * 1000).toISOString();
+    log.getRange('E1').setValue(jwt);
+    log.getRange('E2').setValue(exp);
+    for (const k of ['userClubTraceability','traceability','club_token','clubToken']) {
+      if (d[k]) return { jwt, traceability: d[k] };
+    }
+  }
+
+  if (manTr) return { jwt, traceability: manTr };
+
+  try {
+    const pl = JSON.parse(Utilities.newBlob(
+      Utilities.base64DecodeWebSafe(jwt.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))
+    ).getDataAsString());
+    for (const k of ['userClubTraceability','traceability','club_token','clubToken']) {
+      if (pl[k]) return { jwt, traceability: pl[k] };
+    }
+  } catch(e) { Logger.log('Décodage JWT : ' + e); }
+
+  const me = UrlFetchApp.fetch(`${CONFIG.API_BASE}/user/me`, {
+    method: 'get', headers: { Authorization: `Bearer ${jwt}` }, muteHttpExceptions: true,
+  });
+  if (me.getResponseCode() === 200) {
+    const md = JSON.parse(me.getContentText());
+    if (md.token) return { jwt, traceability: md.token };
+  }
+
+  Logger.log('⚠️ traceability introuvable — renseigne A3 manuellement.');
+  return { jwt, traceability: '' };
+}
+
+// ── FETCH VPDIVE ──────────────────────────────────────────────
+function fetchCalendar_(url, jwt, traceability) {
+  const h = {};
+  if (traceability) h['userClubTraceability'] = traceability;
+  if (jwt)          h['Authorization']        = `Bearer ${jwt}`;
+  try { return UrlFetchApp.fetch(url, { method: 'get', headers: h, muteHttpExceptions: true }); }
+  catch(e) { return { getResponseCode: () => 0, getContentText: () => String(e) }; }
+}
+
+function fetchMonthEvents_(year, month, jwt, traceability) {
+  const pad  = n => String(n).padStart(2, '0');
+  const s    = `${year}-${pad(month)}-01`;
+  const last = new Date(year, month, 0).getDate();
+  const e    = `${year}-${pad(month)}-${pad(last)}`;
+  const url  = `${CONFIG.API_BASE}/calendar/events_refresh/${s}/${e}/${CONFIG.CALENDAR_TOKEN}`;
+
+  let r = fetchCalendar_(url, jwt, traceability);
+  if ([401, 403].includes(r.getResponseCode())) r = fetchCalendar_(url, null, null);
+  if (r.getResponseCode() !== 200) {
+    Logger.log(`HTTP ${r.getResponseCode()} VPDive ${year}-${month}`); return [];
+  }
+  let data;
+  try { data = JSON.parse(r.getContentText()); } catch(e) { return []; }
+  const raw = Array.isArray(data) ? data : (data.data || data.events || []);
+
+  return raw.map(ev => ({
+    id:                 ev.id,
+    title:              ev.title || '(sans titre)',
+    start:              new Date(ev.fromDate || ev.start),
+    end:                new Date(ev.toDate   || ev.end),
+    bgColor:            ev.backgroundColor || CONFIG.COLOR_HEADER_BG,
+    domain:             (ev.domain   && ev.domain.name)   || ev.domain   || '',
+    activity:           (ev.activity && ev.activity.name) || ev.activity || '',
+    type:               (ev.type     && ev.type.name)     || ev.type     || '',
+    token:              ev.token || ev.calendarToken || String(ev.id || ''),
+    participants:       ev.participants || ev.members || [],
+    participants_count: (ev.nbr_registered && ev.nbr_registered.all != null)
+                          ? ev.nbr_registered.all
+                          : (ev.participants_count || ev.inscriptions_count || null),
+    nbr_registered:     ev.nbr_registered || null,
+    responsibles:       [],
+    pilots:             [],
+    teams:              [],
+  }));
+}
+
+// ── UTILITAIRES ───────────────────────────────────────────────
+function dateKey_(date) {
+  const p = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}`;
+}
+function isoDate_(date) {
+  const p = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}`;
+}
+function setHour_(date, h) {
+  const d = new Date(date); d.setHours(h, 0, 0, 0); return d;
+}
+function degToDir_(deg) {
+  return CONFIG.WIND_DIRS[Math.round(((deg % 360) / 360) * 16) % 16];
+}
+function isValidColor_(c) {
+  return typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
+}
+function getReadableFontColor_(hex) {
+  if (!isValidColor_(hex)) return '#ffffff';
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return (0.299*r + 0.587*g + 0.114*b) / 255 > 0.55 ? '#1a3557' : '#ffffff';
+}

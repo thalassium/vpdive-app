@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <meta name="theme-color" content="#012362" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Septentrion Environnement · Agenda &amp; Réservations VPDive</title>
+    <meta name="description" content="Calendrier des sorties et réservations VPDive pour Septentrion Environnement · Pointe Rouge, Marseille." />
+    <meta property="og:title" content="Septentrion Environnement · Agenda &amp; Réservations VPDive" />
+    <meta property="og:description" content="Calendrier des sorties et réservations VPDive pour Septentrion Environnement · Pointe Rouge, Marseille." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cabin:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      // Theme before first paint (no flash): saved choice, else the device setting.
+      (function () {
+        try {
+          var saved = localStorage.getItem('theme');
+          var dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+          if (dark) {
+            document.documentElement.classList.add('dark');
+            document.querySelector('meta[name="theme-color"]').setAttribute('content', '#080e1f');
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="bg-canvas text-ink font-sans antialiased selection:bg-fill selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

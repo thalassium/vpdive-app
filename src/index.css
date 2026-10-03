@@ -1,0 +1,174 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Charte graphique de septentrion-env.com (relevée dans le thème WordPress
+ * du site) : marine #012362, rose #f393a8, vert #2cb763, brun #b65601.
+ *
+ * Les couleurs sont nommées par rôle (surface, brand, fill…) et non par
+ * teinte : chaque rôle a une valeur claire et une valeur sombre, et les
+ * composants n'ont rien à savoir du thème actif.
+ *
+ *   canvas / surface / raised / tint   fonds : page, cartes, zones discrètes, sélection
+ *   ink / muted / line                 texte, texte secondaire, filets
+ *   brand                              marine en TEXTE et bordures (bleu clair en sombre)
+ *   fill                               marine en APLAT (boutons), texte blanc dessus
+ *   band                               bandeaux toujours marine (fiche sortie, pied de page)
+ *   pink                               accent ; jamais en texte sur fond clair (trop pâle)
+ *   ok / warn / danger                 inscrit, alerte (peu de places, vent), erreur
+ *
+ * Polices : le site utilise Gill Sans Nova (payante, hébergée par le site,
+ * non réutilisée ici). On prend Gill Sans si l'appareil l'a, sinon Cabin,
+ * police libre dessinée d'après Gill Sans. Georgia pour les textes longs.
+ */
+:root {
+  color-scheme: light;
+  --canvas: #f3f5f9;
+  --surface: #ffffff;
+  --raised: #f0f3f8;
+  --tint: #e8edf6;
+  --line: #e1e5ec;
+  --ink: #1a2233;
+  --muted: #5c6577;
+  --brand: #012362;
+  --fill: #012362;
+  --fill-hover: #0c2d69;
+  --band: #012362;
+  --ok: #1b7a42;
+  --ok-soft: #e6f6ec;
+  --warn: #b65601;
+  --warn-soft: #fbf0e6;
+  --danger: #b3261e;
+  --danger-soft: #fcebea;
+  --shadow-near: rgb(1 35 98 / 0.06);
+  --shadow-far: rgb(1 35 98 / 0.14);
+}
+
+.dark {
+  color-scheme: dark;
+  --canvas: #080e1f;
+  --surface: #111a33;
+  --raised: #18233f;
+  --tint: #1e2d57;
+  --line: #25325a;
+  --ink: #e9edf7;
+  --muted: #9ba7c4;
+  --brand: #b9caf6;
+  --fill: #3559c0;
+  --fill-hover: #4268d2;
+  --band: #0d1a40;
+  --ok: #62d896;
+  --ok-soft: rgb(44 183 99 / 0.15);
+  --warn: #f0a55e;
+  --warn-soft: rgb(240 165 94 / 0.14);
+  --danger: #ff9389;
+  --danger-soft: rgb(255 120 110 / 0.14);
+  --shadow-near: rgb(0 0 0 / 0.3);
+  --shadow-far: rgb(0 0 0 / 0.5);
+}
+
+@theme {
+  --font-sans: 'Gill Sans Nova', 'Gill Sans', 'Gill Sans MT', 'Cabin', system-ui, sans-serif;
+  --font-serif: Georgia, 'Noto Serif', 'Times New Roman', serif;
+
+  --color-pink: #f393a8;
+  --color-on-pink: #012362;
+  --color-green: #2cb763;
+
+  --animate-rise: rise 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-fade: fade 0.2s ease-out both;
+  --animate-sheet: sheet 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-pop: pop 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes sheet {
+    from {
+      transform: translateY(100%);
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-tint: var(--tint);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-fill: var(--fill);
+  --color-fill-hover: var(--fill-hover);
+  --color-band: var(--band);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --shadow-card: 0 1px 2px var(--shadow-near), 0 12px 28px -16px var(--shadow-far);
+  --shadow-lift: 0 2px 4px var(--shadow-near), 0 18px 36px -16px var(--shadow-far);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 16 px minimum in form fields: below that, iOS zooms the page on focus. */
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 9999px;
+}
