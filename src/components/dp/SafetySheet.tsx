@@ -1,10 +1,13 @@
-import type { ReactNode } from 'react';
-import { ChevronDown, Printer } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { ChevronDown, FileDown, Loader2, Printer } from 'lucide-react';
 import { Menu } from '../Menu';
-import { KIND_LABEL, chosenDepth, prerogativeLabel, type Diver, type Palanquee } from '../../lib/palanquees';
+import { KIND_LABEL, chosenDepth, prerogativeLabel } from '../../lib/palanquees';
 import { diversInWater, emptySheet, type DiveParams, type Dive, type OutingDoc, type PalanqueeSheet, type SafetyHeader } from '../../lib/outing';
+import { HEADER_FIELDS, SHEET_FOOTNOTE, firstNameOf, lastNameOf, sheetApt, sheetRows } from '../../lib/safetySheet';
 
 interface Props {
+  /** Titre de la sortie, repris sur le PDF. */
+  title: string;
   doc: OutingDoc;
   dive: Dive;
   onHeader: (header: SafetyHeader) => void;
@@ -13,42 +16,26 @@ interface Props {
 }
 
 /**
- * Colonne APT de la fiche (note 5 du modèle) : aptitude PE/PA pour les
- * plongeurs, niveau pour les encadrants, E2 en enseignement mais GP/P4 en
- * exploration, FN# pour un élève.
- */
-function sheetApt(d: Diver, p: Palanquee, slot: 'guide' | 'member' | 'extra'): string {
-  if (slot === 'extra') return 'GP / P4';
-  if (slot === 'guide') {
-    if (p.kind === 'teaching') return d.teach ? `E${d.teach}` : '?';
-    return d.guide === 'GP' ? 'GP / P4' : d.guide ? (d.teach >= 3 ? `E${d.teach}` : d.guide) : '?';
-  }
-  if (d.training && p.kind === 'teaching') return `FN${d.training}`;
-  if (p.kind === 'autonomous') return d.pa ? `PA${d.pa}` : '?';
-  if (d.beginner && !d.pe) return 'Débutant';
-  return d.pe ? `PE${d.pe}` : '?';
-}
-
-const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: string; options?: string[] }[] = [
-  { key: 'etablissement', label: 'Nom de l’établissement d’APS' },
-  { key: 'reference', label: 'Référence (n° de club, RCS…)' },
-  { key: 'bateau', label: 'Bateau' },
-  { key: 'pilote', label: 'Pilote' },
-  { key: 'dp', label: 'Directeur de plongée' },
-  { key: 'securite', label: 'Sécurité de surface' },
-  { key: 'date', label: 'Date', type: 'date' },
-  { key: 'creneau', label: 'Matin / Après-midi / Nuit', options: ['', 'Matin', 'Après-midi', 'Nuit'] },
-  { key: 'lieu', label: 'Lieu de plongée' },
-];
-
-/**
  * Fiche de sécurité d'une plongée (art. A322-72 du Code du sport), sur le
  * modèle ressourcedev/Fiche-securite-plongee.xlsx. Débloquée quand les
  * palanquées sont validées ; s'imprime seule (index.css, #print-sheet).
  */
-export function SafetySheet({ doc, dive, onHeader, onSheet, onGas }: Props) {
+export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Props) {
   const plan = dive.plan!;
   const header = doc.header;
+  const [pdfState, setPdfState] = useState<'idle' | 'busy' | 'error'>('idle');
+
+  /** Le générateur de PDF n'est chargé qu'au premier clic. */
+  const downloadPdf = async () => {
+    setPdfState('busy');
+    try {
+      const { downloadSafetySheetPdf } = await import('../../lib/safetySheetPdf');
+      downloadSafetySheetPdf(doc, dive, title);
+      setPdfState('idle');
+    } catch {
+      setPdfState('error');
+    }
+  };
   return (
     <div id="print-sheet" className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -56,13 +43,24 @@ export function SafetySheet({ doc, dive, onHeader, onSheet, onGas }: Props) {
           <h3 className="text-lg font-semibold text-brand print:text-black">Fiche de sécurité · {dive.label}</h3>
           <p className="text-xs text-muted">Art. A322-72 du code du sport et R4461-13 du code du travail</p>
         </div>
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="print:hidden inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg border border-line bg-surface text-sm font-medium text-ink hover:border-brand/40 hover:text-brand"
-        >
-          <Printer className="w-4 h-4" /> Imprimer
-        </button>
+        <div className="print:hidden flex flex-wrap items-center gap-2">
+          {pdfState === 'error' && <span className="text-sm text-danger">PDF indisponible, réessayez</span>}
+          <button
+            type="button"
+            onClick={() => void downloadPdf()}
+            disabled={pdfState === 'busy'}
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-fill text-white text-sm font-semibold hover:bg-fill-hover disabled:opacity-60"
+          >
+            {pdfState === 'busy' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} PDF
+          </button>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg border border-line bg-surface text-sm font-medium text-ink hover:border-brand/40 hover:text-brand"
+          >
+            <Printer className="w-4 h-4" /> Imprimer
+          </button>
+        </div>
       </div>
 
       <section className="grid sm:grid-cols-2 gap-x-6 gap-y-3 print:grid-cols-3 print:gap-y-1">
@@ -95,15 +93,7 @@ export function SafetySheet({ doc, dive, onHeader, onSheet, onGas }: Props) {
       <div className="grid lg:grid-cols-2 gap-4 print:grid-cols-3 print:gap-2">
         {plan.palanquees.map((p, i) => {
           const sheet = dive.sheets[p.id] ?? emptySheet();
-          const rows: { label: string; d: Diver | null; slot: 'guide' | 'member' | 'extra' }[] = [
-            { label: p.kind === 'teaching' ? 'Enseignant' : 'Encadrant', d: p.kind === 'autonomous' ? null : p.guide, slot: 'guide' },
-            ...[0, 1, 2, 3].map((n) => ({
-              label: `Plongeur ${n + 1}`,
-              d: (p.kind === 'autonomous' ? [p.guide, ...p.members].filter(Boolean) : p.members)[n] ?? null,
-              slot: 'member' as const,
-            })),
-            { label: 'GP suppl.', d: p.extra, slot: 'extra' },
-          ];
+          const rows = sheetRows(p);
           return (
             <section key={p.id} className="rounded-xl border border-line overflow-hidden break-inside-avoid print:rounded-none print:border-black">
               <header className="flex items-center justify-between gap-2 px-3 py-2 bg-raised print:bg-white print:border-b print:border-black">
@@ -124,8 +114,8 @@ export function SafetySheet({ doc, dive, onHeader, onSheet, onGas }: Props) {
                   {rows.map((r) => (
                     <tr key={r.label} className="border-t border-line print:border-black/30">
                       <th className="px-3 py-1.5 text-left text-xs font-semibold text-muted whitespace-nowrap">{r.label}</th>
-                      <td className="py-1.5 pr-2 font-medium text-ink uppercase">{r.d ? (r.d.lastname ?? r.d.name) : ''}</td>
-                      <td className="py-1.5 pr-2 text-ink">{r.d?.firstname ?? ''}</td>
+                      <td className="py-1.5 pr-2 font-medium text-ink uppercase">{r.d ? lastNameOf(r.d) : ''}</td>
+                      <td className="py-1.5 pr-2 text-ink">{r.d ? firstNameOf(r.d) : ''}</td>
                       <td className="py-1.5 pr-2 font-semibold tabular-nums">{r.d ? sheetApt(r.d, p, r.slot) : ''}</td>
                       <td className="py-1 pr-3">
                         {r.d && (
@@ -169,11 +159,7 @@ export function SafetySheet({ doc, dive, onHeader, onSheet, onGas }: Props) {
         })}
       </div>
 
-      <Footnote>
-        Le non-respect des paramètres prévus par le DP engage potentiellement la responsabilité de l’encadrant de palanquée ou des plongeurs
-        autonomes. Gaz : laisser vide pour une plongée à l’air. Aptitudes PE/PA pour les plongeurs, niveau pour les encadrants (GP/P4, E1, E2,
-        E3…) : E2 en enseignement (20 m), GP/P4 en exploration.
-      </Footnote>
+      <Footnote>{SHEET_FOOTNOTE}</Footnote>
     </div>
   );
 }

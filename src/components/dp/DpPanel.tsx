@@ -452,6 +452,7 @@ function OutingWorkspace({
           />
         ) : (
           <SafetySheet
+            title={event.title}
             doc={doc}
             dive={dive}
             onHeader={(header) => update((d) => ({ ...d, header }))}
