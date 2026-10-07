@@ -234,9 +234,51 @@ const num = (v: unknown): number | null => {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
   return Number.isFinite(n) ? n : null;
 };
+/**
+ * VPDive renvoie ses libellés de référence (activité, type de sortie, domaine,
+ * catégories du calendrier) en anglais, en clés minuscules, même pour un club
+ * français. On les remet en français ; un libellé inconnu passe tel quel.
+ * Relevés dans fixtures/*.json (npm run probe).
+ */
+const FRENCH: Record<string, string> = {
+  'diving leisure': 'Plongée loisir',
+  'natural sea': 'Mer',
+  'natural other': 'Autre milieu naturel',
+  room: 'Salle',
+  'practical courses': 'Cours pratique',
+  'theoretical course': 'Cours théorique',
+  'practical internship': 'Stage pratique',
+  'initial internship': 'Stage initial',
+  'final internship': 'Stage final',
+  exam: 'Examen',
+  outing: 'Sortie',
+  training: 'Formation',
+  meeting: 'Réunion',
+  meal: 'Repas',
+  medical: 'Médical',
+  competition: 'Compétition',
+  'life of the organization': 'Vie de l’organisation',
+  'association life': 'Vie associative',
+  children: 'Enfants',
+  baptisms: 'Baptêmes',
+  divee: 'Plongée',
+  'sport diving': 'Plongée sportive',
+  'teak diving': 'Plongée Tek',
+  trimix: 'Trimix',
+  nitrox: 'Nitrox',
+  recycler: 'Recycleur',
+  apnea: 'Apnée',
+  handisub: 'Handisub',
+  'swimming with fins': 'Nage avec palmes',
+  'whitewater swimming': 'Nage en eau vive',
+  'bio and environment': 'Bio et environnement',
+  'visual audio': 'Audiovisuel',
+};
+const french = (name: string): string => FRENCH[name.trim().toLowerCase()] ?? name;
+
 const tag = (v: unknown): Tag | null => {
   const o = obj(v);
-  return o && str(o.name) ? { token: str(o.token), name: str(o.name) } : null;
+  return o && str(o.name) ? { token: str(o.token), name: french(str(o.name)) } : null;
 };
 
 function decodeJwtExp(token: string): number {
@@ -330,7 +372,8 @@ class VpDiveClient {
 
   private async call(path: string, init: RequestInit_ = {}): Promise<unknown> {
     const { method = 'GET', body, auth = true } = init;
-    const headers: Record<string, string> = { Accept: 'application/json' };
+    // Les libellés VPDive (activité, type de sortie…) arrivent en anglais par défaut : on demande le français.
+    const headers: Record<string, string> = { Accept: 'application/json', 'Accept-Language': 'fr-FR,fr;q=0.9' };
 
     if (auth) {
       const s = this.getSession();
