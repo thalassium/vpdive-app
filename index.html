@@ -16,15 +16,20 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400..700&display=swap" rel="stylesheet">
     <script>
-      // Theme before first paint (no flash): saved choice, else the device setting.
+      // Theme before first paint (no flash): saved choice, else the device setting,
+      // followed live as long as nothing has been saved.
       (function () {
         try {
+          var media = matchMedia('(prefers-color-scheme: dark)');
+          var apply = function (dark) {
+            document.documentElement.classList.toggle('dark', dark);
+            document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#080e1f' : '#012362');
+          };
           var saved = localStorage.getItem('theme');
-          var dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-          if (dark) {
-            document.documentElement.classList.add('dark');
-            document.querySelector('meta[name="theme-color"]').setAttribute('content', '#080e1f');
-          }
+          apply(saved ? saved === 'dark' : media.matches);
+          media.addEventListener('change', function (e) {
+            if (!localStorage.getItem('theme')) apply(e.matches);
+          });
         } catch (e) {}
       })();
     </script>

@@ -47,7 +47,7 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
   const place = useCallback(() => {
     const r = button.current?.getBoundingClientRect();
     if (!r) return;
-    const height = Math.min(panel.current?.offsetHeight ?? 320, 420);
+    const height = Math.min(panel.current?.offsetHeight ?? 320, window.innerHeight * 0.6);
     const up = window.innerHeight - r.bottom < height + 12 && r.top > height + 12;
     const minWidth = Math.min(Math.max(r.width, columns ? 380 : 200), window.innerWidth - 16);
     const left = Math.min(Math.max(8, r.left), window.innerWidth - minWidth - 8);
@@ -127,13 +127,13 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
               minWidth: pos?.minWidth,
               transform: pos?.up ? 'translateY(-100%)' : undefined,
             }}
-            className={`z-[70] max-h-[420px] overflow-y-auto overscroll-contain rounded-xl border border-line bg-surface text-ink shadow-lift py-1 animate-fade ${
+            className={`z-[70] max-h-[60vh] overflow-y-auto overscroll-contain panel rounded-lg border border-field-border text-ink py-1 animate-fade ${
               columns ? 'grid grid-cols-2 divide-x divide-line' : ''
             }`}
           >
             {sections.map((s, si) => (
               <div key={si} className={si > 0 && !columns ? 'border-t border-line mt-1 pt-1' : ''}>
-                {s.title && <div className="px-3 pt-1.5 pb-1 text-xs font-bold uppercase tracking-wider text-muted">{s.title}</div>}
+                {s.title && <div className="label px-3 pt-2 pb-1">{s.title}</div>}
                 {s.options.map((o) => {
                   const selected = s.selected === o.value;
                   return (
@@ -146,7 +146,7 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
                         s.onSelect(o.value);
                         setOpen(false);
                       }}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-base focus:outline-none focus:bg-raised hover:bg-raised ${selected ? 'font-semibold text-brand' : ''}`}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-base focus:outline-none focus:bg-raised hover:bg-raised ${selected ? 'bg-tint font-semibold text-brand' : ''}`}
                     >
                       <span className="w-4 shrink-0">{selected && <Check className="w-4 h-4" strokeWidth={2.5} />}</span>
                       <span className="flex-1 min-w-0">{o.label}</span>

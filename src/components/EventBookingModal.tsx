@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, Pencil, Users } from 'lucide-react';
 import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption } from '../services/vpdiveApi';
-import { CompassRose } from './SeaBackdrop';
+import { ThemeToggle } from './ThemeToggle';
 import { BuddyField } from './BuddyField';
 import { SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Size, type SizedKind } from '../lib/gear';
 
@@ -224,59 +224,47 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 
   return (
     <div
-      className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-black/55 backdrop-blur-[3px] animate-fade"
+      className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade"
       onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="booking-title"
-        className="relative bg-surface w-full sm:max-w-xl h-dvh sm:h-auto sm:max-h-[92vh] sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-sheet sm:animate-pop"
+        className="relative bg-surface w-full sm:max-w-xl h-dvh sm:h-auto sm:max-h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop"
       >
         {/* Header */}
-        <div className="relative overflow-hidden bg-band text-white px-5 sm:px-6 pt-4 sm:pt-5 pb-4 shrink-0">
-          <svg aria-hidden className="absolute -right-16 -top-20 w-64 text-white opacity-[0.09] pointer-events-none" viewBox="-100 -100 200 200" fill="none">
-            <CompassRose />
-          </svg>
-          <div className="relative flex items-start justify-between gap-3">
+        <header className="relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              {event.activity && (
-                <span className="text-sm font-semibold uppercase tracking-wider text-pink block mb-1">{event.activity.name}</span>
-              )}
-              <h2 id="booking-title" className="text-xl sm:text-2xl font-semibold leading-snug">
+              {event.activity && <span className="label block mb-0.5">{event.activity.name}</span>}
+              <h2 id="booking-title" className="text-xl font-semibold text-brand leading-snug">
                 {title}
               </h2>
             </div>
-            <button
-              onClick={onClose}
-              disabled={busy}
-              aria-label="Fermer"
-              className="w-10 h-10 -mr-2 -mt-1 shrink-0 flex items-center justify-center rounded-full text-white/85 hover:text-white hover:bg-surface/10"
-            >
-              <X className="w-6 h-6" />
-            </button>
+            <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
+              <ThemeToggle />
+              <button onClick={onClose} disabled={busy} aria-label="Fermer" className="icon-btn">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
           </div>
-          <div className="relative mt-3 space-y-1 text-base text-white/85">
+          <div className="mt-1 space-y-1 text-sm text-muted">
             <p className="flex items-start gap-2">
-              <Clock className="w-4 h-4 text-pink shrink-0 mt-0.5" />
+              <Clock className="w-4 h-4 text-brand shrink-0 mt-0.5" />
               <span className="first-letter:uppercase">{formatRange(start, end, event.allDay)}</span>
             </p>
             <p className="flex items-start gap-2">
-              <MapPin className="w-4 h-4 text-pink shrink-0 mt-0.5" />
+              <MapPin className="w-4 h-4 text-brand shrink-0 mt-0.5" />
               {location || 'Lieu non précisé'}
             </p>
           </div>
           {onOpenPalanquees && (
-            <button
-              type="button"
-              onClick={onOpenPalanquees}
-              disabled={busy}
-              className="relative mt-3.5 inline-flex items-center gap-2 h-9 px-3.5 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-semibold text-white transition-colors"
-            >
-              <Users className="w-4 h-4 text-pink" /> Palanquées
+            <button type="button" onClick={onOpenPalanquees} disabled={busy} className="btn btn-quiet h-9 text-sm mt-3.5">
+              <Users className="w-4 h-4" /> Palanquées
             </button>
           )}
-        </div>
+        </header>
 
         <form onSubmit={submit} className="flex-1 flex flex-col min-h-0">
           {/* Scrollable body */}
@@ -438,14 +426,14 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     <section className="space-y-4">
                       {detail.multipleBooking && (
                         <div>
-                          <label htmlFor="people" className="block text-sm font-semibold text-brand mb-1.5">
+                          <label htmlFor="people" className="label block mb-1.5">
                             Nombre de places
                           </label>
                           <select
                             id="people"
                             value={people}
                             onChange={(e) => setPeople(Number(e.target.value))}
-                            className="w-full sm:w-48 bg-surface border border-line rounded-lg px-3 py-2.5 text-base focus:outline-none focus:border-brand"
+                            className="field w-full sm:w-48 text-base"
                           >
                             {[1, 2, 3, 4, 5, 6].map((n) => (
                               <option key={n} value={n}>
@@ -457,7 +445,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                       )}
                       <BuddyField value={buddy} onChange={setBuddy} onSessionLost={onSessionLost} />
                       <div>
-                        <label htmlFor="comment" className="block text-sm font-semibold text-brand mb-1.5">
+                        <label htmlFor="comment" className="label block mb-1.5">
                           Message pour le club / le DP <span className="font-normal text-muted">(facultatif)</span>
                         </label>
                         <textarea
@@ -465,7 +453,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                           rows={2}
                           value={comment}
                           onChange={(e) => setComment(e.target.value)}
-                          className="w-full bg-surface border border-line rounded-lg px-3.5 py-2.5 text-base resize-none focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10"
+                          className="field w-full h-auto py-2.5 text-base resize-none"
                         />
                       </div>
                     </section>
@@ -505,12 +493,12 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
             <div className="shrink-0 border-t border-line bg-surface px-5 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] flex items-center gap-4">
               <div className="min-w-0">
                 <span className="text-sm text-muted block">Total estimé</span>
-                <span className="text-2xl font-semibold text-brand tabular-nums leading-none">{formatEuro(total)}</span>
+                <span className="text-xl font-semibold tabular-nums text-brand leading-none">{formatEuro(total)}</span>
               </div>
               <button
                 type="submit"
                 disabled={busy || roleRequired || !!sizeMissing || pricesLoading}
-                className="flex-1 sm:flex-none sm:ml-auto px-6 py-3.5 rounded-xl bg-fill hover:bg-fill-hover active:scale-[0.99] text-white text-base font-semibold transition-colors disabled:opacity-50"
+                className="btn btn-primary h-11 flex-1 sm:flex-none sm:ml-auto px-6 text-base"
               >
                 {busy
                   ? editing
@@ -546,8 +534,8 @@ function SizePicker({
   onChange: (v: string) => void;
 }) {
   return (
-    <fieldset className="mt-4 animate-rise">
-      <legend className="text-sm font-semibold text-brand mb-2">
+    <fieldset className="mt-4">
+      <legend className="label block mb-2">
         {label} {!value && <span className="font-normal text-warn">· obligatoire</span>}
       </legend>
       <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
@@ -560,8 +548,8 @@ function SizePicker({
               role="radio"
               aria-checked={selected}
               onClick={() => onChange(o.value)}
-              className={`min-w-12 h-10 px-3 rounded-lg border-2 text-sm font-semibold tabular-nums transition-colors ${
-                selected ? 'border-brand bg-tint text-brand' : 'border-line bg-surface text-ink hover:border-brand/40'
+              className={`min-w-12 h-10 px-3 rounded-lg text-sm font-semibold tabular-nums transition-colors ${
+                selected ? 'border-2 border-brand bg-tint text-brand' : 'border border-field-border bg-field text-ink hover:border-brand/40'
               }`}
             >
               {o.label}
@@ -594,8 +582,8 @@ function ChoiceCard({
       onClick={onClick}
       aria-label={label}
       {...a11y}
-      className={`relative text-left min-h-[52px] px-3.5 py-3 rounded-xl border-2 transition-colors ${
-        selected ? 'border-brand bg-tint text-brand' : 'border-line bg-surface text-ink hover:border-brand/30'
+      className={`relative text-left min-h-[52px] px-3.5 py-3 rounded-xl transition-colors ${
+        selected ? 'border-2 border-brand bg-tint text-brand' : 'border border-field-border bg-field text-ink hover:border-brand/30'
       }`}
     >
       <span className="block pr-6">{children}</span>
@@ -651,7 +639,7 @@ function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDeta
               type="button"
               onClick={onEdit}
               disabled={busy}
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-fill hover:bg-fill-hover text-white font-semibold disabled:opacity-50 transition-colors"
+              className="btn btn-primary h-11 px-5"
             >
               <Pencil className="w-4 h-4" /> Modifier mon inscription
             </button>
@@ -661,7 +649,7 @@ function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDeta
               type="button"
               onClick={onCancel}
               disabled={busy}
-              className="px-5 py-2.5 rounded-lg bg-surface text-danger border border-danger/30 hover:bg-danger-soft font-semibold disabled:opacity-50 transition-colors"
+              className="btn h-11 px-5 bg-surface text-danger border border-danger/30 hover:bg-danger-soft"
             >
               {busy ? 'Désinscription…' : 'Me désinscrire'}
             </button>
@@ -700,7 +688,7 @@ function Description({ text }: { text: string }) {
   return (
     <section className="rounded-xl bg-raised px-4 py-3">
       <h3 className="text-base font-semibold text-brand mb-1.5">Description de la sortie</h3>
-      <p ref={ref} className={`font-serif text-[15px] text-ink/90 whitespace-pre-line leading-relaxed ${open ? '' : 'line-clamp-3'}`}>
+      <p ref={ref} className={`text-base leading-relaxed text-ink whitespace-pre-line ${open ? '' : 'line-clamp-3'}`}>
         {text}
       </p>
       {(long || open) && (
@@ -747,7 +735,7 @@ function Notice({ tone, title, children }: { tone: 'info' | 'warn'; title: strin
 function SectionTitle({ children, n, hint }: { children: ReactNode; n: number; hint?: string }) {
   return (
     <div className="flex items-center justify-between gap-2 mb-3">
-      <h3 className="flex items-center gap-2.5 text-base font-semibold text-brand">
+      <h3 className="flex items-center gap-2.5 text-lg font-semibold text-brand">
         <span className="w-6 h-6 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">{n}</span>
         {children}
       </h3>

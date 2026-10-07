@@ -6,25 +6,33 @@
  * Charte graphique de septentrion-env.com (relevée dans le thème WordPress
  * du site) : marine #012362, rose #f393a8, vert #2cb763, brun #b65601.
  *
+ * Le marine est une encre, pas un fond : titres, codes de prérogative,
+ * filets, bouton principal et pied de page. Aucune zone de saisie n'est posée
+ * sur du marine. Le rose marque, petit et rare : « Aujourd'hui », disque de
+ * palanquée, filet d'en-tête des fenêtres.
+ *
  * Les couleurs sont nommées par rôle (surface, brand, fill…) et non par
  * teinte : chaque rôle a une valeur claire et une valeur sombre, et les
  * composants n'ont rien à savoir du thème actif.
  *
  *   canvas / surface / raised / tint   fonds : page, cartes, zones discrètes, sélection
+ *   field / field-border               champs de saisie et menus : toujours distincts de leur fond
  *   ink / muted / line                 texte, texte secondaire, filets
  *   brand                              marine en TEXTE et bordures (bleu clair en sombre)
- *   fill                               marine en APLAT (boutons), texte blanc dessus
- *   band                               bandeaux toujours marine (fiche sortie, pied de page)
+ *   fill                               marine en APLAT (bouton principal), texte blanc dessus
+ *   band / on-band                     le pied de page, seule grande surface marine, et son texte
+ *   scrim                              voile derrière les fenêtres ; sans flou, la carte marine reste visible
+ *   focus                              anneau de focus des champs
  *   pink                               accent ; jamais en texte sur fond clair (trop pâle)
- *   ok / warn / danger                 inscrit, alerte (peu de places, vent), erreur
+ *   ok / warn / danger                 inscrit, alerte (peu de places, vent), erreur : en texte, filet
+ *                                      et teinte douce (-soft), jamais en aplat
  *   deep / chart / bubble              fond « carte marine » (SeaBackdrop) : eau profonde,
  *   coast-far / coast-near / swell     traits de carte, bulles, îles, calanques, houle
  *
- * Polices : le site utilise Gill Sans Nova (payante, hébergée par le site,
- * non réutilisée ici). On prend Atkinson Hyperlegible Next, police libre
- * dessinée pour la lisibilité (lettres ambiguës bien distinctes, utile pour
- * les noms et niveaux dans les palanquées), chargée pour tous les appareils :
- * même rendu partout. Georgia pour les textes longs.
+ * Police : une seule, Atkinson Hyperlegible Next (lettres ambiguës bien
+ * distinctes, utile pour les noms et les codes), chargée pour tous les
+ * appareils. Les codes de prérogative (PE40, E3, GP) sont la seule chose en
+ * gras : c'est le motif typographique du site (utilitaire `code`).
  */
 :root {
   color-scheme: light;
@@ -32,6 +40,8 @@
   --surface: #ffffff;
   --raised: #f0f3f8;
   --tint: #e8edf6;
+  --field: #f6f8fb;
+  --field-border: #c9d1dd;
   --line: #e1e5ec;
   --ink: #1a2233;
   --muted: #5c6577;
@@ -39,14 +49,17 @@
   --fill: #012362;
   --fill-hover: #0c2d69;
   --band: #012362;
+  --on-band: #ffffff;
+  --scrim: rgb(1 35 98 / 0.45);
+  --focus: rgb(1 35 98 / 0.22);
   --ok: #1b7a42;
   --ok-soft: #e6f6ec;
   --warn: #b65601;
   --warn-soft: #fbf0e6;
   --danger: #b3261e;
   --danger-soft: #fcebea;
-  --shadow-near: rgb(1 35 98 / 0.06);
-  --shadow-far: rgb(1 35 98 / 0.14);
+  --shadow-near: rgb(1 35 98 / 0.08);
+  --shadow-far: rgb(1 35 98 / 0.18);
   --deep: #e2e9f3;
   --chart: #a9b9d3;
   --bubble: #7f98c2;
@@ -61,6 +74,8 @@
   --surface: #111a33;
   --raised: #18233f;
   --tint: #1e2d57;
+  --field: #18233f;
+  --field-border: #34457a;
   --line: #25325a;
   --ink: #e9edf7;
   --muted: #9ba7c4;
@@ -68,6 +83,9 @@
   --fill: #3559c0;
   --fill-hover: #4268d2;
   --band: #0d1a40;
+  --on-band: #e9edf7;
+  --scrim: rgb(0 0 0 / 0.6);
+  --focus: rgb(185 202 246 / 0.3);
   --ok: #62d896;
   --ok-soft: rgb(44 183 99 / 0.15);
   --warn: #f0a55e;
@@ -86,13 +104,11 @@
 
 @theme {
   --font-sans: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
-  --font-serif: Georgia, 'Noto Serif', 'Times New Roman', serif;
 
   --color-pink: #f393a8;
   --color-on-pink: #012362;
   --color-green: #2cb763;
 
-  --animate-rise: rise 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   --animate-fade: fade 0.2s ease-out both;
   --animate-sheet: sheet 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-pop: pop 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -118,12 +134,6 @@
     }
   }
 
-  @keyframes rise {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-  }
   @keyframes fade {
     from {
       opacity: 0;
@@ -147,6 +157,8 @@
   --color-surface: var(--surface);
   --color-raised: var(--raised);
   --color-tint: var(--tint);
+  --color-field: var(--field);
+  --color-field-border: var(--field-border);
   --color-line: var(--line);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
@@ -154,6 +166,9 @@
   --color-fill: var(--fill);
   --color-fill-hover: var(--fill-hover);
   --color-band: var(--band);
+  --color-on-band: var(--on-band);
+  --color-scrim: var(--scrim);
+  --color-focus: var(--focus);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
   --color-warn: var(--warn);
@@ -167,8 +182,55 @@
   --color-coast-near: var(--coast-near);
   --color-swell: var(--swell);
 
-  --shadow-card: 0 1px 2px var(--shadow-near), 0 12px 28px -16px var(--shadow-far);
+  /* Une seule ombre, pour ce qui flotte : menus et fenêtres. Les cartes n'ont qu'une bordure. */
   --shadow-lift: 0 2px 4px var(--shadow-near), 0 18px 36px -16px var(--shadow-far);
+}
+
+/*
+ * Pièces communes. Trois rayons : 8 px (rounded-lg) pour boutons, champs et
+ * pastilles ; 12 px (rounded-xl) pour cartes et fenêtres ; rond pour ce qui
+ * est rond (avatar, point d'état, disque de palanquée).
+ */
+
+/* Champ de saisie, ou déclencheur de menu qui en tient lieu : toujours plus foncé (clair) ou plus clair (sombre) que son fond. */
+@utility field {
+  @apply h-11 px-3.5 rounded-lg bg-field border border-field-border text-ink placeholder:text-muted focus:outline-none focus:border-brand focus:ring-4 focus:ring-focus;
+}
+
+@utility btn {
+  @apply h-10 px-4 rounded-lg font-semibold inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+/* L'action principale de l'écran, une seule par vue. */
+@utility btn-primary {
+  @apply bg-fill text-white hover:bg-fill-hover;
+}
+/* Tout autre bouton, et les déclencheurs de choix. */
+@utility btn-quiet {
+  @apply bg-surface text-brand border border-field-border hover:bg-raised;
+}
+@utility icon-btn {
+  @apply w-10 h-10 shrink-0 inline-flex items-center justify-center rounded-lg text-muted hover:text-brand hover:bg-raised transition-colors;
+}
+
+/* Code de prérogative (PE40, E3, GP, P1) : le motif du site, la seule chose en gras. */
+@utility code {
+  @apply font-bold tabular-nums text-brand;
+}
+/* Pastille portant un code, dans les palanquées. */
+@utility chip {
+  @apply shrink-0 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-raised text-base font-bold tabular-nums whitespace-nowrap;
+}
+/* Titre de groupe ou de colonne : en bas de casse, jamais en majuscules espacées. */
+@utility label {
+  @apply text-sm font-semibold text-muted;
+}
+
+@utility card {
+  @apply rounded-xl bg-surface border border-line;
+}
+/* Fenêtre ou menu : ce qui flotte au-dessus de la page. */
+@utility panel {
+  @apply rounded-xl bg-surface shadow-lift;
 }
 
 @layer base {

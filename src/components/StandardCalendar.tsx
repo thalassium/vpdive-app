@@ -130,11 +130,11 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
       {/* Month (the page title, fixed width so the arrows stay put) + filters */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-        <div className="self-start flex items-center bg-surface border border-line rounded-full p-1 shadow-card">
+        <div className="self-start inline-flex items-center gap-1 rounded-lg border border-field-border bg-surface p-1">
           <IconButton label="Mois précédent" onClick={() => onMonthChange(new Date(year, m - 1, 1))}>
             <ChevronLeft className="w-5 h-5" />
           </IconButton>
-          <h1 aria-live="polite" className="w-48 sm:w-56 text-center text-xl sm:text-2xl font-semibold text-brand tracking-tight">
+          <h1 aria-live="polite" className="w-48 sm:w-56 text-center text-2xl font-semibold text-brand tracking-normal">
             {MOIS_FR[m]} <span className="font-normal text-muted">{year}</span>
           </h1>
           <IconButton label="Mois suivant" onClick={() => onMonthChange(new Date(year, m + 1, 1))}>
@@ -142,14 +142,14 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
           </IconButton>
         </div>
         <div className="flex items-center gap-2 sm:ml-auto">
-          <div className="bg-raised border border-line p-1 rounded-full flex">
+          <div className="inline-flex rounded-lg border border-field-border bg-surface p-1">
             {(['list', 'month'] as const).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
                 aria-pressed={viewMode === mode}
-                className={`px-4 h-9 text-sm font-medium rounded-full transition-all ${
-                  viewMode === mode ? 'bg-surface dark:bg-tint text-brand shadow-card' : 'text-muted hover:text-ink'
+                className={`h-9 px-4 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === mode ? 'bg-tint text-brand' : 'text-muted hover:text-ink'
                 }`}
               >
                 {mode === 'month' ? 'Calendrier' : 'Liste'}
@@ -159,8 +159,8 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
           <button
             onClick={() => setOnlyMine((v) => !v)}
             aria-pressed={onlyMine}
-            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 h-11 text-sm font-medium rounded-full border transition-colors ${
-              onlyMine ? 'bg-ok-soft border-green text-ok' : 'bg-surface border-line text-ink hover:border-brand/40'
+            className={`btn btn-quiet h-11 flex-1 sm:flex-none text-sm ${
+              onlyMine ? 'bg-ok-soft border-ok text-ok hover:bg-ok-soft' : ''
             }`}
           >
             {onlyMine && <Check className="w-4 h-4" strokeWidth={2.5} />}
@@ -171,7 +171,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
             disabled={isLoading}
             aria-label="Actualiser depuis VPDive"
             title="Actualiser depuis VPDive"
-            className="w-11 h-11 shrink-0 flex items-center justify-center rounded-full bg-surface border border-line text-muted hover:text-brand hover:border-brand/40 disabled:opacity-50 transition-colors"
+            className="icon-btn h-11 w-11 border border-field-border bg-surface disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
@@ -187,7 +187,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
       </p>
 
       {error && (
-        <div role="alert" className="mt-5 p-4 rounded-2xl bg-danger-soft text-danger text-base flex items-start gap-3">
+        <div role="alert" className="mt-5 p-4 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-3">
           <AlertCircle className="w-5 h-5 shrink-0" />
           <div className="flex-1">
             <strong className="block font-semibold">L’agenda n’a pas pu être chargé depuis VPDive.</strong>
@@ -201,11 +201,11 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
 
       {viewMode === 'month' ? (
         <>
-          <div className="mt-6 bg-surface rounded-2xl border border-line overflow-hidden shadow-card">
-            <div className="grid grid-cols-7 border-b border-line text-center text-sm font-semibold uppercase tracking-wider text-muted py-3">
-              {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map((d) => (
+          <div className="mt-6 card overflow-hidden">
+            <div className="grid grid-cols-7 border-b border-line text-center label py-3">
+              {['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map((d) => (
                 <div key={d}>
-                  <span className="sm:hidden">{d.slice(0, 1)}</span>
+                  <span className="sm:hidden">{d.slice(0, 1).toUpperCase()}</span>
                   <span className="hidden sm:inline">{d}</span>
                 </div>
               ))}
@@ -296,7 +296,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                   ))}
                 </div>
               ) : (
-                <p className="text-muted font-serif italic px-1">Aucune sortie ce jour-là.</p>
+                <p className="text-muted px-1">Aucune sortie ce jour-là.</p>
               )}
             </section>
           )}
@@ -305,7 +305,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
         <div className="mt-6 space-y-7">
           {firstLoad && <Skeletons />}
           {!isLoading && !error && shownCount === 0 && (
-            <p className="py-14 text-center text-muted font-serif italic">{isCurrentMonth ? 'Plus aucune' : 'Aucune'} {onlyMine ? 'inscription' : 'sortie'} ce mois-ci.</p>
+            <p className="py-14 text-center text-muted">{isCurrentMonth ? 'Plus aucune' : 'Aucune'} {onlyMine ? 'inscription' : 'sortie'} ce mois-ci.</p>
           )}
           {listDays.map((date) => (
             <section key={date}>
@@ -329,7 +329,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="w-10 h-10 flex items-center justify-center rounded-full text-brand hover:bg-raised transition-colors"
+      className="icon-btn w-9 h-9 text-brand"
     >
       {children}
     </button>
@@ -339,14 +339,14 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
 function DayHeading({ date, wind, today }: { date: string; wind: ReturnType<typeof daytimeWind>; today?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-2 mb-3 px-1">
-      <h2 className="text-lg sm:text-xl font-semibold text-brand first-letter:uppercase flex items-center gap-2">
+      <h2 className="text-lg font-semibold text-brand first-letter:uppercase flex items-center gap-2">
         {dayLabel(date)}
-        {today && <span className="text-sm font-bold bg-pink text-on-pink px-2.5 py-0.5 rounded-full">Aujourd’hui</span>}
+        {today && <span className="rounded-md bg-pink text-on-pink text-sm font-semibold px-2 py-0.5">Aujourd’hui</span>}
       </h2>
       {wind && (
         <span
           title={`Vent max en journée, rafales ${wind.gusts} nd`}
-          className={`inline-flex items-center gap-1.5 text-sm tabular-nums px-2.5 py-1 rounded-full ${
+          className={`inline-flex items-center gap-1.5 text-sm tabular-nums px-2.5 py-1 rounded-md ${
             wind.strong ? 'bg-warn-soft text-warn font-semibold' : 'text-muted'
           }`}
         >
@@ -361,9 +361,9 @@ function DayHeading({ date, wind, today }: { date: string; wind: ReturnType<type
 function Skeletons() {
   return (
     <div className="space-y-3 animate-pulse" aria-hidden>
-      <div className="h-5 w-44 rounded-full bg-tint" />
+      <div className="h-5 w-44 rounded-md bg-tint" />
       {[0, 1, 2].map((i) => (
-        <div key={i} className="h-[104px] rounded-2xl bg-surface border border-line" />
+        <div key={i} className="h-[104px] rounded-xl bg-surface border border-line" />
       ))}
     </div>
   );
@@ -384,8 +384,8 @@ function EventCard({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
     <button
       onClick={onClick}
       data-event-card
-      className={`group relative w-full text-left flex items-stretch gap-4 bg-surface rounded-2xl border pl-5 pr-4 py-4 shadow-card transition-all hover:shadow-lift hover:-translate-y-0.5 active:translate-y-0 animate-rise overflow-hidden ${
-        ev.registered ? 'border-green/50' : 'border-line hover:border-brand/30'
+      className={`group relative w-full text-left flex items-stretch gap-4 card pl-5 pr-4 py-4 transition-colors overflow-hidden ${
+        ev.registered ? 'border-green/50' : 'hover:border-brand/40'
       }`}
     >
       {/* Activity colour, as set by the club in VPDive */}
@@ -396,7 +396,7 @@ function EventCard({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
       </div>
 
       <div className="flex-1 min-w-0">
-        <p className="text-base sm:text-[17px] font-semibold text-ink leading-snug">{ev.title}</p>
+        <p className="text-base font-semibold text-ink leading-snug">{ev.title}</p>
 
         {(ev.activity || ev.location) && (
           <p className="mt-1 text-sm text-muted flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
@@ -413,7 +413,7 @@ function EventCard({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
         {(ev.registered || (pct !== null && a)) && (
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             {ev.registered && (
-              <span className="inline-flex items-center gap-1 text-sm font-semibold text-ok bg-ok-soft px-2.5 py-0.5 rounded-full whitespace-nowrap">
+              <span className="inline-flex items-center gap-1 text-sm font-semibold text-ok bg-ok-soft px-2.5 py-0.5 rounded-md whitespace-nowrap">
                 <Check className="w-3.5 h-3.5" strokeWidth={3} />
                 Inscrit
               </span>

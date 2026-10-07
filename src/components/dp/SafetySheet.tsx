@@ -48,14 +48,14 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
             type="button"
             onClick={() => void downloadPdf()}
             disabled={pdfState === 'busy'}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-fill text-white text-sm font-semibold hover:bg-fill-hover disabled:opacity-60"
+            className="btn btn-primary h-9 text-sm"
           >
             {pdfState === 'busy' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} PDF
           </button>
           <button
             type="button"
             onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg border border-line bg-surface text-sm font-medium text-ink hover:border-brand/40 hover:text-brand"
+            className="btn btn-quiet h-9 text-sm"
           >
             <Printer className="w-4 h-4" /> Imprimer
           </button>
@@ -65,11 +65,11 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
       <section className="grid sm:grid-cols-2 gap-x-6 gap-y-3 print:grid-cols-3 print:gap-y-1">
         {HEADER_FIELDS.map((f) => (
           <label key={f.key} className="block">
-            <span className="block text-sm print:text-xs font-semibold text-muted mb-1 print:mb-0">{f.label}</span>
+            <span className="block label print:text-xs mb-1 print:mb-0">{f.label}</span>
             {f.options ? (
               <Menu
                 ariaLabel={f.label}
-                triggerClassName={`${fieldCls} inline-flex items-center justify-between text-left`}
+                triggerClassName={`${fieldCls} inline-flex items-center justify-between w-full text-left`}
                 trigger={
                   <>
                     {header[f.key] || '—'}
@@ -84,8 +84,8 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
           </label>
         ))}
         <div>
-          <span className="block text-sm print:text-xs font-semibold text-muted mb-1 print:mb-0">Nb plongeurs</span>
-          <span className="block h-10 leading-10 px-3 font-semibold tabular-nums print:h-auto print:leading-normal print:px-0">{diversInWater(dive)}</span>
+          <span className="block label print:text-xs mb-1 print:mb-0">Nb plongeurs</span>
+          <span className="block h-11 leading-11 px-3.5 font-semibold tabular-nums print:h-auto print:leading-normal print:px-0">{diversInWater(dive)}</span>
         </div>
       </section>
 
@@ -94,10 +94,12 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
           const sheet = dive.sheets[p.id] ?? emptySheet();
           const rows = sheetRows(p);
           return (
-            <section key={p.id} className="rounded-xl border border-line overflow-hidden break-inside-avoid print:rounded-none print:border-black">
-              <header className="flex items-center justify-between gap-2 px-3 py-2 bg-raised print:bg-white print:border-b print:border-black">
+            <section key={p.id} className="card overflow-hidden break-inside-avoid print:rounded-none print:border-black">
+              <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-line print:bg-white print:border-black">
                 <span className="font-semibold text-brand print:text-black">P{i + 1}</span>
-                <span className="text-sm font-semibold text-muted print:text-black">{kindLabel(p)} · {prerogativeLabel(p)}</span>
+                <span className="text-sm text-muted print:text-black">
+                  {kindLabel(p)} · <span className="code print:text-black">{prerogativeLabel(p)}</span>
+                </span>
               </header>
               <table className="w-full text-sm">
                 <thead>
@@ -123,7 +125,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
                             onChange={(e) => onGas(r.d!.id, e.target.value)}
                             placeholder="air"
                             aria-label={`Gaz de ${r.d.name}`}
-                            className="w-full h-8 rounded-md border border-line bg-surface px-1.5 text-sm print:border-0 print:p-0"
+                            className="field w-full h-9 px-2 text-sm print:border-0 print:p-0"
                           />
                         )}
                       </td>
@@ -167,7 +169,7 @@ function ParamsCells({ value, depthHint, onChange }: { value: DiveParams; depthH
       <input
         value={value[key]}
         onChange={(e) => onChange({ ...value, [key]: e.target.value })}
-        className="w-full h-8 rounded-md border border-line bg-surface px-1.5 text-sm tabular-nums print:border-0 print:p-0"
+        className="field w-full h-9 px-2 text-sm tabular-nums print:border-0 print:p-0"
         {...props}
       />
     </td>
@@ -181,5 +183,4 @@ function ParamsCells({ value, depthHint, onChange }: { value: DiveParams; depthH
   );
 }
 
-const fieldCls =
-  'w-full h-10 rounded-lg border border-line bg-surface px-3 text-base sm:text-sm focus:outline-none focus:border-brand print:h-auto print:border-0 print:px-0 print:font-semibold';
+const fieldCls = 'field w-full text-base sm:text-sm print:h-auto print:border-0 print:px-0 print:font-semibold';

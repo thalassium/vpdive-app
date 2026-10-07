@@ -62,8 +62,6 @@ interface Props {
 }
 
 const TYPES: PalanqueeType[] = ['exploration', 'teaching'];
-/** Badge de prérogative : même taille qu'il ouvre un menu ou non. */
-const BADGE = 'h-10 w-[7.5rem] inline-flex items-center justify-center gap-1 rounded-xl font-bold tabular-nums whitespace-nowrap px-2';
 
 /**
  * Comment on présente quelqu'un : sa prérogative (E3, GP, PE40 · PA20…), puis
@@ -196,13 +194,13 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
           {(d.minor || r.waitingList) && <span className="text-sm text-muted shrink-0">{[d.minor && 'mineur', r.waitingList && 'liste d’attente'].filter(Boolean).join(' · ')}</span>}
         </label>
         {prerogative ? (
-          <span className="shrink-0 font-semibold text-brand tabular-nums" title={r.display.join(', ') || undefined}>
+          <span className="shrink-0 code" title={r.display.join(', ') || undefined}>
             {prerogative}
           </span>
         ) : (
           <Menu
             ariaLabel={`Prérogative de ${d.name}`}
-            triggerClassName={`h-9 inline-flex items-center gap-1.5 rounded-lg border px-2.5 text-sm font-semibold ${out ? 'border-line text-muted' : 'border-warn bg-warn-soft text-warn'}`}
+            triggerClassName={`btn btn-quiet h-9 text-sm ${out ? 'text-muted' : 'border-warn bg-warn-soft text-warn'}`}
             trigger={
               <>
                 Prérogative ?
@@ -218,9 +216,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
         {showTraining && (
           <Menu
             ariaLabel={`Formation de ${d.name}`}
-            triggerClassName={`h-9 min-w-32 inline-flex items-center justify-between gap-1.5 rounded-lg border px-2.5 text-sm font-semibold ${
-              current ? 'border-brand bg-tint text-brand' : 'border-line bg-surface text-muted'
-            }`}
+            triggerClassName={`btn btn-quiet h-9 text-sm min-w-32 justify-between ${current ? 'border-brand bg-tint' : 'text-muted'}`}
             trigger={
               <>
                 {current ? `Formation ${trainingShort(current)}` : 'Formation ?'}
@@ -256,7 +252,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             <strong className="font-semibold">Palanquées validées</strong> par {dive.validated!.by} le{' '}
             {new Date(dive.validated!.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}. La fiche de sécurité est débloquée.
           </p>
-          <button type="button" onClick={onReopen} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg border border-green/50 bg-surface text-sm font-semibold text-ok">
+          <button type="button" onClick={onReopen} className="btn btn-quiet h-9 text-sm border-green/50 text-ok">
             <Pencil className="w-4 h-4" /> Modifier les palanquées
           </button>
         </div>
@@ -271,7 +267,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             Qui plonge ?
           </Heading>
           {roster.length === 0 ? (
-            <p className="text-muted font-serif italic">Personne n’est encore inscrit à cette sortie.</p>
+            <p className="text-muted">Personne n’est encore inscrit à cette sortie.</p>
           ) : (
             <div className="space-y-4">
               <RosterGroup title="Encadrants" count={divers.filter(isInstructor).length}>
@@ -287,7 +283,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
               type="button"
               onClick={() => setConfirmed(true)}
               disabled={diving.length === 0 || unknownLevels.length > 0}
-              className="inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-fill hover:bg-fill-hover text-white font-semibold disabled:opacity-50"
+              className="btn btn-primary h-11"
             >
               <Check className="w-4 h-4" /> Valider les plongeurs
             </button>
@@ -320,14 +316,14 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             <button
               type="button"
               onClick={generate}
-              className="inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-fill hover:bg-fill-hover text-white font-semibold"
+              className="btn btn-primary h-11"
             >
               <Sparkles className="w-4 h-4" /> Générer les palanquées
             </button>
             <button
               type="button"
               onClick={() => onPlan(addPalanquee(null, diving))}
-              className="inline-flex items-center gap-2 h-11 px-4 rounded-xl border border-brand/40 text-brand font-semibold hover:bg-tint"
+              className="btn btn-quiet h-9 text-sm"
             >
               <Plus className="w-4 h-4" /> Composer à la main
             </button>
@@ -339,7 +335,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
         <section>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             {locked ? (
-              <h3 className="text-base font-semibold text-brand">
+              <h3 className="text-lg font-semibold text-brand">
                 {plan.palanquees.length} palanquée{plan.palanquees.length > 1 ? 's' : ''}
               </h3>
             ) : (
@@ -403,7 +399,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
                   onValidate();
                 }}
                 disabled={issues.length > 0 || plan.palanquees.length === 0}
-                className="inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-ok text-white dark:text-canvas font-semibold disabled:opacity-40"
+                className="btn btn-primary h-11"
               >
                 <Lock className="w-4 h-4" /> Valider les palanquées
               </button>
@@ -429,8 +425,8 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
   const byId = new Map(roster.map((r) => [r.id, r]));
   return (
     <section>
-      <h3 className="text-base font-semibold text-brand mb-2">Rôles de la sortie</h3>
-      <ul className="rounded-xl border border-line divide-y divide-line">
+      <h3 className="text-lg font-semibold text-brand mb-2">Rôles de la sortie</h3>
+      <ul className="card divide-y divide-line">
         {DIVE_ROLES.map((role) => {
           const ids = roles[role.id] ?? [];
           return (
@@ -440,13 +436,13 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
                 {ids.map((id) => {
                   const name = byId.get(id)?.name ?? 'Inscrit retiré';
                   return (
-                    <span key={id} className="inline-flex items-center gap-1 h-9 pl-3 pr-1 rounded-lg border border-brand/40 bg-tint text-brand font-semibold">
+                    <span key={id} className="inline-flex items-center gap-1 h-9 pl-3 pr-1 rounded-lg border border-field-border bg-tint text-brand font-semibold">
                       {name}
                       <button
                         type="button"
                         onClick={() => onRoles(toggleRole(roles, role.id, id), role.id)}
                         aria-label={`Retirer ${name} : ${role.label}`}
-                        className="w-7 h-7 flex items-center justify-center rounded-md text-muted hover:text-danger hover:bg-danger-soft"
+                        className="icon-btn w-7 h-7 rounded-md hover:text-danger hover:bg-danger-soft"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -455,7 +451,7 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
                 })}
                 <Menu
                   ariaLabel={`${role.label} : choisir`}
-                  triggerClassName="h-9 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-line px-3 text-muted hover:border-brand/40 hover:text-brand"
+                  triggerClassName="btn btn-quiet h-9 text-sm border-dashed"
                   trigger={
                     <>
                       <Plus className="w-4 h-4" />
@@ -483,10 +479,10 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
 function RosterGroup({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (
     <div>
-      <h4 className="text-sm font-bold uppercase tracking-wider text-muted mb-2">
+      <h4 className="label mb-2">
         {title} <span className="font-normal">· {count}</span>
       </h4>
-      {count ? <ul className="rounded-xl border border-line divide-y divide-line">{children}</ul> : <p className="text-sm text-muted font-serif italic">Aucun.</p>}
+      {count ? <ul className="card divide-y divide-line">{children}</ul> : <p className="text-sm text-muted">Aucun.</p>}
     </div>
   );
 }
@@ -530,20 +526,20 @@ function PalanqueeCard({
   const eligible = instructors.filter((d) => !d.training && (p.kind === 'teaching' ? canTeach(d, studentsOf(p)) : canGuideExploration(d)));
 
   return (
-    <article className={`rounded-2xl border-2 bg-surface overflow-hidden ${issues.length ? 'border-danger/60' : 'border-line'}`}>
-      {/* En-tête coloré : numéro, type, prérogative en grand */}
-      <header className={`flex items-center justify-between gap-3 px-4 py-3 text-white ${legal && !issues.length ? 'bg-band' : 'bg-danger'}`}>
+    <article className={`card border-l-4 overflow-hidden ${issues.length ? 'border-l-danger' : 'border-l-brand'}`}>
+      {/* En-tête : numéro, type, prérogative en code */}
+      <header className={`flex items-center justify-between gap-3 px-4 py-3 border-b border-line ${issues.length ? 'bg-danger-soft' : ''}`}>
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-8 h-8 shrink-0 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">P{index}</span>
           <span className="min-w-0">
             {locked || hasStudent(p) ? (
-              <span className="block font-semibold" title={locked ? undefined : 'Un élève en formation (FN#) : palanquée de formation'}>
+              <span className="block font-semibold text-ink" title={locked ? undefined : 'Un élève en formation (FN#) : palanquée de formation'}>
                 {TYPE_LABEL[typeOf(p)]}
               </span>
             ) : (
               <Menu
                 ariaLabel="Type de palanquée"
-                triggerClassName="h-8 inline-flex items-center gap-1.5 rounded-lg border border-white/30 bg-white/10 hover:bg-white/20 px-2.5 text-sm font-semibold text-white"
+                triggerClassName="btn btn-quiet h-8 px-2.5 text-sm"
                 trigger={
                   <>
                     {TYPE_LABEL[typeOf(p)]}
@@ -553,12 +549,11 @@ function PalanqueeCard({
                 sections={[{ selected: typeOf(p), onSelect: (v) => onType(v as PalanqueeType), options: TYPES.map((t) => ({ value: t, label: TYPE_LABEL[t] })) }]}
               />
             )}
-            {/* Exploration : encadrée ou autonome découle de la présence d'un encadrant */}
             {/* Exploration : encadrée ou autonome. Formation : l'objectif (ce que les élèves préparent), s'il y en a un. */}
             {p.kind !== 'teaching' ? (
-              <span className="block text-xs text-white/85 mt-0.5">{p.guide ? 'Encadrée' : 'Autonome'}</span>
+              <span className="block text-sm text-muted">{p.guide ? 'Encadrée' : 'Autonome'}</span>
             ) : (
-              objectiveLabel(p) && <span className="block text-xs text-white/85 mt-0.5">Objectif {objectiveLabel(p)}</span>
+              objectiveLabel(p) && <span className="block text-sm text-muted">Objectif {objectiveLabel(p)}</span>
             )}
           </span>
           {!locked && (
@@ -567,18 +562,13 @@ function PalanqueeCard({
               onClick={onDelete}
               aria-label={`Supprimer P${index}`}
               title="Supprimer la palanquée (ses participants redeviennent disponibles)"
-              className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-white/85 hover:text-white hover:bg-white/15"
+              className="icon-btn w-9 h-9 hover:text-danger hover:bg-danger-soft"
             >
               <Trash2 className="w-4 h-4" />
             </button>
           )}
         </div>
-        <div className="text-right shrink-0">
-          <span className="block text-xs font-bold uppercase tracking-wider text-white/85">Prérogative</span>
-          <span className={`${BADGE} ${legal ? 'bg-surface text-brand' : 'bg-white/15 text-white'} ${legal && prerogativeLabel(p).length <= 5 ? 'text-2xl' : 'text-base'}`}>
-            {prerogativeLabel(p)}
-          </span>
-        </div>
+        <span className={`code text-lg shrink-0 ${legal ? '' : 'text-danger'}`}>{prerogativeLabel(p)}</span>
       </header>
 
       {/* Plongeurs, avec leur prérogative ; celui qui fixe celle de la palanquée est signalé */}
@@ -595,11 +585,11 @@ function PalanqueeCard({
           );
         })}
         {p.extra && <DiverRow d={p.extra} own={extraLabel(p)} locked={locked} targets={targets} onMove={onMove} />}
-        {p.members.length === 0 && <li className="text-muted font-serif italic">Aucun plongeur.</li>}
+        {p.members.length === 0 && <li className="text-muted">Aucun plongeur.</li>}
       </ul>
 
       {issues.length > 0 && (
-        <ul className="px-4 pb-3.5 space-y-1.5 text-base text-danger">
+        <ul className="px-4 pb-3.5 space-y-1.5 text-sm text-danger">
           {issues.map((i) => (
             <li key={i} className="flex items-start gap-1.5">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {i}
@@ -641,11 +631,11 @@ function GuideRow({
   const editable = !locked && eligible.length > 0;
   if (!g && !teaching && locked) return null;
   // Formation sans enseignant : à corriger. Exploration sans encadrant : simplement autonome.
-  const missingTone = teaching ? 'border-2 border-dashed border-danger/50 text-danger' : 'border border-dashed border-line text-muted';
+  const missingTone = teaching ? 'border border-dashed border-danger/50 text-danger' : 'border border-dashed border-field-border text-muted';
   return (
     <li className={`-mx-2 px-2 py-1.5 rounded-lg flex items-center gap-2 ${g ? 'bg-raised border border-line' : missingTone}`}>
-      <span className={`shrink-0 min-w-16 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-sm font-bold ${g ? 'bg-pink text-on-pink' : teaching ? 'bg-danger-soft' : 'bg-raised'}`}>
-        <Star className={`w-3 h-3 ${g ? 'fill-current' : ''}`} />
+      <span className={`chip min-w-16 ${g ? 'text-brand' : teaching ? 'bg-danger-soft text-danger' : 'text-muted'}`}>
+        <Star className={`w-3 h-3 text-pink ${g ? 'fill-current' : ''}`} />
         {g ? guideLabel(g, p) : role}
       </span>
       <div className="flex-1 min-w-0">
@@ -653,7 +643,7 @@ function GuideRow({
         {editable ? (
           <Menu
             ariaLabel={role}
-            triggerClassName={`max-w-full inline-flex items-center gap-1 text-left ${g ? 'font-bold text-ink' : teaching ? 'font-bold text-danger' : 'font-medium text-muted'}`}
+            triggerClassName={`max-w-full inline-flex items-center gap-1 text-left ${g ? 'font-semibold text-ink' : teaching ? 'font-semibold text-danger' : 'font-medium text-muted'}`}
             trigger={
               <>
                 <span className="truncate">{g ? g.name : teaching ? 'Choisir l’enseignant…' : 'Ajouter un encadrant…'}</span>
@@ -672,7 +662,7 @@ function GuideRow({
             ]}
           />
         ) : (
-          <span className={`block truncate ${g ? 'font-bold text-ink' : ''}`}>{g ? g.name : teaching ? 'Aucun enseignant disponible' : 'Sans encadrant'}</span>
+          <span className={`block truncate ${g ? 'font-semibold text-ink' : ''}`}>{g ? g.name : teaching ? 'Aucun enseignant disponible' : 'Sans encadrant'}</span>
         )}
         {g && <RoleBadges id={g.id} />}
         </div>
@@ -703,9 +693,7 @@ function DiverRow({
   targets: Target[];
   onMove: (d: Diver, target: string) => void;
 }) {
-  const chipCls = `shrink-0 min-w-16 inline-flex items-center justify-center gap-0.5 px-2 py-1 rounded-md text-sm font-bold tabular-nums ${
-    limiting ? 'bg-warn-soft text-warn ring-1 ring-warn/40' : 'bg-raised text-ink'
-  }`;
+  const chipCls = `chip min-w-16 ${limiting ? 'bg-warn-soft text-warn' : 'text-brand'}`;
   return (
     <li className="flex items-center gap-2">
       <span className={chipCls} title={limiting ? 'Fixe la prérogative de la palanquée' : undefined}>
@@ -730,12 +718,12 @@ function DiverRow({
 
 function FreeList({ title, items, targets, onMove, instructor }: { title: string; items: Plan['unassigned']; targets: Target[]; onMove: (d: Diver, t: string) => void; instructor?: boolean }) {
   return (
-    <div className={`rounded-xl border p-4 ${instructor ? 'border-line bg-raised' : 'border-warn/40 bg-warn-soft'}`}>
+    <div className={instructor ? 'card p-4' : 'rounded-xl border border-warn/40 bg-warn-soft p-4'}>
       <p className={`font-semibold flex items-center gap-2 mb-2 ${instructor ? 'text-brand' : 'text-warn'}`}>
         {instructor ? <Star className="w-4 h-4" /> : <UserX className="w-4 h-4" />} {title} · {items.length}
       </p>
       {items.length === 0 ? (
-        <p className="text-sm text-muted font-serif italic">Aucun.</p>
+        <p className="text-sm text-muted">Aucun.</p>
       ) : (
         <ul className="space-y-2">
           {items.map(({ diver, reason }) => (
@@ -782,7 +770,7 @@ function MoveSelect({
   return (
     <Menu
       ariaLabel="Déplacer"
-      triggerClassName="h-9 shrink-0 inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2.5 text-sm text-muted hover:border-brand/40 hover:text-brand"
+      triggerClassName="btn btn-quiet h-9 text-sm shrink-0 px-2.5"
       trigger={
         <>
           Déplacer
@@ -813,7 +801,7 @@ function MoveSelect({
 export function Heading({ n, hint, children }: { n: number; hint?: string; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-2 mb-3">
-      <h3 className="flex items-center gap-2.5 text-base font-semibold text-brand">
+      <h3 className="flex items-center gap-2.5 text-lg font-semibold text-brand">
         <span className="w-6 h-6 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">{n}</span>
         {children}
       </h3>
@@ -827,7 +815,7 @@ export function ActionButton({ onClick, icon, children }: { onClick: () => void;
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg border border-line bg-surface text-sm font-medium text-ink hover:border-brand/40 hover:text-brand"
+      className="btn btn-quiet h-9 text-sm"
     >
       {icon}
       {children}

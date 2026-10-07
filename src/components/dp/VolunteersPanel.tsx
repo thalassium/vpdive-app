@@ -28,7 +28,7 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
     })
     .sort((a, b) => nameOf(a.r).localeCompare(nameOf(b.r), 'fr'));
 
-  if (people.length === 0) return <p className="text-muted font-serif italic">Personne n’est encore inscrit à cette sortie.</p>;
+  if (people.length === 0) return <p className="text-muted">Personne n’est encore inscrit à cette sortie.</p>;
 
   return (
     <div className="space-y-6">
@@ -36,7 +36,7 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
         Deux personnes au plus par poste, parmi les {people.length} inscrits de la journée. Une même personne peut tenir plusieurs postes.
       </p>
 
-      <ul className="rounded-2xl border border-line divide-y divide-line">
+      <ul className="card divide-y divide-line">
         {VOLUNTEER_POSTS.map((post) => {
           const assigned = volunteers[post.id] ?? [];
           return (
@@ -52,9 +52,7 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
                     <span key={slot} className="inline-flex items-center">
                       <Menu
                         ariaLabel={`${post.label} : ${slot === 0 ? 'première' : 'seconde'} personne`}
-                        triggerClassName={`h-10 min-w-48 inline-flex items-center justify-between gap-2 rounded-lg border px-3 text-base ${
-                          id ? 'border-brand/40 bg-tint text-brand font-semibold' : 'border-dashed border-line text-muted hover:border-brand/40'
-                        }`}
+                        triggerClassName={`btn btn-quiet h-10 text-base min-w-48 justify-between ${id ? 'border-brand bg-tint' : 'border-dashed text-muted'}`}
                         trigger={
                           <>
                             <span className="truncate">{id ? (person ? nameOf(person) : 'Inscrit retiré') : slot === 0 ? 'Choisir…' : 'Ajouter une 2ᵉ personne…'}</span>
@@ -80,7 +78,7 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
                           type="button"
                           onClick={() => onChange(setVolunteer(volunteers, post.id, slot, null))}
                           aria-label={`Retirer ${person ? nameOf(person) : 'cette personne'} de ${post.label}`}
-                          className="ml-1 w-8 h-8 flex items-center justify-center rounded-full text-muted hover:text-danger hover:bg-danger-soft"
+                          className="icon-btn ml-1 w-8 h-8 hover:text-danger hover:bg-danger-soft"
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -96,7 +94,7 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
 
       {recap.length > 0 && (
         <section>
-          <h4 className="text-sm font-bold uppercase tracking-wider text-muted mb-2">Qui fait quoi</h4>
+          <h4 className="label mb-2">Qui fait quoi</h4>
           <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-base">
             {recap.map(({ r, posts }) => (
               <li key={r.id} className="flex gap-2">

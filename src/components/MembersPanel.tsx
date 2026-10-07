@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronDown, Lock, RefreshCw, Search, ShieldCheck, Users
 import { vpdive, type MemberMatch, type MemberProfile } from '../services/vpdiveApi';
 import { appApi, type AppRole, type Me, type RoleEntry } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
+import { ThemeToggle } from './ThemeToggle';
 
 interface Props {
   me: Me;
@@ -101,24 +102,27 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
   const adminCount = members?.filter((m) => roleOf(m) !== 'member').length ?? 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-black/55 backdrop-blur-[3px] animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-labelledby="members-title" className="relative bg-surface w-full sm:max-w-3xl h-dvh sm:h-[90vh] sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-sheet sm:animate-pop">
-        <div className="bg-band text-white px-5 sm:px-6 pt-4 pb-4 shrink-0">
+    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" aria-labelledby="members-title" className="relative bg-surface w-full sm:max-w-3xl h-dvh sm:h-[90vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop">
+        <header className="relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <span className="text-sm font-semibold uppercase tracking-wider text-pink block mb-1">Admin</span>
-              <h2 id="members-title" className="text-xl sm:text-2xl font-semibold flex items-center gap-2">
-                <Users className="w-6 h-6 text-pink" /> Membres du club
+            <div className="min-w-0">
+              <span className="label block mb-0.5">Admin</span>
+              <h2 id="members-title" className="text-xl font-semibold text-brand leading-snug flex items-center gap-2">
+                <Users className="w-6 h-6 text-brand" /> Membres du club
               </h2>
               {members && (
-                <p className="text-sm text-white/85 mt-0.5">
+                <p className="mt-1 text-sm text-muted">
                   {members.length} membres sur VPDive · {adminCount} admin{adminCount > 1 ? 's' : ''} de l’appli
                 </p>
               )}
             </div>
-            <button onClick={onClose} aria-label="Fermer" className="w-10 h-10 -mr-2 shrink-0 flex items-center justify-center rounded-full text-white/85 hover:text-white hover:bg-white/10">
-              <X className="w-6 h-6" />
-            </button>
+            <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
+              <ThemeToggle />
+              <button onClick={onClose} aria-label="Fermer" className="icon-btn">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
           </div>
           <div className="relative mt-4">
             <Search className="w-4 h-4 text-muted absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -129,16 +133,16 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
               placeholder="Rechercher un membre…"
               aria-label="Rechercher un membre"
               autoFocus
-              className="w-full bg-surface text-ink border border-line rounded-full pl-11 pr-4 h-11 text-base placeholder-muted focus:outline-none focus:ring-4 focus:ring-white/20"
+              className="field w-full pl-11 pr-4 text-base"
             />
           </div>
           {canEdit && (
-            <p className="mt-3 text-sm text-white/85 leading-relaxed">
+            <p className="mt-3 text-sm text-muted leading-relaxed">
               Admin : accès aux écrans Membres et DP. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli
               par défaut ; le leur retirer ici ne change rien sur vpdive.com.
             </p>
           )}
-        </div>
+        </header>
 
         {roleError && (
           <div role="alert" className="mx-4 mt-3 p-3 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2">
@@ -160,11 +164,11 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
               </button>
             </div>
           )}
-          {members && shown.length === 0 && <p className="py-10 text-center text-muted font-serif italic">Aucun membre ne correspond.</p>}
+          {members && shown.length === 0 && <p className="py-10 text-center text-muted">Aucun membre ne correspond.</p>}
           {groups.map(({ label, list }) =>
             list.length === 0 && label ? null : (
               <section key={label || 'results'}>
-                {label && <h3 className="sticky top-0 z-10 bg-surface/95 backdrop-blur px-3 pt-3 pb-1 text-sm font-bold uppercase tracking-wider text-muted">{label}</h3>}
+                {label && <h3 className="label sticky top-0 z-10 bg-surface px-3 pt-3 pb-1">{label}</h3>}
                 <ul>
                   {list.map((m) => (
                     <MemberRow
@@ -255,7 +259,7 @@ function MemberRow({
           </span>
         ) : (
           role !== 'member' && (
-            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tint text-brand text-sm font-semibold">
+            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-tint text-brand text-sm font-semibold">
               <ShieldCheck className="w-3.5 h-3.5" /> {role === 'superadmin' ? 'Super-admin' : 'Admin'}
             </span>
           )

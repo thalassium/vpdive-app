@@ -6,6 +6,7 @@ import { headerFromRoles, newOuting, nextDive, type Dive, type OutingDoc } from 
 import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
+import { ThemeToggle } from '../ThemeToggle';
 
 interface Props {
   session: Session;
@@ -81,24 +82,25 @@ export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }:
   }, [events]);
 
   return (
-    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-black/55 backdrop-blur-[3px] animate-fade print:static print:bg-white print:p-0">
+    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade print:static print:bg-white print:p-0">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="dp-title"
-        className="relative bg-surface w-full sm:max-w-6xl h-dvh sm:h-[94vh] sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-sheet sm:animate-pop print:h-auto print:shadow-none print:overflow-visible"
+        className="relative bg-surface w-full sm:max-w-6xl h-dvh sm:h-[94vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop print:h-auto print:shadow-none print:overflow-visible"
       >
-        <div className="bg-band text-white px-5 sm:px-6 py-3.5 shrink-0 flex items-center gap-3 print:hidden">
+        <div className="border-t-[3px] border-pink border-b border-line px-5 sm:px-6 py-3.5 shrink-0 flex items-center gap-3 print:hidden">
           {selected && (
-            <button onClick={() => closeRef.current().then(() => setSelected(null))} aria-label="Toutes les sorties" className="lg:hidden w-10 h-10 -ml-2 flex items-center justify-center rounded-full text-white/85 hover:text-white hover:bg-white/10">
+            <button onClick={() => closeRef.current().then(() => setSelected(null))} aria-label="Toutes les sorties" className="icon-btn lg:hidden -ml-2">
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
-          <ClipboardList className="w-6 h-6 text-pink shrink-0" />
-          <h2 id="dp-title" className="text-xl font-semibold flex-1">
+          <ClipboardList className="w-6 h-6 text-brand shrink-0" />
+          <h2 id="dp-title" className="text-xl font-semibold text-brand flex-1">
             Directeur de plongée
           </h2>
-          <button onClick={close} aria-label="Fermer" className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-white/85 hover:text-white hover:bg-white/10">
+          <ThemeToggle />
+          <button onClick={close} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -116,7 +118,7 @@ export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }:
               </div>
             )}
             {events && events.length === 0 && (
-              <p className="p-6 text-muted font-serif italic">
+              <p className="p-6 text-muted">
                 {role === 'member' ? 'Vous n’êtes directeur de plongée d’aucune sortie dans les semaines qui viennent.' : 'Aucune sortie dans les semaines qui viennent.'}
               </p>
             )}
@@ -129,7 +131,7 @@ export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }:
             {selected ? (
               <OutingWorkspace key={selected.token} event={selected} session={session} closeRef={closeRef} onSessionLost={onSessionLost} />
             ) : (
-              <p className="m-auto p-8 text-muted font-serif italic">Choisissez une sortie.</p>
+              <p className="m-auto p-8 text-muted">Choisissez une sortie.</p>
             )}
           </main>
         </div>
@@ -156,11 +158,11 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
   }
   return (
     <section className="py-2">
-      <h3 className="px-4 pt-2 pb-1 text-sm font-bold uppercase tracking-wider text-muted">{label}</h3>
+      <h3 className="px-4 pt-2 pb-1 label">{label}</h3>
       {months.map((m) => (
         <div key={m.key}>
           <div className="flex items-center gap-2 px-4 pt-3 pb-1.5" role="separator">
-            <span className="text-sm font-semibold text-brand">{m.title}</span>
+            <span className="label">{m.title}</span>
             <span className="flex-1 h-px bg-line" />
           </div>
           <ul>
@@ -175,9 +177,15 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
                     className={`w-full text-left pl-3 pr-4 py-2.5 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-tint border-brand' : 'border-transparent hover:bg-raised'}`}
                   >
                     <span className="w-[5.75rem] shrink-0 whitespace-nowrap">
-                      <span className={`block text-sm font-bold tabular-nums ${isToday ? 'text-pink-600 dark:text-pink' : 'text-brand'}`}>{shortDate(d)}</span>
+                      <span className="block text-sm font-bold tabular-nums text-brand">{shortDate(d)}</span>
                       <span className="block text-sm text-muted tabular-nums">
-                        {isToday ? 'Aujourd’hui' : e.allDay ? 'Journée' : d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                        {isToday ? (
+                          <span className="inline-block rounded-md bg-pink text-on-pink px-1.5 text-xs font-semibold">Aujourd’hui</span>
+                        ) : e.allDay ? (
+                          'Journée'
+                        ) : (
+                          d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                        )}
                       </span>
                     </span>
                     <span className="flex-1 min-w-0">
@@ -328,7 +336,7 @@ function OutingWorkspace({
     <div className="px-5 sm:px-6 py-5 space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3 print:hidden">
         <div className="min-w-0">
-          <h3 className="text-xl sm:text-2xl font-semibold text-brand leading-snug">{event.title}</h3>
+          <h3 className="text-xl font-semibold text-brand leading-snug">{event.title}</h3>
           <p className="text-sm text-muted first-letter:uppercase">
             {new Date(event.start).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
             {event.location && ` · ${event.location}`} · {roster.length} inscrit{roster.length > 1 ? 's' : ''}
@@ -353,7 +361,7 @@ function OutingWorkspace({
               setConflict(null);
               setSave('saved');
             }}
-            className="h-9 px-3.5 rounded-lg bg-surface border border-warn/40 font-semibold"
+            className="btn btn-quiet h-9 text-sm border-warn/40 text-warn"
           >
             Charger sa version
           </button>
@@ -371,9 +379,7 @@ function OutingWorkspace({
               setTab(d.validated ? 'fiche' : 'palanquees');
             }}
             aria-pressed={view === 'dive' && d.id === dive.id}
-            className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-sm font-semibold ${
-              view === 'dive' && d.id === dive.id ? 'bg-fill text-white border-fill' : 'border-line text-ink hover:border-brand/40'
-            }`}
+            className={`btn btn-quiet h-9 text-sm ${view === 'dive' && d.id === dive.id ? 'bg-tint border-brand' : ''}`}
           >
             {d.validated && <Lock className="w-3.5 h-3.5" />}
             {d.label}
@@ -387,7 +393,7 @@ function OutingWorkspace({
             setView('dive');
             setTab('palanquees');
           }}
-          className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border border-dashed border-brand/40 text-sm font-semibold text-brand hover:bg-tint"
+          className="btn btn-quiet h-9 text-sm border-dashed"
         >
           <Plus className="w-4 h-4" /> Plongée
         </button>
@@ -395,9 +401,7 @@ function OutingWorkspace({
         <button
           onClick={() => setView('benevoles')}
           aria-pressed={view === 'benevoles'}
-          className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-sm font-semibold ${
-            view === 'benevoles' ? 'bg-fill text-white border-fill' : 'border-line text-ink hover:border-brand/40'
-          }`}
+          className={`btn btn-quiet h-9 text-sm ${view === 'benevoles' ? 'bg-tint border-brand' : ''}`}
         >
           <HandHelping className="w-4 h-4" /> Bénévoles
         </button>
@@ -411,7 +415,7 @@ function OutingWorkspace({
             }}
             aria-label={`Supprimer ${dive.label}`}
             title={`Supprimer ${dive.label}`}
-            className="ml-auto w-9 h-9 flex items-center justify-center rounded-full text-muted hover:text-danger hover:bg-danger-soft"
+            className="icon-btn ml-auto w-9 h-9 hover:text-danger hover:bg-danger-soft"
           >
             <Trash2 className="w-4 h-4" />
           </button>

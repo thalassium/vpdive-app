@@ -62,7 +62,7 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
 
   return (
     <div>
-      <label htmlFor="buddy" className="block text-sm font-semibold text-brand mb-1.5">
+      <label htmlFor="buddy" className="label block mb-1.5">
         Plonger avec un binôme <span className="font-normal text-muted">(facultatif)</span>
       </label>
       <div className="relative">
@@ -75,16 +75,14 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
           onChange={(e) => type(e.target.value)}
           placeholder="Prénom et nom"
           aria-describedby="buddy-help"
-          className={`w-full bg-surface border rounded-lg pl-10 pr-10 py-2.5 text-base focus:outline-none focus:ring-4 focus:ring-brand/10 ${
-            picked ? 'border-green text-ok font-medium' : 'border-line focus:border-brand'
-          }`}
+          className={`field w-full pl-10 pr-10 text-base ${picked ? 'border-green text-ok font-medium' : ''}`}
         />
         {typed && (
           <button
             type="button"
             onClick={() => type('')}
             aria-label="Effacer le binôme"
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-raised"
+            className="icon-btn absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8"
           >
             {picked ? <Check className="w-4 h-4 text-ok" strokeWidth={3} /> : <X className="w-4 h-4" />}
           </button>
@@ -106,7 +104,7 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
                   key={m.id}
                   type="button"
                   onClick={() => pick(m)}
-                  className="px-3 py-1.5 rounded-full border border-line bg-surface text-ink hover:border-brand hover:text-brand transition-colors"
+                  className="btn btn-quiet h-9 px-3 font-medium text-ink hover:text-brand"
                 >
                   {m.name}
                 </button>

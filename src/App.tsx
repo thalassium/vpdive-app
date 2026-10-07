@@ -134,7 +134,7 @@ export default function App() {
   return (
     <div className="min-h-dvh text-ink flex flex-col font-sans">
       <SeaBackdrop />
-      <header className={`sticky top-0 z-30 bg-surface/85 backdrop-blur-md border-b border-line ${printPanel}`}>
+      <header className={`sticky top-0 z-30 bg-surface border-b border-line ${printPanel}`}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 sm:h-[4.5rem] gap-3">
             <a href="https://www.septentrion-env.com/" target="_blank" rel="noreferrer" className="shrink-0" title="septentrion-env.com">
@@ -171,7 +171,7 @@ export default function App() {
                 onClick={handleLogout}
                 aria-label="Se déconnecter"
                 title="Se déconnecter"
-                className="w-10 h-10 flex items-center justify-center rounded-full text-muted hover:text-danger hover:bg-danger-soft transition-colors"
+                className="icon-btn hover:text-danger hover:bg-danger-soft"
               >
                 <LogOut className="w-5 h-5" />
               </button>
@@ -226,7 +226,7 @@ export default function App() {
       )}
       {panel === 'members' && isAdmin && me && <MembersPanel me={me} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
 
-      <footer className={`relative bg-band text-white/85 px-4 py-8 mt-16 ${printPanel}`}>
+      <footer className={`relative bg-band text-on-band px-4 py-8 mt-16 ${printPanel}`}>
         {/* Le bandeau marine sort de l'eau par une vague, au lieu d'une coupure droite */}
         <svg aria-hidden className="absolute bottom-full inset-x-0 w-full h-6 text-band" viewBox="0 0 1440 24" preserveAspectRatio="none">
           <path fill="currentColor" d="M0 14 C 180 2 360 2 540 12 S 900 24 1080 12 S 1320 4 1440 10 V24 H0 Z" />
@@ -251,7 +251,7 @@ function NavButton({ label, title, onClick, children }: { label: string; title: 
       type="button"
       onClick={onClick}
       title={title}
-      className="inline-flex items-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-full text-sm font-semibold text-brand hover:bg-raised transition-colors"
+      className="btn btn-quiet h-9 px-3 text-sm"
     >
       {children}
       <span className="hidden lg:inline">{label}</span>

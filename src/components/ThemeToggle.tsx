@@ -28,7 +28,7 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
       onClick={toggle}
       aria-label={label}
       title={label}
-      className={`w-10 h-10 flex items-center justify-center rounded-full text-muted hover:text-brand hover:bg-raised transition-colors ${className}`}
+      className={`icon-btn ${className}`}
     >
       {dark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
     </button>

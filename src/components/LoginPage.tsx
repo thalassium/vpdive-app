@@ -11,8 +11,7 @@ interface LoginPageProps {
   notice?: string | null;
 }
 
-const inputCls =
-  'w-full bg-surface border border-line rounded-xl px-4 py-3 text-base text-ink placeholder-muted focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition';
+const inputCls = 'field w-full';
 
 export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
   const [email, setEmail] = useState('');
@@ -42,12 +41,12 @@ export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
       </div>
 
       <main className="relative flex-1 flex items-center justify-center px-4 pb-10">
-        <div className="w-full max-w-sm animate-rise">
-          <Logo className="h-28 sm:h-32 mx-auto mb-7" />
+        <div className="w-full max-w-sm">
+          <Logo className="h-16 mx-auto mb-7" />
 
-          <div className="bg-surface rounded-3xl border border-line shadow-card p-6 sm:p-8">
-            <h1 className="text-2xl font-semibold text-brand">Agenda des sorties</h1>
-            <p className="font-serif italic text-muted mt-1 mb-6">Connectez-vous avec votre compte VPDive</p>
+          <div className="card p-6 sm:p-8">
+            <h1 className="text-xl font-semibold text-brand">Agenda des sorties</h1>
+            <p className="text-muted mt-1 mb-6">Connectez-vous avec votre compte VPDive</p>
 
             {notice && !error && (
               <div className="mb-4 p-3.5 rounded-xl bg-warn-soft text-warn text-base flex items-start gap-2">
@@ -68,7 +67,7 @@ export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-brand mb-1.5">
+                <label htmlFor="email" className="label block mb-1.5">
                   Adresse e-mail
                 </label>
                 <input
@@ -85,7 +84,7 @@ export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
               </div>
 
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-brand mb-1.5">
+                <label htmlFor="password" className="label block mb-1.5">
                   Mot de passe
                 </label>
                 <input
@@ -104,7 +103,7 @@ export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-fill hover:bg-fill-hover active:scale-[0.99] text-white font-semibold text-base transition disabled:opacity-50"
+                className="btn btn-primary w-full h-12"
               >
                 {isLoading ? (
                   'Connexion en cours…'
