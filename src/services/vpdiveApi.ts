@@ -35,6 +35,8 @@ export interface Session {
   clubName: string;
   /** Club admin on VPDive (permission `member_view`). Absent on sessions saved before this field existed. */
   isAdmin?: boolean;
+  /** The member's own photo (absolute URL), '' for VPDive's default avatar. Absent on sessions saved before this field existed. */
+  picture?: string;
 }
 
 export interface Tag {
@@ -490,9 +492,19 @@ class VpDiveClient {
       lastName: str(me.last_name),
       clubName: str(obj(trace.club)?.name),
       isAdmin: hasPermission(trace.permissions, ADMIN_PERMISSION),
+      picture: pictureUrl(str(me.profile_picture)),
     };
     this.setSession(session);
     return session;
+  }
+
+  /** The signed-in member's photo, read again from /user/me and kept in the session (sessions saved before `picture` existed). */
+  async refreshPicture(): Promise<string> {
+    const me = await this.request('/user/me');
+    const picture = pictureUrl(str(me.profile_picture));
+    const s = this.getSession();
+    if (s) this.setSession({ ...s, picture });
+    return picture;
   }
 
   logout() {

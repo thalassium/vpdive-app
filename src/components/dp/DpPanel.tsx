@@ -11,6 +11,11 @@ import { ThemeToggle } from '../ThemeToggle';
 interface Props {
   session: Session;
   role: AppRole;
+  /**
+   * « Voir en tant que » un membre : les sorties où lui est DP (jetons), à la
+   * place de celles du compte connecté. Absent hors simulation.
+   */
+  dpEvents?: string[];
   /** Opened from an outing's sheet: go straight to it. */
   initialEvent?: CalendarEvent | null;
   onClose: () => void;
@@ -23,7 +28,7 @@ interface Props {
  * et les bénévoles de la journée.
  * Admins : toutes les sorties. DP : celles où VPDive l'inscrit « Directeur de plongée ».
  */
-export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }: Props) {
+export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSessionLost }: Props) {
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [selected, setSelected] = useState<CalendarEvent | null>(initialEvent ?? null);
@@ -38,7 +43,9 @@ export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }:
       const to = new Date(today);
       to.setDate(to.getDate() + 60);
       let list = await vpdive.fetchEvents(ymd(from), ymd(to));
-      if (role === 'member') {
+      if (role === 'member' && dpEvents) {
+        list = list.filter((e) => dpEvents.includes(e.token));
+      } else if (role === 'member') {
         // Pas admin : seulement les sorties où l'on est inscrit comme DP.
         const mine = list.filter((e) => e.registered);
         const rosters = await Promise.all(mine.map((e) => vpdive.fetchRoster(e.token).catch(() => [] as RosterEntry[])));
@@ -49,7 +56,7 @@ export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }:
       if (onSessionLost(e)) return;
       setListError(e instanceof Error ? e.message : String(e));
     }
-  }, [role, session.userId, onSessionLost]);
+  }, [role, dpEvents, session.userId, onSessionLost]);
 
   useEffect(() => {
     loadList();

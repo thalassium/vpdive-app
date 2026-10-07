@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { LogOut, ExternalLink, Users, ClipboardList } from 'lucide-react';
+import { ExternalLink, ClipboardList, Eye } from 'lucide-react';
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
@@ -8,6 +8,8 @@ import { EventBookingModal } from './components/EventBookingModal';
 import { SeaBackdrop } from './components/SeaBackdrop';
 import { MembersPanel } from './components/MembersPanel';
 import { DpPanel } from './components/dp/DpPanel';
+import { AccountMenu, ROLE_LABEL, type ViewAsPick } from './components/AccountMenu';
+import { sameName } from './lib/fuzzy';
 import { vpdive, ymd, SessionExpiredError, DP_ROLE, type CalendarEvent, type MeteoSlot, type Session } from './services/vpdiveApi';
 import { appApi, type Me } from './services/appApi';
 
@@ -27,12 +29,21 @@ export default function App() {
   const [dpEvent, setDpEvent] = useState<CalendarEvent | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [isDp, setIsDp] = useState(false);
+  const [picture, setPicture] = useState<string | undefined>(() => vpdive.getSession()?.picture);
+  /**
+   * « Voir en tant que » (super-admin) : les droits d'un autre membre, simulés
+   * dans le navigateur. Son rôle dans l'appli, et les sorties où il est DP
+   * (null tant qu'on les cherche). Le serveur, lui, voit toujours le compte connecté.
+   */
+  const [viewAs, setViewAs] = useState<(ViewAsPick & { dpEvents: string[] | null }) | null>(null);
+  const viewAsId = useRef(0);
   const loadId = useRef(0);
   // Rôle dans l'appli, décidé par le serveur (server/handler.ts) : super-admin,
   // admin (admin VPDive dont le rôle n'a pas été retiré) ou membre.
-  const role = me?.role ?? 'member';
+  const realRole = me?.role ?? 'member';
+  const role = viewAs?.role ?? realRole;
   const isAdmin = role === 'admin' || role === 'superadmin';
-  const canDp = isAdmin || isDp;
+  const canDp = isAdmin || (viewAs ? (viewAs.dpEvents?.length ?? 0) > 0 : isDp);
 
   const handleSessionLost = useCallback((e: unknown) => {
     if (e instanceof SessionExpiredError) {
@@ -40,6 +51,7 @@ export default function App() {
       setPanel(null);
       setMe(null);
       setIsDp(false);
+      setViewAs(null);
       setSession(null);
       setLoginNotice(e.message);
       return true;
@@ -99,6 +111,49 @@ export default function App() {
     };
   }, [me, session]);
 
+  // Photo du compte : les sessions enregistrées avant ce champ la relisent une fois sur VPDive.
+  useEffect(() => {
+    if (!session) return;
+    if (session.picture !== undefined) {
+      setPicture(session.picture);
+      return;
+    }
+    vpdive.refreshPicture().then(setPicture, (e) => handleSessionLost(e) || console.warn('Photo non lue :', e));
+  }, [session, handleSessionLost]);
+
+  /** Voir le site avec les droits d'un membre : son rôle, puis les sorties où VPDive l'inscrit DP (même fenêtre que le menu DP). */
+  const startViewAs = useCallback(
+    async (pick: ViewAsPick) => {
+      const id = ++viewAsId.current;
+      setActiveEvent(null);
+      setPanel(null);
+      setViewAs({ ...pick, dpEvents: null });
+      try {
+        const today = new Date();
+        const from = new Date(today);
+        from.setDate(from.getDate() - 14);
+        const to = new Date(today);
+        to.setDate(to.getDate() + 60);
+        const list = await vpdive.fetchEvents(ymd(from), ymd(to));
+        const rosters = await Promise.all(list.map((e) => vpdive.fetchRoster(e.token).catch(() => [])));
+        const dpEvents = list
+          .filter((_, i) => rosters[i]!.some((r) => sameName(r.name, pick.name) && r.roles.some((x) => DP_ROLE.test(x))))
+          .map((e) => e.token);
+        if (id === viewAsId.current) setViewAs((v) => (v && v.uct === pick.uct ? { ...v, dpEvents } : v));
+      } catch (e) {
+        if (handleSessionLost(e)) return;
+        if (id === viewAsId.current) setViewAs((v) => (v && v.uct === pick.uct ? { ...v, dpEvents: [] } : v));
+      }
+    },
+    [handleSessionLost],
+  );
+  const stopViewAs = () => {
+    viewAsId.current++;
+    setViewAs(null);
+    setActiveEvent(null);
+    setPanel(null);
+  };
+
   // Weather is a bonus: if Open-Meteo is down the agenda still works, just without wind badges.
   useEffect(() => {
     if (!session) return;
@@ -107,6 +162,7 @@ export default function App() {
 
   const handleLogout = () => {
     vpdive.logout();
+    setViewAs(null);
     setSession(null);
     setEvents([]);
     setLoginNotice(null);
@@ -126,7 +182,6 @@ export default function App() {
   }
 
   const displayName = `${session.firstName} ${session.lastName}`.trim() || session.email;
-  const initials = (`${session.firstName[0] ?? ''}${session.lastName[0] ?? ''}` || session.email[0] || '?').toUpperCase();
   const connected = !error && !isLoading;
   // Imprimer depuis le menu DP n'imprime que la fiche, pas l'agenda derrière.
   const printPanel = panel ? 'print:hidden' : '';
@@ -152,32 +207,41 @@ export default function App() {
                   <ClipboardList className="w-4 h-4" />
                 </NavButton>
               )}
-              {isAdmin && (
-                <NavButton label="Membres" title="Membres du club" onClick={() => setPanel('members')}>
-                  <Users className="w-4 h-4" />
-                </NavButton>
-              )}
-
               <ThemeToggle />
 
-              <span className="flex items-center gap-2 pl-1 min-w-0" title={displayName}>
-                <span className="w-9 h-9 shrink-0 rounded-full bg-tint text-brand text-sm font-semibold flex items-center justify-center">
-                  {initials}
-                </span>
-                <span className="hidden sm:block text-sm font-medium text-ink truncate max-w-40">{displayName}</span>
-              </span>
-
-              <button
-                onClick={handleLogout}
-                aria-label="Se déconnecter"
-                title="Se déconnecter"
-                className="icon-btn hover:text-danger hover:bg-danger-soft"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
+              <AccountMenu
+                name={displayName}
+                email={session.email}
+                picture={picture}
+                role={realRole}
+                onMembers={() => setPanel('members')}
+                onViewAs={startViewAs}
+                onLogout={handleLogout}
+                onSessionLost={handleSessionLost}
+              />
             </div>
           </div>
         </div>
+        {viewAs && (
+          <div className="border-t border-warn/30 bg-warn-soft text-warn">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+              <Eye className="w-4 h-4 shrink-0" />
+              <span className="flex-1 min-w-0">
+                Vous voyez le site comme <strong className="font-semibold">{viewAs.name}</strong> · {ROLE_LABEL[viewAs.role]}
+                {viewAs.role === 'member' &&
+                  (viewAs.dpEvents === null
+                    ? ' · recherche de ses sorties comme DP…'
+                    : viewAs.dpEvents.length
+                      ? ` · DP de ${viewAs.dpEvents.length} sortie${viewAs.dpEvents.length > 1 ? 's' : ''}`
+                      : ' · DP d’aucune sortie à venir')}
+                . Les inscriptions affichées restent les vôtres.
+              </span>
+              <button type="button" onClick={stopViewAs} className="btn h-8 px-3 text-sm bg-surface border border-warn/40 text-warn hover:bg-raised">
+                Revenir à mon compte
+              </button>
+            </div>
+          </div>
+        )}
       </header>
 
       <main className={`flex-1 ${printPanel}`}>
@@ -216,6 +280,7 @@ export default function App() {
         <DpPanel
           session={session}
           role={role}
+          dpEvents={viewAs && viewAs.role === 'member' ? (viewAs.dpEvents ?? []) : undefined}
           initialEvent={dpEvent}
           onClose={() => {
             setPanel(null);
@@ -224,7 +289,7 @@ export default function App() {
           onSessionLost={handleSessionLost}
         />
       )}
-      {panel === 'members' && isAdmin && me && <MembersPanel me={me} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
+      {panel === 'members' && isAdmin && me && <MembersPanel me={{ ...me, role }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
 
       <footer className={`relative bg-band text-on-band px-4 py-8 mt-16 ${printPanel}`}>
         {/* Le bandeau marine sort de l'eau par une vague, au lieu d'une coupure droite */}

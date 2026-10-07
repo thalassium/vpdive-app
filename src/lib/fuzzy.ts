@@ -89,3 +89,12 @@ export function searchFragments(typed: string): string[] {
   for (const w of ws) if (w.length >= 5) out.add(w.slice(0, 3));
   return [...out].slice(0, 6);
 }
+
+/**
+ * Même personne, quel que soit l'ordre prénom/nom, la casse ou les accents :
+ * « DUPONT Jean » (inscrits d'une sortie) et « Jean Dupont » (annuaire).
+ */
+export const sameName = (a: string, b: string): boolean => {
+  const key = (s: string) => words(s).sort().join(' ');
+  return key(a) !== '' && key(a) === key(b);
+};

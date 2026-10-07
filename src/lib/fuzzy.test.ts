@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { editDistance, nameScore, rankByName, searchFragments } from './fuzzy';
+import { editDistance, nameScore, rankByName, sameName, searchFragments } from './fuzzy';
 
 const members = ['DUPONT Jean', 'Dupuis Jeanne', 'Martin Sébastien', 'Lefèvre Anne-Sophie', 'Duval Jean-Marc', 'Nguyen Thi'];
 
@@ -29,4 +29,11 @@ test('rien ne ressort pour un nom sans rapport', () => {
 test('fragments de recherche envoyés à VPDive', () => {
   assert.deepEqual(searchFragments('Jean Dupond'), ['jean', 'dupond', 'dup']);
   assert.deepEqual(searchFragments('  Élodie  '), ['elodie', 'elo']);
+});
+
+test('même personne quel que soit l’ordre prénom/nom, la casse et les accents', () => {
+  assert.ok(sameName('DUPONT Jean', 'Jean Dupont'));
+  assert.ok(sameName('LÉVÊQUE Hélène', 'helene leveque'));
+  assert.ok(!sameName('DUPONT Jean', 'DUPONT Jeanne'));
+  assert.ok(!sameName('', ''));
 });
