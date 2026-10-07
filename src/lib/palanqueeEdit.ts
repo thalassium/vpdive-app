@@ -8,46 +8,34 @@ import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 /**
- * Niveau retenu à la main par le DP, quand VPDive n'en donne pas ou pour donner
- * un équivalent FFESSM à un brevet d'une autre école (PADI, SSI…). FN1 à FN4 :
- * en formation vers ce niveau ; le niveau actuel reste celui de VPDive.
+ * Prérogative retenue à la main par le DP. Indispensable pour un brevet d'une
+ * autre école (PADI, SSI…), qui n'en donne aucune : c'est elle qui place le
+ * plongeur dans les palanquées. Le niveau VPDive d'origine reste affiché.
  */
-export const LEVEL_OVERRIDES = [
-  'Débutant',
-  'PE12',
-  'PE20 · N1',
-  'PA20',
-  'PE40 · PA20 · N2',
-  'PE40',
-  'PA40',
-  'PA60 · N3',
-  'GP · N4',
-  'E1 · Initiateur',
-  'E2 · Initiateur + N4',
-  'E3 · MF1, DEJEPS…',
-  'E4 · MF2…',
-] as const;
+export const PREROGATIVE_OPTIONS = {
+  divers: ['Débutant', 'PE12', 'PE20', 'PA20', 'PE40', 'PE40 · PA20', 'PA40', 'PE60', 'PA60'],
+  instructors: ['GP', 'E1', 'E2', 'E3', 'E4'],
+} as const;
+
+/**
+ * Formation en cours, en plus de la prérogative : un Open Water retenu PE20 qui
+ * prépare son niveau 2 est FN2 et peut aller en palanquée de formation PE40.
+ */
 export const TRAINING_OPTIONS = ['FN1', 'FN2', 'FN3', 'FN4'] as const;
 
 export interface DiverSettings {
-  /** id → niveau retenu à la main (remplace ceux de VPDive, qui restent affichés) */
+  /** id → prérogative retenue à la main (remplace celle de VPDive, dont les niveaux restent affichés) */
   levels?: Record<string, string>;
-  /** id → formation en cours (FN1…FN4), en plus du niveau */
+  /** id → formation en cours (FN1…FN4), en plus de la prérogative */
   training?: Record<string, string>;
 }
 
-/** Valeur unique du menu de niveau : la formation si elle est choisie, sinon le niveau retenu. */
-export const levelChoice = (settings: DiverSettings, id: string) => settings.training?.[id] ?? settings.levels?.[id] ?? '';
-
-/** Applique un choix du menu de niveau (un niveau, une formation FN#, ou '' pour revenir à VPDive). */
-export function chooseLevel(settings: DiverSettings, id: string, value: string): DiverSettings {
-  const levels = { ...(settings.levels ?? {}) };
-  const training = { ...(settings.training ?? {}) };
-  delete levels[id];
-  delete training[id];
-  if ((TRAINING_OPTIONS as readonly string[]).includes(value)) training[id] = value;
-  else if (value) levels[id] = value;
-  return { ...settings, levels, training };
+/** Fixe (ou efface avec '') la prérogative retenue ou la formation d'un plongeur, sans toucher à l'autre. */
+export function setDiverChoice(settings: DiverSettings, kind: 'levels' | 'training', id: string, value: string): DiverSettings {
+  const next = { ...(settings[kind] ?? {}) };
+  if (value) next[id] = value;
+  else delete next[id];
+  return { ...settings, [kind]: next };
 }
 
 export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = {}): Diver[] {

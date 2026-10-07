@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Printer } from 'lucide-react';
+import { ChevronDown, Printer } from 'lucide-react';
+import { Menu } from '../Menu';
 import { KIND_LABEL, chosenDepth, prerogativeLabel, type Diver, type Palanquee } from '../../lib/palanquees';
 import { diversInWater, emptySheet, type DiveParams, type Dive, type OutingDoc, type PalanqueeSheet, type SafetyHeader } from '../../lib/outing';
 
@@ -69,13 +70,17 @@ export function SafetySheet({ doc, dive, onHeader, onSheet, onGas }: Props) {
           <label key={f.key} className="block">
             <span className="block text-xs font-semibold text-muted mb-1 print:mb-0">{f.label}</span>
             {f.options ? (
-              <select value={header[f.key]} onChange={(e) => onHeader({ ...header, [f.key]: e.target.value })} className={fieldCls}>
-                {f.options.map((o) => (
-                  <option key={o} value={o}>
-                    {o || '—'}
-                  </option>
-                ))}
-              </select>
+              <Menu
+                ariaLabel={f.label}
+                triggerClassName={`${fieldCls} inline-flex items-center justify-between text-left`}
+                trigger={
+                  <>
+                    {header[f.key] || '—'}
+                    <ChevronDown className="w-4 h-4 opacity-60 print:hidden" />
+                  </>
+                }
+                sections={[{ selected: header[f.key], onSelect: (v) => onHeader({ ...header, [f.key]: v }), options: f.options.map((o) => ({ value: o, label: o || '—' })) }]}
+              />
             ) : (
               <input type={f.type ?? 'text'} value={header[f.key]} onChange={(e) => onHeader({ ...header, [f.key]: e.target.value })} className={fieldCls} />
             )}

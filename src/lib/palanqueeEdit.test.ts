@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { proposePalanquees, validate } from './palanquees';
-import { addPalanquee, assignGuide, buddyPairs, chooseLevel, deletePalanquee, levelChoice, moveDiver, planToText, rosterToDivers, setDepth, setKind } from './palanqueeEdit';
+import { depthOf, proposePalanquees, validate } from './palanquees';
+import { addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, setDiverChoice, planToText, rosterToDivers, setDepth, setKind } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
@@ -97,21 +97,26 @@ test('profondeur et type changés à la main', () => {
   assert.ok(validate(plan.palanquees[0]!).length > 0, 'pas d’enseignant parmi deux N3');
 });
 
-test('niveau forcé : équivalent FFESSM retenu, niveau d’origine gardé en vue', () => {
-  const padi = entry('p', 'WAVE Sam', ['PADI - AOW']);
-  let settings = chooseLevel({}, 'p', 'N2');
-  const [d] = rosterToDivers([padi], settings);
-  assert.equal(d!.pa, 20);
-  assert.deepEqual(d!.original, ['PADI - AOW']);
-  assert.equal(levelChoice(settings, 'p'), 'N2');
+test('brevet étranger : prérogative retenue à la main, cumulable avec une formation', () => {
+  // Cas réel : un Open Water PADI n'a aucune prérogative dans VPDive.
+  const padi = entry('p', 'MARCHAIS Q', ['PADI - OWD']);
+  assert.equal(rosterToDivers([padi])[0]!.pe, 0, 'sans choix du DP : pas de prérogative');
 
-  // FN# dans le même menu : formation, le niveau VPDive est gardé.
-  settings = chooseLevel(settings, 'p', 'FN2');
-  const [f] = rosterToDivers([entry('q', 'X Y', ['P1'])], chooseLevel({}, 'q', 'FN2'));
-  assert.equal(f!.training, 2);
-  assert.equal(f!.pe, 20);
-  assert.equal(levelChoice(settings, 'p'), 'FN2');
-  assert.deepEqual(chooseLevel(settings, 'p', ''), { levels: {}, training: {} });
+  let settings = setDiverChoice({}, 'levels', 'p', 'PE20');
+  settings = setDiverChoice(settings, 'training', 'p', 'FN2');
+  const [d] = rosterToDivers([padi], settings);
+  assert.equal(d!.pe, 20, 'PE20 retenu');
+  assert.equal(d!.training, 2, 'et en formation N2');
+  assert.deepEqual(d!.original, ['PADI - OWD'], 'le brevet d’origine reste en vue');
+
+  // En formation, il plonge en palanquée PE40 avec un E3.
+  const plan = proposePalanquees([d!, ...rosterToDivers([entry('m', 'MONI M', ['E3'])])]);
+  assert.equal(plan.palanquees[0]!.kind, 'teaching');
+  assert.equal(depthOf(plan.palanquees[0]!), 40);
+
+  // Effacer la formation garde la prérogative.
+  settings = setDiverChoice(settings, 'training', 'p', '');
+  assert.deepEqual(settings, { levels: { p: 'PE20' }, training: {} });
 });
 
 test('supprimer une palanquée libère tout le monde ; en créer une vide, même sans génération', () => {
