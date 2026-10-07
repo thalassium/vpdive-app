@@ -52,6 +52,8 @@ interface Props {
 }
 
 const TYPES: PalanqueeType[] = ['exploration', 'teaching'];
+/** Badge de prérogative : même taille qu'il ouvre un menu ou non. */
+const BADGE = 'h-10 w-[7.5rem] inline-flex items-center justify-center gap-1 rounded-xl font-bold tabular-nums whitespace-nowrap px-2';
 
 /**
  * Comment on présente quelqu'un : sa prérogative (E3, GP, PE40 · PA20…), puis
@@ -443,10 +445,8 @@ function PalanqueeCard({
                 sections={[{ selected: typeOf(p), onSelect: (v) => onType(v as PalanqueeType), options: TYPES.map((t) => ({ value: t, label: TYPE_LABEL[t] })) }]}
               />
             )}
-            {/* Encadrée ou autonome : découle de la présence d'un encadrant */}
-            <span className="block text-[11px] text-white/70 mt-0.5">
-              {p.kind === 'teaching' ? 'avec un enseignant' : p.guide ? 'encadrée (PE)' : 'autonome (PA)'}
-            </span>
+            {/* Exploration : encadrée ou autonome découle de la présence d'un encadrant */}
+            {p.kind !== 'teaching' && <span className="block text-[11px] text-white/70 mt-0.5">{p.guide ? 'Encadrée' : 'Autonome'}</span>}
           </span>
           {!locked && (
             <button
@@ -465,7 +465,7 @@ function PalanqueeCard({
           {selectable ? (
             <Menu
               ariaLabel="Prérogative de la palanquée"
-              triggerClassName={`h-10 inline-flex items-center gap-1 rounded-xl bg-surface text-brand font-bold tabular-nums px-3 ${prerogativeLabel(p).length > 5 ? 'text-base' : 'text-2xl'}`}
+              triggerClassName={`${BADGE} bg-surface text-brand ${prerogativeLabel(p).length > 5 ? 'text-base' : 'text-2xl'}`}
               trigger={
                 <>
                   {prerogativeLabel(p)}
@@ -485,7 +485,7 @@ function PalanqueeCard({
               ]}
             />
           ) : (
-            <span className={`inline-block h-10 leading-10 rounded-xl px-3 font-bold tabular-nums whitespace-nowrap ${depth ? 'bg-surface text-brand' : 'bg-white/15 text-white'} ${depth && prerogativeLabel(p).length <= 5 ? 'text-2xl' : 'text-base'}`}>
+            <span className={`${BADGE} ${depth ? 'bg-surface text-brand' : 'bg-white/15 text-white'} ${depth && prerogativeLabel(p).length <= 5 ? 'text-2xl' : 'text-base'}`}>
               {prerogativeLabel(p)}
             </span>
           )}
