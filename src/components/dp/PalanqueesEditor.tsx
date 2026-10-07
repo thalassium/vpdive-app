@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Lock, Pencil, Plus, Share2, ShieldCheck, Sparkles, Star, Trash2, UserX, X } from 'lucide-react';
 import type { RosterEntry } from '../../services/vpdiveApi';
 import { Avatar } from '../Avatar';
 import {
@@ -141,9 +141,24 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
   const rosterOk = settings.confirmed ?? !!dive.plan;
   const setConfirmed = (confirmed: boolean) => onSettings({ ...settings, confirmed });
 
-  const copy = async () => {
+  /**
+   * Partager la composition en texte, dans l'appli que la personne choisit
+   * (WhatsApp, Messages, e-mail…) via la feuille de partage du téléphone.
+   * Sans feuille de partage (la plupart des ordinateurs) : copiée dans le presse-papier.
+   */
+  const share = async () => {
     if (!plan) return;
-    const text = planToText(`${title} · ${dive.label}`, plan);
+    const heading = `${title} · ${dive.label}`;
+    const text = planToText(heading, plan);
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `Palanquées — ${heading}`, text });
+        return;
+      } catch (e) {
+        // Partage annulé : rien à faire. Autre échec : on copie à la place.
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+      }
+    }
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -368,8 +383,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
                   Nouvelle palanquée
                 </ActionButton>
               )}
-              <ActionButton onClick={copy} icon={copied ? <Check className="w-4 h-4" /> : <ClipboardCopy className="w-4 h-4" />}>
-                {copied ? 'Copié' : 'Copier'}
+              <ActionButton onClick={share} icon={copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}>
+                {copied ? 'Texte copié' : 'Partager'}
               </ActionButton>
             </div>
           </div>
