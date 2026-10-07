@@ -78,8 +78,6 @@ const without = (p: Palanquee, id: string): Palanquee => ({
   members: p.members.filter((m) => m.id !== id),
 });
 
-const isEmpty = (p: Palanquee) => !p.guide && !p.extra && p.members.length === 0;
-
 let seq = 0;
 const newId = () => `m${Date.now().toString(36)}${++seq}`;
 
@@ -100,7 +98,28 @@ export function moveDiver(plan: Plan, diver: Diver, target: string | 'new' | 'un
   } else {
     palanquees = palanquees.map((p) => (p.id === target ? { ...p, members: [...p.members, diver] } : p));
   }
-  return { palanquees: palanquees.filter((p) => !isEmpty(p) || p.id === target), unassigned };
+  // Une palanquée vidée reste en place : le DP la remplit ou la supprime (deletePalanquee).
+  return { palanquees, unassigned };
+}
+
+/**
+ * Nouvelle palanquée vide, à remplir à la main. Sans composition encore (rien
+ * de généré), tous ceux qui plongent partent de la liste des disponibles.
+ */
+export function addPalanquee(plan: Plan | null, available: Diver[], kind: PalanqueeKind = 'guided'): Plan {
+  const base: Plan = plan ?? { palanquees: [], unassigned: available.map((diver) => ({ diver, reason: 'À placer.' })) };
+  return { ...base, palanquees: [...base.palanquees, { id: newId(), kind, guide: null, extra: null, members: [] }] };
+}
+
+/** Supprime une palanquée : encadrant, plongeur supplémentaire et plongeurs redeviennent disponibles. */
+export function deletePalanquee(plan: Plan, palanqueeId: string): Plan {
+  const gone = plan.palanquees.find((p) => p.id === palanqueeId);
+  if (!gone) return plan;
+  const freed = [gone.guide, gone.extra, ...gone.members].filter((d): d is Diver => !!d);
+  return {
+    palanquees: plan.palanquees.filter((p) => p.id !== palanqueeId),
+    unassigned: [...plan.unassigned, ...freed.map((diver) => ({ diver, reason: 'Palanquée supprimée.' }))],
+  };
 }
 
 /**
@@ -113,8 +132,7 @@ export function assignGuide(plan: Plan, palanqueeId: string, diver: Diver): Plan
   if (previous?.id === diver.id) return plan;
   const palanquees = plan.palanquees
     .map((p) => without(p, diver.id))
-    .map((p) => (p.id === palanqueeId ? { ...p, kind: p.kind === 'autonomous' ? ('guided' as const) : p.kind, guide: diver } : p))
-    .filter((p) => !isEmpty(p));
+    .map((p) => (p.id === palanqueeId ? { ...p, kind: p.kind === 'autonomous' ? ('guided' as const) : p.kind, guide: diver } : p));
   const unassigned = plan.unassigned.filter((u) => u.diver.id !== diver.id);
   if (previous) unassigned.push({ diver: previous, reason: 'Remplacé comme encadrant.' });
   return { palanquees, unassigned };

@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, Check, ClipboardCopy, Lock, Pencil, ShieldCheck, Sparkles, Star, UserX } from 'lucide-react';
+import { AlertTriangle, Check, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX } from 'lucide-react';
 import type { RosterEntry } from '../../services/vpdiveApi';
 import {
   DEPTHS,
@@ -18,7 +18,7 @@ import {
   type PalanqueeKind,
   type Plan,
 } from '../../lib/palanquees';
-import { LEVEL_OVERRIDES, TRAINING_OPTIONS, assignGuide, buddyPairs, chooseLevel, levelChoice, moveDiver, planToText, rosterToDivers, setDepth, setKind } from '../../lib/palanqueeEdit';
+import { LEVEL_OVERRIDES, TRAINING_OPTIONS, addPalanquee, assignGuide, deletePalanquee, buddyPairs, chooseLevel, levelChoice, moveDiver, planToText, rosterToDivers, setDepth, setKind } from '../../lib/palanqueeEdit';
 import type { Dive, OutingDoc } from '../../lib/outing';
 
 interface Props {
@@ -199,6 +199,16 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
               <Sparkles className="w-4 h-4" />
               {plan ? 'Refaire les palanquées' : 'Générer les palanquées'}
             </button>
+            {!plan && (
+              <button
+                type="button"
+                onClick={() => onPlan(addPalanquee(null, diving))}
+                disabled={diving.length === 0}
+                className="inline-flex items-center gap-2 h-11 px-4 rounded-xl border border-brand/40 text-brand font-semibold hover:bg-tint disabled:opacity-50"
+              >
+                <Plus className="w-4 h-4" /> Composer à la main
+              </button>
+            )}
             <span className="text-sm text-muted">Autonomes par niveau, puis formations avec un E1/E2/E3, puis encadrés avec un N4/GP au moins.</span>
           </div>
         </section>
@@ -211,9 +221,16 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
             <h3 className="text-base font-semibold text-brand">
               {plan.palanquees.length} palanquée{plan.palanquees.length > 1 ? 's' : ''}
             </h3>
-            <ActionButton onClick={copy} icon={copied ? <Check className="w-4 h-4" /> : <ClipboardCopy className="w-4 h-4" />}>
-              {copied ? 'Copié' : 'Copier'}
-            </ActionButton>
+            <div className="flex items-center gap-2">
+              {!locked && (
+                <ActionButton onClick={() => onPlan(addPalanquee(plan, diving))} icon={<Plus className="w-4 h-4" />}>
+                  Nouvelle palanquée
+                </ActionButton>
+              )}
+              <ActionButton onClick={copy} icon={copied ? <Check className="w-4 h-4" /> : <ClipboardCopy className="w-4 h-4" />}>
+                {copied ? 'Copié' : 'Copier'}
+              </ActionButton>
+            </div>
           </div>
 
           <div className="grid md:grid-cols-2 gap-3">
@@ -229,6 +246,11 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
                 onGuide={(d) => onPlan(assignGuide(plan, p.id, d))}
                 onKind={(k) => onPlan(setKind(plan, p.id, k))}
                 onDepth={(d) => onPlan(setDepth(plan, p.id, d))}
+                onDelete={() => {
+                  const people = [p.guide, p.extra, ...p.members].filter(Boolean).length;
+                  if (people && !window.confirm(`Supprimer P${i + 1} ? Ses ${people} participant${people > 1 ? 's' : ''} redeviendront disponibles.`)) return;
+                  onPlan(deletePalanquee(plan, p.id));
+                }}
               />
             ))}
           </div>
@@ -296,6 +318,7 @@ function PalanqueeCard({
   onGuide,
   onKind,
   onDepth,
+  onDelete,
 }: {
   index: number;
   p: Palanquee;
@@ -306,6 +329,7 @@ function PalanqueeCard({
   onGuide: (d: Diver) => void;
   onKind: (k: PalanqueeKind) => void;
   onDepth: (d: Depth | undefined) => void;
+  onDelete: () => void;
 }) {
   const issues = validate(p);
   const legal = depthOf(p);
@@ -331,6 +355,17 @@ function PalanqueeCard({
                 </option>
               ))}
             </select>
+          )}
+          {!locked && (
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label={`Supprimer P${index}`}
+              title="Supprimer la palanquée (ses participants redeviennent disponibles)"
+              className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-muted hover:text-danger hover:bg-danger-soft"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
           )}
         </div>
         <div className="text-right shrink-0">

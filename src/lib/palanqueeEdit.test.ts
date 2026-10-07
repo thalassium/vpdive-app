@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { proposePalanquees, validate } from './palanquees';
-import { assignGuide, buddyPairs, chooseLevel, levelChoice, moveDiver, planToText, rosterToDivers, setDepth, setKind } from './palanqueeEdit';
+import { addPalanquee, assignGuide, buddyPairs, chooseLevel, deletePalanquee, levelChoice, moveDiver, planToText, rosterToDivers, setDepth, setKind } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
@@ -112,4 +112,27 @@ test('niveau forcé : équivalent FFESSM retenu, niveau d’origine gardé en vu
   assert.equal(f!.pe, 20);
   assert.equal(levelChoice(settings, 'p'), 'FN2');
   assert.deepEqual(chooseLevel(settings, 'p', ''), { levels: {}, training: {} });
+});
+
+test('supprimer une palanquée libère tout le monde ; en créer une vide, même sans génération', () => {
+  const divers = rosterToDivers([entry('g', 'G G', ['N4']), entry('a', 'A A', ['N1']), entry('b', 'B B', ['N1'])]);
+  let plan = proposePalanquees(divers);
+  const p = plan.palanquees[0]!;
+  plan = deletePalanquee(plan, p.id);
+  assert.equal(plan.palanquees.length, 0);
+  assert.deepEqual(plan.unassigned.map((u) => u.diver.id).sort(), ['a', 'b', 'g']);
+
+  plan = addPalanquee(plan, divers);
+  const empty = plan.palanquees[0]!;
+  assert.ok(validate(empty).length > 0, 'vide : bloque la validation');
+  plan = assignGuide(plan, empty.id, divers[0]!);
+  plan = moveDiver(plan, divers[1]!, empty.id);
+  plan = moveDiver(plan, divers[2]!, empty.id);
+  assert.deepEqual(validate(plan.palanquees[0]!), []);
+  assert.equal(plan.unassigned.length, 0);
+
+  // Composition entièrement à la main : tout le monde part des disponibles.
+  const scratch = addPalanquee(null, divers, 'autonomous');
+  assert.equal(scratch.palanquees.length, 1);
+  assert.equal(scratch.unassigned.length, 3);
 });
