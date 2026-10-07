@@ -91,6 +91,11 @@ export interface Diver extends Aptitudes {
   labels: string[];
   /** Mineur, si on le sait : interdit en palanquée autonome. */
   minor?: boolean;
+  /**
+   * Niveaux VPDive d'origine quand le DP a retenu un équivalent à la main
+   * (brevet PADI ou SSI ramené à une prérogative FFESSM…), pour les garder en vue.
+   */
+  original?: string[];
   /** Pour la fiche de sécurité (colonnes NOM / PRÉNOM). */
   firstname?: string;
   lastname?: string;
@@ -500,7 +505,10 @@ function guidedGroups(divers: Diver[], guideCount: number, outingMax: Depth, dep
  *      moins (un E1 n'encadre que des débutants, 0-6 m). S'il manque des
  *      encadrants, on réunit des niveaux et la palanquée prend la prérogative du
  *      moins formé : un PE-40 plonge alors à 20 m avec des N1.
- *   4. Les encadrants restants plongent en autonomie, avec les autonomes de leur niveau.
+ *   4. Avec plusieurs encadrants, on fait des palanquées plus petites plutôt que
+ *      d'en mettre plusieurs ensemble : les encadrants en trop dédoublent les
+ *      palanquées encadrées, puis plongent en autonomie, un par palanquée autant
+ *      que possible, avec les autonomes du plus haut niveau.
  *   5. Les binômes demandés sont réunis quand un échange garde tout conforme.
  */
 export function proposePalanquees(divers: Diver[], opts: PlanOptions = {}): Plan {
@@ -522,12 +530,14 @@ export function proposePalanquees(divers: Diver[], opts: PlanOptions = {}): Plan
 
   let free = assignTeaching(trainees, guides, outingMax, palanquees, unassigned);
   free = assignGuided(guided, free, outingMax, palanquees, unassigned);
+  free = splitWithSpareInstructors(palanquees, free, outingMax);
 
+  const spare: Diver[] = [];
   for (const g of free) {
-    if (g.pa) autonomous.push(g);
+    if (g.pa) spare.push(g);
     else unassigned.push({ diver: g, reason: 'Encadrant sans palanquée à encadrer et sans aptitude d’autonomie connue.' });
   }
-  groupAutonomous(autonomous, outingMax, palanquees, unassigned);
+  groupAutonomous(autonomous, spare, outingMax, palanquees, unassigned);
 
   for (const [a, b] of opts.buddies ?? []) joinBuddies(palanquees, a, b, outingMax);
   return { palanquees, unassigned };
@@ -576,11 +586,77 @@ function assignGuided(divers: Diver[], guides: Diver[], outingMax: Depth, out: P
 }
 
 /**
+ * Encadrants en trop : plutôt que de les mettre ensemble en autonomie, ils
+ * dédoublent les palanquées encadrées ou de formation de 2 plongeurs ou plus
+ * (la plus grande d'abord). L'encadrant en place garde la moitié la plus
+ * profonde, le nouveau prend l'autre s'il en a la prérogative.
+ */
+function splitWithSpareInstructors(out: Palanquee[], free: Diver[], outingMax: Depth): Diver[] {
+  const spare = [...free];
+  const isGp = (g: Diver) => GUIDE_RANK[g.guide!] >= GUIDE_RANK.GP;
+  for (let changed = true; changed && spare.length; ) {
+    changed = false;
+    const candidates = out.filter((p) => p.kind !== 'autonomous' && p.guide && p.members.length >= 2).sort((a, b) => b.members.length - a.members.length);
+    for (const p of candidates) {
+      const depthFn = p.kind === 'teaching' ? teachingDepthOf : guidedDepthOf;
+      const need = (g: Diver[]) => minDepth(outingMax, Math.min(...g.map((d) => depthFn(d) || 6)) as Depth);
+      const fits = (ins: Diver, g: Diver[]) =>
+        p.kind === 'teaching'
+          ? ins.teach > 0 && TEACH_MAX_DEPTH[ins.teach as 1] >= need(g)
+          : (isGp(ins) || need(g) === 6) && GUIDE_MAX_DEPTH[ins.guide!] >= need(g);
+      const sorted = [...p.members].sort((a, b) => (depthFn(b) || 0) - (depthFn(a) || 0) || byName(a, b));
+      const [deep, shallow] = balancedChunks(sorted, 2) as [Diver[], Diver[]];
+      const pick = spare.filter((i) => fits(i, shallow)).sort((a, b) => GUIDE_RANK[a.guide!] - GUIDE_RANK[b.guide!] || a.teach - b.teach)[0];
+      if (!pick || !fits(p.guide!, deep)) continue;
+      p.members = deep;
+      out.push({ id: newId(), kind: p.kind, guide: pick, extra: null, members: shallow });
+      spare.splice(spare.indexOf(pick), 1);
+      changed = true;
+      break;
+    }
+  }
+  return spare;
+}
+
+/**
+ * Palanquées autonomes. Sans encadrant en trop : par prérogative (PA-60,
+ * PA-40, PA-20…), 2 ou 3 par palanquée. Avec des encadrants en trop : des
+ * palanquées de 2 (une de 3 si le nombre est impair), avec au plus un encadrant
+ * chacune quand c'est possible ; les encadrants vont avec les autonomes du plus
+ * haut niveau, pour ne brider personne.
+ */
+function groupAutonomous(autos: Diver[], instructors: Diver[], outingMax: Depth, out: Palanquee[], unassigned: Plan['unassigned']) {
+  const tierOf = (d: Diver) => minDepth(outingMax, d.pa as Depth);
+  const byTierDesc = (a: Diver, b: Diver) => tierOf(b) - tierOf(a) || byName(a, b);
+  const A = [...autos].sort(byTierDesc);
+  const I = [...instructors].sort(byTierDesc);
+  const total = A.length + I.length;
+  if (!I.length || total < 2) return groupByTier([...A, ...I], outingMax, out, unassigned);
+
+  const k = Math.floor(total / 2);
+  if (I.length >= k) {
+    // Chaque palanquée a son encadrant ; les autonomes s'y répartissent, puis les encadrants restants.
+    const groups: Diver[][] = Array.from({ length: k }, () => [I.shift()!]);
+    A.forEach((a, i) => groups[i % k]!.push(a));
+    const instructorsIn = (g: Diver[]) => g.filter((d) => d.guide).length;
+    for (const ins of I) {
+      const target = groups.find((g) => g.length < 2) ?? [...groups].filter((g) => g.length < 3).sort((a, b) => instructorsIn(a) - instructorsIn(b))[0]!;
+      target.push(ins);
+    }
+    for (const g of groups) out.push({ id: newId(), kind: 'autonomous', guide: null, extra: null, members: g });
+    return;
+  }
+  // Moins d'encadrants que de palanquées : chacun fait binôme avec un autonome du plus haut niveau.
+  for (const ins of I) out.push({ id: newId(), kind: 'autonomous', guide: null, extra: null, members: [ins, A.shift()!] });
+  groupByTier(A, outingMax, out, unassigned);
+}
+
+/**
  * Autonomes par prérogative (PA-60, PA-40, PA-20, PA-12, plafonnée à la
  * profondeur automatique), 2 ou 3 par palanquée. Un plongeur seul à son niveau
  * descend au niveau suivant : sa palanquée prend la prérogative la plus basse.
  */
-function groupAutonomous(pool: Diver[], outingMax: Depth, out: Palanquee[], unassigned: Plan['unassigned']) {
+function groupByTier(pool: Diver[], outingMax: Depth, out: Palanquee[], unassigned: Plan['unassigned']) {
   const tierOf = (d: Diver) => minDepth(outingMax, d.pa as Depth);
   let carry: Diver[] = [];
   for (const depth of [60, 40, 20, 12] as Depth[]) {

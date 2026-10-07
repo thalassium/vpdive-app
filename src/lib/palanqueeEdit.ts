@@ -7,21 +7,39 @@ import { aptitudesFromLabels, aptLabel, GUIDE_LABEL, KIND_LABEL, prerogativeLabe
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
-/** Niveau choisi à la main par l'admin quand VPDive n'en donne pas, ou pour corriger. */
-export const LEVEL_OVERRIDES = ['Débutant', 'PE12', 'N1', 'PA20', 'N2', 'PE40', 'N3', 'GP / N4', 'E1 · Initiateur', 'E2', 'MF1', 'MF2'] as const;
-/** Formation en cours, notée FN# (FN1 = vers le N1…). */
+/**
+ * Niveau retenu à la main par le DP, quand VPDive n'en donne pas ou pour donner
+ * un équivalent FFESSM à un brevet d'une autre école (PADI, SSI…). FN1 à FN4 :
+ * en formation vers ce niveau ; le niveau actuel reste celui de VPDive.
+ */
+export const LEVEL_OVERRIDES = ['Débutant', 'PE12', 'N1', 'PA20', 'N2', 'PE40', 'PA40', 'N3', 'GP / N4', 'E1 · Initiateur', 'E2', 'MF1', 'MF2'] as const;
 export const TRAINING_OPTIONS = ['FN1', 'FN2', 'FN3', 'FN4'] as const;
 
 export interface DiverSettings {
-  /** id → niveau choisi à la main (remplace ceux de VPDive) */
+  /** id → niveau retenu à la main (remplace ceux de VPDive, qui restent affichés) */
   levels?: Record<string, string>;
-  /** id → formation en cours (FN1…FN4) */
+  /** id → formation en cours (FN1…FN4), en plus du niveau */
   training?: Record<string, string>;
+}
+
+/** Valeur unique du menu de niveau : la formation si elle est choisie, sinon le niveau retenu. */
+export const levelChoice = (settings: DiverSettings, id: string) => settings.training?.[id] ?? settings.levels?.[id] ?? '';
+
+/** Applique un choix du menu de niveau (un niveau, une formation FN#, ou '' pour revenir à VPDive). */
+export function chooseLevel(settings: DiverSettings, id: string, value: string): DiverSettings {
+  const levels = { ...(settings.levels ?? {}) };
+  const training = { ...(settings.training ?? {}) };
+  delete levels[id];
+  delete training[id];
+  if ((TRAINING_OPTIONS as readonly string[]).includes(value)) training[id] = value;
+  else if (value) levels[id] = value;
+  return { ...settings, levels, training };
 }
 
 export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = {}): Diver[] {
   return roster.map((r) => {
-    const base = settings.levels?.[r.id] ? [settings.levels[r.id]!] : r.levels;
+    const forced = settings.levels?.[r.id];
+    const base = forced ? [forced] : r.levels;
     const fn = settings.training?.[r.id];
     // Les « prépas » VPDive comptent aussi : « Prépa N2 » vaut FN2.
     const labels = [...base, ...(fn ? [fn] : r.training)];
@@ -31,6 +49,7 @@ export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = 
       firstname: r.firstname,
       lastname: r.lastname,
       labels: fn ? [...base, fn] : base,
+      ...(forced ? { original: r.levels } : {}),
       minor: r.age !== null && r.age < 18,
       ...aptitudesFromLabels(labels),
     };

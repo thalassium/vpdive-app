@@ -312,3 +312,37 @@ test('nom du niveau trouvé, prérogative la plus haute', () => {
   assert.equal(name('P1-ANMP'), 'N1');
   assert.equal(name('PADI - AOW'), '');
 });
+
+test('plusieurs encadrants : des palanquées plus petites, un encadrant chacune', () => {
+  const plan = proposePalanquees([diver('G1', 'N4'), diver('G2', 'N4'), diver('G3', 'N4'), ...['a', 'b', 'c', 'd'].map((n) => diver(n, 'N1'))]);
+  const instructorsIn = (p: Palanquee) => [p.guide, p.extra, ...p.members].filter((d) => d?.guide).length;
+  assert.equal(plan.palanquees.length, 3);
+  assert.ok(plan.palanquees.every((p) => p.kind === 'guided' && instructorsIn(p) === 1));
+  assert.equal(plan.unassigned.length, 0);
+});
+
+test('encadrants en surnombre en autonomie : répartis, jamais tous ensemble', () => {
+  // Cas réel du 8 octobre : 5 encadrants et 2 N3.
+  const plan = proposePalanquees([diver('E3a', 'MF1'), diver('GPa', 'N4'), diver('E2', 'E2'), diver('E3b', 'MF1'), diver('GPb', 'N4'), diver('N3a', 'N3'), diver('N3b', 'N3')]);
+  const instructorsIn = (p: Palanquee) => p.members.filter((d) => d.guide).length;
+  assert.equal(plan.palanquees.length, 3);
+  assert.ok(plan.palanquees.every((p) => instructorsIn(p) <= 2), plan.palanquees.map((p) => p.members.map((m) => m.name).join('+')).join(' / '));
+  assert.ok(plan.palanquees.every((p) => p.members.length >= 2 && p.members.length <= 3));
+  const n3 = plan.palanquees.filter((p) => p.members.some((m) => m.name.startsWith('N3')));
+  assert.equal(n3.length, 2, 'chaque N3 fait binôme avec un encadrant');
+});
+
+test('la prérogative d’une palanquée ne dépasse jamais celle du moins formé', () => {
+  const own = (d: Diver, p: Palanquee) => (p.kind === 'autonomous' ? d.pa : p.kind === 'teaching' && d.training ? 60 : d.pe || (d.beginner ? 6 : 0));
+  const scenarios = [
+    [diver('G', 'N4'), diver('A', 'PE40'), diver('B', 'N1'), diver('C', 'N2'), diver('D', 'N3'), diver('E', 'PA40')],
+    [diver('M', 'MF1'), diver('F', 'P1', 'FN2'), diver('X', 'N2'), diver('Y', 'N2'), diver('Z', 'N3')],
+    [diver('E1', 'Initiateur', 'N2'), diver('Deb', 'Débutant'), diver('G', 'N4'), diver('K', 'N1'), diver('L', 'PE40')],
+  ];
+  for (const divers of scenarios) {
+    for (const p of proposePalanquees(divers).palanquees) {
+      const floor = Math.min(...p.members.map((m) => own(m, p)));
+      assert.ok(chosenDepth(p) <= floor, `${prerogativeLabel(p)} > ${floor} pour ${p.members.map((m) => m.name).join(',')}`);
+    }
+  }
+});

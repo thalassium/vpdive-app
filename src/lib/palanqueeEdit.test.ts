@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { proposePalanquees, validate } from './palanquees';
-import { assignGuide, buddyPairs, moveDiver, planToText, rosterToDivers, setDepth, setKind } from './palanqueeEdit';
+import { assignGuide, buddyPairs, chooseLevel, levelChoice, moveDiver, planToText, rosterToDivers, setDepth, setKind } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
@@ -95,4 +95,21 @@ test('profondeur et type changés à la main', () => {
   assert.deepEqual(validate(plan.palanquees[0]!), []);
   plan = setKind(plan, id, 'teaching');
   assert.ok(validate(plan.palanquees[0]!).length > 0, 'pas d’enseignant parmi deux N3');
+});
+
+test('niveau forcé : équivalent FFESSM retenu, niveau d’origine gardé en vue', () => {
+  const padi = entry('p', 'WAVE Sam', ['PADI - AOW']);
+  let settings = chooseLevel({}, 'p', 'N2');
+  const [d] = rosterToDivers([padi], settings);
+  assert.equal(d!.pa, 20);
+  assert.deepEqual(d!.original, ['PADI - AOW']);
+  assert.equal(levelChoice(settings, 'p'), 'N2');
+
+  // FN# dans le même menu : formation, le niveau VPDive est gardé.
+  settings = chooseLevel(settings, 'p', 'FN2');
+  const [f] = rosterToDivers([entry('q', 'X Y', ['P1'])], chooseLevel({}, 'q', 'FN2'));
+  assert.equal(f!.training, 2);
+  assert.equal(f!.pe, 20);
+  assert.equal(levelChoice(settings, 'p'), 'FN2');
+  assert.deepEqual(chooseLevel(settings, 'p', ''), { levels: {}, training: {} });
 });
