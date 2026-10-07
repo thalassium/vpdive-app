@@ -162,10 +162,27 @@ export interface EventDetail {
   /** Why VPDive refuses a registration, e.g. "registration too late". */
   refusalReasons: string[];
   canUnregister: boolean;
+  /**
+   * The member may change their registration (role, gear, message): a per-outing
+   * club setting in VPDive (« Modification d'inscription », with a time window).
+   */
+  canModify: boolean;
+  /** The member's current registration, to pre-fill the form when changing it. */
+  myRegistration: MyRegistration | null;
   /** The event asks extra questions we do not render: book on VPDive instead. */
   requiresExtraForm: boolean;
   /** The member's own cart for this event, when registered. */
   myCart: { amount: number; paid: boolean } | null;
+}
+
+export interface MyRegistration {
+  /** Key in `roles` (« diver » or a role token), null when none matches. */
+  roleKey: string | null;
+  tariffToken: string | null;
+  people: number;
+  comment: string;
+  /** Rented gear, matched to `materials` by name (VPDive lists it as « 1 Combinaison »). */
+  gear: { id: number; choiceId: string | null }[];
 }
 
 export interface BookingRequest {
@@ -500,8 +517,11 @@ class VpDiveClient {
    *
    * Per the spec: 409 = already registered, 400 = incomplete form, and the 200
    * body says whether the member landed on the waiting list.
+   *
+   * Changing a registration is the same call (VPDive's web app re-posts the
+   * whole form with action « or » when the outing allows modification).
    */
-  async register(b: BookingRequest): Promise<{ message: string; waitingList: boolean }> {
+  async register(b: BookingRequest, opts: { modification?: boolean } = {}): Promise<{ message: string; waitingList: boolean }> {
     const f = new FormData();
     const field = (name: string, value: string) =>
       f.append(`front_calendarbundle_calendar_material[${name}]`, value);
@@ -532,7 +552,10 @@ class VpDiveClient {
       };
     } catch (e) {
       if (e instanceof VpDiveError && e.status === 409) {
-        throw new VpDiveError('Vous êtes déjà inscrit à cette sortie.', 409);
+        throw new VpDiveError(
+          opts.modification ? 'VPDive refuse la modification : elle n’est peut-être plus ouverte pour cette sortie.' : 'Vous êtes déjà inscrit à cette sortie.',
+          409,
+        );
       }
       throw e;
     }
@@ -790,8 +813,41 @@ function mapDetail(token: string, data: Json, ev: Json, userId: number | null): 
     canRegister: can.allow === true,
     refusalReasons,
     canUnregister: data.can_unregister === true,
+    canModify: data.can_modification === true,
+    myRegistration: myRegistration(obj(obj(data.user_registered)?.[String(userId)]), roles, tariffs, materials),
     requiresExtraForm,
     myCart: mine ? { amount: num(mine.amount) ?? 0, paid: mine.payed === true } : null,
+  };
+}
+
+/**
+ * The member's entry in `user_registered`: role token(s), tariff token, places,
+ * message, and rented gear as display lines (« 1 Gilet stabilisateur »).
+ */
+export function myRegistration(u: Json | null, roles: RoleOption[], tariffs: TariffOption[], materials: MaterialOption[]): MyRegistration | null {
+  if (!u) return null;
+  const roleTokens = (Array.isArray(u.roles_token) ? u.roles_token : []).map((r) => str(obj(r)?.role_token)).filter(Boolean);
+  const roleKey = roles.find((r) => roleTokens.includes(r.key))?.key ?? (roles.some((r) => r.key === 'diver') ? 'diver' : null);
+  const tariff = str(u.tariff_plan_token);
+  const flatName = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const gear: MyRegistration['gear'] = [];
+  for (const line of Array.isArray(u.material) ? u.material : []) {
+    // « 1 Combinaison », or with a variant « 1 Combinaison - M » / « 1 Combinaison (M) »
+    const text = flatName(str(line).replace(/^\s*\d+\s*x?\s*/i, ''));
+    const m = [...materials].sort((a, b) => b.name.length - a.name.length).find((x) => text.startsWith(flatName(x.name)));
+    if (!m || gear.some((g) => g.id === m.id)) continue;
+    // The variant is a whole word after the name: « M » must not match « XL - Medium ».
+    const words = (x: string) => ` ${flatName(x).replace(/[^a-z0-9]+/g, ' ').trim()} `;
+    const rest = words(text.slice(flatName(m.name).length));
+    const choice = [...m.choices].sort((a, b) => b.name.length - a.name.length).find((c) => rest.includes(words(c.name)));
+    gear.push({ id: m.id, choiceId: choice?.id ?? null });
+  }
+  return {
+    roleKey,
+    tariffToken: tariffs.some((t) => t.token === tariff) ? tariff : null,
+    people: Math.max(1, num(u.people) ?? 1),
+    comment: str(u.comment),
+    gear,
   };
 }
 

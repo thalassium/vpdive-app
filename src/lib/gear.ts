@@ -46,3 +46,31 @@ export function composeComment(comment: string, sizes: { label: string; size: st
   if (buddy?.trim()) lines.push(`Binôme souhaité : ${buddy.trim()}`);
   return lines.filter(Boolean).join('\n');
 }
+
+/**
+ * L'inverse de composeComment, pour modifier une inscription : le message du
+ * plongeur, les tailles et le binôme repris de ce que VPDive a enregistré.
+ */
+export function parseComment(text: string): { comment: string; sizes: Partial<Record<SizedKind, Size>>; buddy: string } {
+  const sizes: Partial<Record<SizedKind, Size>> = {};
+  let buddy = '';
+  const rest: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const b = /^\s*Binôme souhaité\s*:\s*(.+)$/i.exec(line);
+    if (b) {
+      buddy = b[1]!.trim();
+      continue;
+    }
+    const parts = line.split(' · ').map((p) => /^\s*Taille (.+?)\s*:\s*(\S+)\s*$/i.exec(p));
+    if (parts.length && parts.every(Boolean)) {
+      for (const m of parts) {
+        const kind = SIZED_KINDS.find((k) => SIZED_LABEL[k].toLowerCase() === m![1]!.toLowerCase());
+        const size = SIZES.find((s) => s === m![2]!.toUpperCase());
+        if (kind && size) sizes[kind] = size;
+      }
+      continue;
+    }
+    rest.push(line);
+  }
+  return { comment: rest.join('\n').trim(), sizes, buddy };
+}

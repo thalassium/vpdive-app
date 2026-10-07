@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, ChevronDown, Users } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, Pencil, Users } from 'lucide-react';
 import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption } from '../services/vpdiveApi';
 import { CompassRose } from './SeaBackdrop';
 import { BuddyField } from './BuddyField';
-import { SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, sizedKinds, type Size, type SizedKind } from '../lib/gear';
+import { SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Size, type SizedKind } from '../lib/gear';
 
 const VPDIVE_EVENT_URL = (token: string) => `https://septentrion-env.vpdive.com/app/activities/${token}`;
 
@@ -36,6 +36,8 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const [people, setPeople] = useState(1);
   const [comment, setComment] = useState('');
   const [buddy, setBuddy] = useState('');
+  /** Changing an existing registration: the form is shown again, pre-filled. */
+  const [editing, setEditing] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
@@ -61,6 +63,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       setChoiceOf({});
       setKindSize({});
       setPeople(1);
+      setEditing(false);
     } catch (e) {
       if (id !== loadRequest.current || onSessionLost(e)) return;
       setLoadError(e instanceof Error ? e.message : 'Impossible de charger la sortie.');
@@ -100,6 +103,24 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
     } finally {
       if (id === priceRequest.current) setPricesLoading(false);
     }
+  };
+
+  /** Opens the form on the member's current registration, as VPDive recorded it. */
+  const startEdit = () => {
+    const r = detail?.myRegistration;
+    if (!detail || !r) return;
+    const parsed = parseComment(r.comment);
+    setTariffToken(r.tariffToken ?? detail.tariffs[0]?.token ?? null);
+    setPeople(r.people);
+    setGear(Object.fromEntries(r.gear.map((g) => [g.id, true])));
+    setChoiceOf(Object.fromEntries(r.gear.filter((g) => g.choiceId).map((g) => [g.id, g.choiceId!])));
+    setKindSize(parsed.sizes);
+    setComment(parsed.comment);
+    setBuddy(parsed.buddy);
+    setStatus({ kind: 'idle' });
+    setEditing(true);
+    if (r.roleKey) void chooseRole(r.roleKey);
+    else setRoleKey(null);
   };
 
   /**
@@ -148,25 +169,29 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!detail || roleRequired || sizeMissing || detail.alreadyRegistered || !detail.canRegister || detail.requiresExtraForm) return;
+    if (!detail || roleRequired || sizeMissing || detail.requiresExtraForm) return;
+    if (editing ? !detail.canModify : detail.alreadyRegistered || !detail.canRegister) return;
     setBusy(true);
     setStatus({ kind: 'idle' });
     try {
-      const res = await vpdive.register({
-        eventToken: detail.token,
-        roleKey,
-        tariffToken,
-        people,
-        comment: composeComment(comment, booking.commentSizes, buddy),
-        materials: booking.materials,
-        choices: booking.choices,
-      });
-      setStatus({ kind: 'success', text: res.message });
+      const res = await vpdive.register(
+        {
+          eventToken: detail.token,
+          roleKey,
+          tariffToken,
+          people,
+          comment: composeComment(comment, booking.commentSizes, buddy),
+          materials: booking.materials,
+          choices: booking.choices,
+        },
+        { modification: editing },
+      );
+      setStatus({ kind: 'success', text: editing ? 'Votre inscription est modifiée sur VPDive.' : res.message });
       onChanged();
       await load(); // show the registered state as VPDive now reports it
     } catch (err) {
       if (onSessionLost(err)) return;
-      setStatus({ kind: 'error', text: err instanceof Error ? err.message : 'Inscription impossible.' });
+      setStatus({ kind: 'error', text: err instanceof Error ? err.message : editing ? 'Modification impossible.' : 'Inscription impossible.' });
     } finally {
       setBusy(false);
     }
@@ -194,7 +219,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const start = detail?.start || event.start;
   const end = detail?.end || event.end;
   const location = detail?.location || event.location;
-  const showForm = !!detail && !detail.alreadyRegistered && !detail.requiresExtraForm && detail.canRegister;
+  const showForm = !!detail && !detail.requiresExtraForm && (editing ? detail.canModify : !detail.alreadyRegistered && detail.canRegister);
   let step = 0;
 
   return (
@@ -272,20 +297,12 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 
             {detail && (
               <>
-                {detail.description && (
-                  <details className="group rounded-xl bg-raised px-4 py-3">
-                    <summary className="cursor-pointer text-sm font-semibold text-brand select-none list-none flex items-center justify-between">
-                      Description de la sortie
-                      <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <p className="mt-3 font-serif text-[15px] text-ink/90 whitespace-pre-line leading-relaxed">{detail.description}</p>
-                  </details>
-                )}
+                {detail.description && <Description text={detail.description} />}
 
                 <StatusBanner status={status} />
 
-                {detail.alreadyRegistered ? (
-                  <RegisteredPanel detail={detail} busy={busy} onCancel={cancel} />
+                {detail.alreadyRegistered && !editing ? (
+                  <RegisteredPanel detail={detail} busy={busy} onCancel={cancel} onEdit={startEdit} />
                 ) : detail.requiresExtraForm ? (
                   <Notice tone="info" title="Informations complémentaires demandées">
                     Cette sortie demande de remplir un formulaire spécifique. L’inscription se fait directement sur VPDive.{' '}
@@ -293,12 +310,28 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                       S’inscrire sur VPDive
                     </a>
                   </Notice>
-                ) : !detail.canRegister ? (
+                ) : !detail.canRegister && !editing ? (
                   <Notice tone="warn" title="Inscription impossible">
                     {detail.refusalReasons.length ? detail.refusalReasons.join(' ') : 'VPDive n’autorise pas l’inscription à cette sortie pour le moment.'}
                   </Notice>
                 ) : (
                   <>
+                    {editing && (
+                      <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-tint text-sm">
+                        <span className="flex items-center gap-2 font-semibold text-brand">
+                          <Pencil className="w-4 h-4" /> Modification de votre inscription
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void load()}
+                          disabled={busy}
+                          className="font-semibold text-muted hover:text-ink underline underline-offset-2"
+                        >
+                          Annuler
+                        </button>
+                      </div>
+                    )}
+
                     {/* Role */}
                     {detail.roles.length > 0 && (
                       <section>
@@ -437,7 +470,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                       </div>
                     </section>
 
-                    {event.availableSpots === 0 && (
+                    {event.availableSpots === 0 && !editing && (
                       <Notice tone="warn" title="Sortie complète">
                         {event.hasWaitingList ? 'Votre demande sera placée sur liste d’attente.' : 'VPDive indique qu’il ne reste plus de place.'}
                       </Notice>
@@ -480,12 +513,16 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                 className="flex-1 sm:flex-none sm:ml-auto px-6 py-3.5 rounded-xl bg-fill hover:bg-fill-hover active:scale-[0.99] text-white text-base font-semibold transition-colors disabled:opacity-50"
               >
                 {busy
-                  ? 'Inscription…'
+                  ? editing
+                    ? 'Enregistrement…'
+                    : 'Inscription…'
                   : roleRequired
                     ? 'Choisissez votre rôle'
                     : sizeMissing
                       ? `Choisir la taille : ${sizeMissing}`
-                      : 'Confirmer l’inscription'}
+                      : editing
+                        ? 'Enregistrer les modifications'
+                        : 'Confirmer l’inscription'}
               </button>
             </div>
           )}
@@ -573,32 +610,110 @@ function ChoiceCard({
   );
 }
 
-function RegisteredPanel({ detail, busy, onCancel }: { detail: EventDetail; busy: boolean; onCancel: () => void }) {
+function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDetail; busy: boolean; onCancel: () => void; onEdit: () => void }) {
+  const r = detail.myRegistration;
+  // « Directeur de plongée (0€) » → « Directeur de plongée »
+  const role = r?.roleKey ? detail.roles.find((x) => x.key === r.roleKey)?.label.replace(/\s*\(.*\)\s*$/, '') : null;
+  const gear = (r?.gear ?? []).flatMap((g) => {
+    const m = detail.materials.find((x) => x.id === g.id);
+    const choice = m?.choices.find((c) => c.id === g.choiceId);
+    return m ? [`${m.name.trim()}${choice ? ` (${choice.name})` : ''}`] : [];
+  });
+  const { sizes, buddy } = parseComment(r?.comment ?? '');
+  const sizeText = SIZED_KINDS.filter((k) => sizes[k]).map((k) => `${SIZED_LABEL[k].toLowerCase()} ${sizes[k]}`);
+  const canEdit = detail.canModify && !detail.requiresExtraForm && !!r;
   return (
     <div className="p-4 rounded-xl bg-ok-soft border border-green/40 text-sm space-y-3">
       <p className="flex items-center gap-2 font-semibold text-base text-ok">
         <CheckCircle2 className="w-5 h-5" />
         Vous êtes inscrit à cette sortie
       </p>
+      {r && (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-ink">
+          {role && <SummaryRow label="Rôle">{role}</SummaryRow>}
+          <SummaryRow label="Matériel">
+            {gear.length ? gear.join(', ') : 'aucune location'}
+            {sizeText.length > 0 && <span className="text-muted"> · taille {sizeText.join(', ')}</span>}
+          </SummaryRow>
+          {buddy && <SummaryRow label="Binôme">{buddy}</SummaryRow>}
+        </dl>
+      )}
       {detail.myCart && (
         <p className="text-ink">
           Montant : <strong className="tabular-nums">{formatEuro(detail.myCart.amount)}</strong> ·{' '}
           {detail.myCart.paid ? 'réglé' : 'à régler sur VPDive'}
         </p>
       )}
-      {detail.canUnregister ? (
+      {(canEdit || detail.canUnregister) && (
+        <div className="flex flex-col sm:flex-row gap-2">
+          {canEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              disabled={busy}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-fill hover:bg-fill-hover text-white font-semibold disabled:opacity-50 transition-colors"
+            >
+              <Pencil className="w-4 h-4" /> Modifier mon inscription
+            </button>
+          )}
+          {detail.canUnregister && (
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={busy}
+              className="px-5 py-2.5 rounded-lg bg-surface text-danger border border-danger/30 hover:bg-danger-soft font-semibold disabled:opacity-50 transition-colors"
+            >
+              {busy ? 'Désinscription…' : 'Me désinscrire'}
+            </button>
+          )}
+        </div>
+      )}
+      {!canEdit && <p className="text-muted">Le club n’a pas ouvert la modification d’inscription pour cette sortie.</p>}
+      {!detail.canUnregister && <p className="text-muted">La désinscription n’est plus possible en ligne : contactez le club.</p>}
+    </div>
+  );
+}
+
+function SummaryRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted">{label}</dt>
+      <dd className="min-w-0">{children}</dd>
+    </>
+  );
+}
+
+/** Description de la sortie : trois lignes, puis « Voir plus » quand elle est plus longue. */
+function Description({ text }: { text: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [open, setOpen] = useState(false);
+  const [long, setLong] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || open) return;
+    const measure = () => setLong(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text, open]);
+  return (
+    <section className="rounded-xl bg-raised px-4 py-3">
+      <h3 className="text-sm font-semibold text-brand mb-1.5">Description de la sortie</h3>
+      <p ref={ref} className={`font-serif text-[15px] text-ink/90 whitespace-pre-line leading-relaxed ${open ? '' : 'line-clamp-3'}`}>
+        {text}
+      </p>
+      {(long || open) && (
         <button
           type="button"
-          onClick={onCancel}
-          disabled={busy}
-          className="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-surface text-danger border border-danger/30 hover:bg-danger-soft font-semibold disabled:opacity-50 transition-colors"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="mt-1 text-sm font-semibold text-brand underline underline-offset-2"
         >
-          {busy ? 'Désinscription…' : 'Me désinscrire'}
+          {open ? 'Voir moins' : 'Voir plus…'}
         </button>
-      ) : (
-        <p className="text-muted">La désinscription n’est plus possible en ligne : contactez le club.</p>
       )}
-    </div>
+    </section>
   );
 }
 
