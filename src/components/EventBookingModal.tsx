@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, ChevronDown } from 'lucide-react';
+import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, ChevronDown, Users } from 'lucide-react';
 import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption } from '../services/vpdiveApi';
+import { CompassRose } from './SeaBackdrop';
+import { BuddyField } from './BuddyField';
+import { SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, sizedKinds, type Size, type SizedKind } from '../lib/gear';
 
 const VPDIVE_EVENT_URL = (token: string) => `https://septentrion-env.vpdive.com/app/activities/${token}`;
 
@@ -11,11 +14,13 @@ interface Props {
   onChanged: () => void;
   /** Returns true when the error was an expired session (the app then shows the login page). */
   onSessionLost: (e: unknown) => boolean;
+  /** Admin mode only: opens the palanquées screen for this outing. */
+  onOpenPalanquees?: () => void;
 }
 
 type Status = { kind: 'idle' } | { kind: 'success'; text: string } | { kind: 'error'; text: string };
 
-export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: Props) {
+export function EventBookingModal({ event, onClose, onChanged, onSessionLost, onOpenPalanquees }: Props) {
   const [detail, setDetail] = useState<EventDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -24,8 +29,13 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: 
   const [pricesLoading, setPricesLoading] = useState(false);
   const [tariffToken, setTariffToken] = useState<string | null>(null);
   const [gear, setGear] = useState<Record<number, boolean>>({});
+  /** material id → VPDive choice id, for items with club-defined variants */
+  const [choiceOf, setChoiceOf] = useState<Record<number, string>>({});
+  /** standard size (XXS…3XL) per kind, for wetsuits and BCDs without VPDive variants */
+  const [kindSize, setKindSize] = useState<Partial<Record<SizedKind, Size>>>({});
   const [people, setPeople] = useState(1);
   const [comment, setComment] = useState('');
+  const [buddy, setBuddy] = useState('');
 
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
@@ -48,6 +58,8 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: 
       // Same default as VPDive: plain "diver" when offered, otherwise no role pre-chosen.
       setRoleKey(d.roles.some((r) => r.key === 'diver') ? 'diver' : null);
       setGear({});
+      setChoiceOf({});
+      setKindSize({});
       setPeople(1);
     } catch (e) {
       if (id !== loadRequest.current || onSessionLost(e)) return;
@@ -98,20 +110,45 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: 
     (m: MaterialOption) => Math.min(m.maxQuantity, detail?.multipleBooking ? people : 1),
     [detail, people],
   );
-  const gearQuantities = useMemo(() => {
-    const q: Record<number, number> = {};
-    for (const m of detail?.materials ?? []) if (gear[m.id]) q[m.id] = quantityFor(m);
-    return q;
-  }, [detail, gear, quantityFor]);
+  const checkedGear = useMemo(() => (detail?.materials ?? []).filter((m) => gear[m.id]), [detail, gear]);
+
+  /**
+   * Sizes to ask for. Items with club-defined variants in VPDive: one choice per
+   * item, sent natively. Otherwise one size per kind (wetsuit, BCD), shared by
+   * every checked item containing it (« Combinaison » and « Pack complet » ask
+   * the wetsuit size once), sent in the message to the club.
+   */
+  const choiceGear = checkedGear.filter((m) => m.choices.length > 0);
+  const neededKinds = SIZED_KINDS.filter((k) => checkedGear.some((m) => m.choices.length === 0 && sizedKinds(m.name).includes(k)));
+  const sizeMissing =
+    choiceGear.find((m) => !choiceOf[m.id])?.name ?? (neededKinds.find((k) => !kindSize[k]) ? SIZED_LABEL[neededKinds.find((k) => !kindSize[k])!].toLowerCase() : null);
+
+  const booking = useMemo(() => {
+    const materials: Record<number, number> = {};
+    const choices: Record<string, number> = {};
+    let gearTotal = 0;
+    for (const m of checkedGear) {
+      const qty = quantityFor(m);
+      const choice = m.choices.find((c) => c.id === choiceOf[m.id]);
+      if (choice) {
+        choices[`${m.id}_${choice.id}`] = qty;
+        gearTotal += choice.price * qty;
+      } else {
+        materials[m.id] = qty;
+        gearTotal += m.price * qty;
+      }
+    }
+    const commentSizes = neededKinds.filter((k) => kindSize[k]).map((k) => ({ label: SIZED_LABEL[k], size: kindSize[k]! }));
+    return { materials, choices, commentSizes, gearTotal };
+  }, [checkedGear, choiceOf, kindSize, neededKinds, quantityFor]);
 
   const tariffPrice = tariffToken != null ? (prices[tariffToken] ?? 0) : 0;
-  const gearTotal = (detail?.materials ?? []).reduce((sum, m) => sum + m.price * (gearQuantities[m.id] ?? 0), 0);
-  const total = tariffPrice * people + gearTotal;
+  const total = tariffPrice * people + booking.gearTotal;
   const roleRequired = (detail?.roles.length ?? 0) > 0 && !roleKey;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!detail || roleRequired || detail.alreadyRegistered || !detail.canRegister || detail.requiresExtraForm) return;
+    if (!detail || roleRequired || sizeMissing || detail.alreadyRegistered || !detail.canRegister || detail.requiresExtraForm) return;
     setBusy(true);
     setStatus({ kind: 'idle' });
     try {
@@ -120,8 +157,9 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: 
         roleKey,
         tariffToken,
         people,
-        comment: comment.trim(),
-        materials: gearQuantities,
+        comment: composeComment(comment, booking.commentSizes, buddy),
+        materials: booking.materials,
+        choices: booking.choices,
       });
       setStatus({ kind: 'success', text: res.message });
       onChanged();
@@ -171,8 +209,11 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: 
         className="relative bg-surface w-full sm:max-w-xl h-dvh sm:h-auto sm:max-h-[92vh] sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-sheet sm:animate-pop"
       >
         {/* Header */}
-        <div className="bg-band text-white px-5 sm:px-6 pt-4 sm:pt-5 pb-4 shrink-0">
-          <div className="flex items-start justify-between gap-3">
+        <div className="relative overflow-hidden bg-band text-white px-5 sm:px-6 pt-4 sm:pt-5 pb-4 shrink-0">
+          <svg aria-hidden className="absolute -right-16 -top-20 w-64 text-white opacity-[0.09] pointer-events-none" viewBox="-100 -100 200 200" fill="none">
+            <CompassRose />
+          </svg>
+          <div className="relative flex items-start justify-between gap-3">
             <div className="min-w-0">
               {event.activity && (
                 <span className="text-xs font-semibold uppercase tracking-wider text-pink block mb-1">{event.activity.name}</span>
@@ -190,7 +231,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: 
               <X className="w-6 h-6" />
             </button>
           </div>
-          <div className="mt-3 space-y-1 text-sm text-white/85">
+          <div className="relative mt-3 space-y-1 text-sm text-white/85">
             <p className="flex items-start gap-2">
               <Clock className="w-4 h-4 text-pink shrink-0 mt-0.5" />
               <span className="first-letter:uppercase">{formatRange(start, end, event.allDay)}</span>
@@ -200,6 +241,16 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: 
               {location || 'Lieu non précisé'}
             </p>
           </div>
+          {onOpenPalanquees && (
+            <button
+              type="button"
+              onClick={onOpenPalanquees}
+              disabled={busy}
+              className="relative mt-3.5 inline-flex items-center gap-2 h-9 px-3.5 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-semibold text-white transition-colors"
+            >
+              <Users className="w-4 h-4 text-pink" /> Palanquées
+            </button>
+          )}
         </div>
 
         <form onSubmit={submit} className="flex-1 flex flex-col min-h-0">
@@ -322,11 +373,31 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: 
                                 <span className={`block text-sm tabular-nums mt-1 ${checked ? 'text-brand font-semibold' : 'text-muted'}`}>
                                   {m.price > 0 ? `+${formatEuro(m.price)}` : 'Inclus'}
                                   {checked && qty > 1 ? ` × ${qty}` : ''}
+                                  {checked && choiceOf[m.id] ? ` · ${m.choices.find((c) => c.id === choiceOf[m.id])?.name ?? ''}` : ''}
                                 </span>
                               </ChoiceCard>
                             );
                           })}
                         </div>
+
+                        {choiceGear.map((m) => (
+                          <SizePicker
+                            key={m.id}
+                            label={sizedKinds(m.name).length ? `${m.name} : votre taille` : `${m.name} : votre choix`}
+                            options={m.choices.map((c) => ({ value: c.id, label: c.name }))}
+                            value={choiceOf[m.id] ?? null}
+                            onChange={(v) => setChoiceOf((prev) => ({ ...prev, [m.id]: v }))}
+                          />
+                        ))}
+                        {neededKinds.map((k) => (
+                          <SizePicker
+                            key={k}
+                            label={`Taille ${SIZED_LABEL[k].toLowerCase()}`}
+                            options={SIZES.map((s) => ({ value: s, label: s }))}
+                            value={kindSize[k] ?? null}
+                            onChange={(v) => setKindSize((prev) => ({ ...prev, [k]: v as Size }))}
+                          />
+                        ))}
                       </section>
                     )}
 
@@ -351,6 +422,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: 
                           </select>
                         </div>
                       )}
+                      <BuddyField value={buddy} onChange={setBuddy} onSessionLost={onSessionLost} />
                       <div>
                         <label htmlFor="comment" className="block text-sm font-semibold text-brand mb-1.5">
                           Message pour le club / le DP <span className="font-normal text-muted">(facultatif)</span>
@@ -404,16 +476,63 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost }: 
               </div>
               <button
                 type="submit"
-                disabled={busy || roleRequired || pricesLoading}
+                disabled={busy || roleRequired || !!sizeMissing || pricesLoading}
                 className="flex-1 sm:flex-none sm:ml-auto px-6 py-3.5 rounded-xl bg-fill hover:bg-fill-hover active:scale-[0.99] text-white text-base font-semibold transition-colors disabled:opacity-50"
               >
-                {busy ? 'Inscription…' : roleRequired ? 'Choisissez votre rôle' : 'Confirmer l’inscription'}
+                {busy
+                  ? 'Inscription…'
+                  : roleRequired
+                    ? 'Choisissez votre rôle'
+                    : sizeMissing
+                      ? `Choisir la taille : ${sizeMissing}`
+                      : 'Confirmer l’inscription'}
               </button>
             </div>
           )}
         </form>
       </div>
     </div>
+  );
+}
+
+
+/** One row of size chips under the gear grid, for a checked wetsuit, BCD or item with club-defined variants. */
+function SizePicker({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  value: string | null;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <fieldset className="mt-4 animate-rise">
+      <legend className="text-sm font-semibold text-brand mb-2">
+        {label} {!value && <span className="font-normal text-warn">· obligatoire</span>}
+      </legend>
+      <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
+        {options.map((o) => {
+          const selected = value === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => onChange(o.value)}
+              className={`min-w-12 h-10 px-3 rounded-lg border-2 text-sm font-semibold tabular-nums transition-colors ${
+                selected ? 'border-brand bg-tint text-brand' : 'border-line bg-surface text-ink hover:border-brand/40'
+              }`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }
 

@@ -1,0 +1,450 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
+import { vpdive, ymd, DP_ROLE, type CalendarEvent, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { appApi, AppApiError, type AppRole } from '../../services/appApi';
+import { newOuting, nextDive, type Dive, type OutingDoc } from '../../lib/outing';
+import { PalanqueesEditor } from './PalanqueesEditor';
+import { SafetySheet } from './SafetySheet';
+
+interface Props {
+  session: Session;
+  role: AppRole;
+  /** Opened from an outing's sheet: go straight to it. */
+  initialEvent?: CalendarEvent | null;
+  onClose: () => void;
+  onSessionLost: (e: unknown) => boolean;
+}
+
+/**
+ * Menu DP : les sorties (celle du jour ou la prochaine en premier), puis pour
+ * la sortie choisie ses plongées, leurs palanquées et la fiche de sécurité.
+ * Admins : toutes les sorties. DP : celles où VPDive l'inscrit « Directeur de plongée ».
+ */
+export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }: Props) {
+  const [events, setEvents] = useState<CalendarEvent[] | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<CalendarEvent | null>(initialEvent ?? null);
+  const closeRef = useRef<() => Promise<void>>(async () => {});
+
+  const loadList = useCallback(async () => {
+    setListError(null);
+    try {
+      const today = new Date();
+      const from = new Date(today);
+      from.setDate(from.getDate() - 14);
+      const to = new Date(today);
+      to.setDate(to.getDate() + 60);
+      let list = await vpdive.fetchEvents(ymd(from), ymd(to));
+      if (role === 'member') {
+        // Pas admin : seulement les sorties où l'on est inscrit comme DP.
+        const mine = list.filter((e) => e.registered);
+        const rosters = await Promise.all(mine.map((e) => vpdive.fetchRoster(e.token).catch(() => [] as RosterEntry[])));
+        list = mine.filter((_, i) => rosters[i]!.some((r) => r.id === String(session.userId) && r.roles.some((x) => DP_ROLE.test(x))));
+      }
+      setEvents(list);
+    } catch (e) {
+      if (onSessionLost(e)) return;
+      setListError(e instanceof Error ? e.message : String(e));
+    }
+  }, [role, session.userId, onSessionLost]);
+
+  useEffect(() => {
+    loadList();
+  }, [loadList]);
+
+  const close = useCallback(async () => {
+    await closeRef.current();
+    onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [close]);
+
+  // Aujourd'hui et à venir d'abord (la plus proche en tête), puis les passées, la plus récente d'abord.
+  const { upcoming, past } = useMemo(() => {
+    const today = ymd(new Date());
+    const all = events ?? [];
+    return {
+      upcoming: all.filter((e) => ymd(new Date(e.start)) >= today).sort((a, b) => a.start.localeCompare(b.start)),
+      past: all.filter((e) => ymd(new Date(e.start)) < today).sort((a, b) => b.start.localeCompare(a.start)),
+    };
+  }, [events]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-black/55 backdrop-blur-[3px] animate-fade print:static print:bg-white print:p-0">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dp-title"
+        className="relative bg-surface w-full sm:max-w-6xl h-dvh sm:h-[94vh] sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-sheet sm:animate-pop print:h-auto print:shadow-none print:overflow-visible"
+      >
+        <div className="bg-band text-white px-5 sm:px-6 py-3.5 shrink-0 flex items-center gap-3 print:hidden">
+          {selected && (
+            <button onClick={() => closeRef.current().then(() => setSelected(null))} aria-label="Toutes les sorties" className="lg:hidden w-10 h-10 -ml-2 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+          <ClipboardList className="w-6 h-6 text-pink shrink-0" />
+          <h2 id="dp-title" className="text-xl font-semibold flex-1">
+            Directeur de plongée
+          </h2>
+          <button onClick={close} aria-label="Fermer" className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 flex">
+          {/* Sorties */}
+          <aside className={`${selected ? 'hidden lg:flex' : 'flex'} flex-col w-full lg:w-80 shrink-0 border-r border-line overflow-y-auto print:hidden`}>
+            {!events && !listError && <p className="p-6 text-muted">Chargement des sorties…</p>}
+            {listError && (
+              <div role="alert" className="m-4 p-4 rounded-xl bg-danger-soft text-danger text-sm">
+                {listError}{' '}
+                <button onClick={loadList} className="font-semibold underline">
+                  Réessayer
+                </button>
+              </div>
+            )}
+            {events && events.length === 0 && (
+              <p className="p-6 text-muted font-serif italic">
+                {role === 'member' ? 'Vous n’êtes directeur de plongée d’aucune sortie dans les semaines qui viennent.' : 'Aucune sortie dans les semaines qui viennent.'}
+              </p>
+            )}
+            {upcoming.length > 0 && <ListGroup label="Aujourd’hui et à venir" events={upcoming} selected={selected} onSelect={setSelected} />}
+            {past.length > 0 && <ListGroup label="Passées" events={past} selected={selected} onSelect={setSelected} />}
+          </aside>
+
+          {/* Sortie choisie */}
+          <main className={`${selected ? 'flex' : 'hidden lg:flex'} flex-1 min-w-0 flex-col overflow-y-auto overscroll-contain print:overflow-visible`}>
+            {selected ? (
+              <OutingWorkspace key={selected.token} event={selected} session={session} closeRef={closeRef} onSessionLost={onSessionLost} />
+            ) : (
+              <p className="m-auto p-8 text-muted font-serif italic">Choisissez une sortie.</p>
+            )}
+          </main>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ListGroup({ label, events, selected, onSelect }: { label: string; events: CalendarEvent[]; selected: CalendarEvent | null; onSelect: (e: CalendarEvent) => void }) {
+  const today = ymd(new Date());
+  return (
+    <section className="py-2">
+      <h3 className="px-4 pt-2 pb-1 text-xs font-bold uppercase tracking-wider text-muted">{label}</h3>
+      <ul>
+        {events.map((e) => {
+          const active = selected?.token === e.token;
+          const isToday = ymd(new Date(e.start)) === today;
+          return (
+            <li key={e.token}>
+              <button
+                onClick={() => onSelect(e)}
+                className={`w-full text-left px-4 py-2.5 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-tint border-brand' : 'border-transparent hover:bg-raised'}`}
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-semibold text-ink truncate">{e.title}</span>
+                  <span className="block text-xs text-muted first-letter:uppercase">
+                    {isToday && <strong className="text-pink-600 dark:text-pink">Aujourd’hui · </strong>}
+                    {new Date(e.start).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
+                    {!e.allDay && ` · ${new Date(e.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
+                    {` · ${e.registeredCount} inscrit${e.registeredCount > 1 ? 's' : ''}`}
+                  </span>
+                </span>
+                <ChevronRight className="w-4 h-4 text-muted shrink-0" />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+type SaveState = 'saved' | 'pending' | 'saving' | 'error' | 'conflict';
+
+function OutingWorkspace({
+  event,
+  session,
+  closeRef,
+  onSessionLost,
+}: {
+  event: CalendarEvent;
+  session: Session;
+  closeRef: React.RefObject<() => Promise<void>>;
+  onSessionLost: (e: unknown) => boolean;
+}) {
+  const [roster, setRoster] = useState<RosterEntry[] | null>(null);
+  const [doc, setDoc] = useState<OutingDoc | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [diveId, setDiveId] = useState<string | null>(null);
+  const [tab, setTab] = useState<'palanquees' | 'fiche'>('palanquees');
+  const [saveState, setSaveState] = useState<SaveState>('saved');
+  const [conflict, setConflict] = useState<OutingDoc | null>(null);
+
+  const docRef = useRef<OutingDoc | null>(null);
+  const revRef = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const inFlight = useRef<Promise<void> | null>(null);
+  const me = `${session.firstName} ${session.lastName}`.trim() || session.email;
+
+  const load = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const [r, saved] = await Promise.all([vpdive.fetchRoster(event.token), appApi.getOuting(event.token)]);
+      const d = saved ?? newOuting(event, r, session.clubName);
+      revRef.current = saved?.rev ?? 0;
+      docRef.current = d;
+      setRoster(r);
+      setDoc(d);
+      setDiveId(d.dives[0]?.id ?? null);
+      setTab(d.dives[0]?.validated ? 'fiche' : 'palanquees');
+    } catch (e) {
+      if (onSessionLost(e)) return;
+      setLoadError(e instanceof Error ? e.message : String(e));
+    }
+  }, [event, session.clubName, onSessionLost]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  /** Enregistre la dernière version, une sauvegarde à la fois. */
+  const flush = useCallback(async () => {
+    clearTimeout(timer.current);
+    while (inFlight.current) await inFlight.current;
+    const d = docRef.current;
+    if (!d || saveStateRef.current === 'saved' || saveStateRef.current === 'conflict') return;
+    setSave('saving');
+    inFlight.current = (async () => {
+      try {
+        const saved = await appApi.saveOuting(event.token, d, revRef.current);
+        revRef.current = saved.rev ?? revRef.current + 1;
+        const meta = { rev: saved.rev, updatedAt: saved.updatedAt, updatedBy: saved.updatedBy };
+        const unchanged = docRef.current === d;
+        docRef.current = { ...docRef.current!, ...meta };
+        setDoc(docRef.current);
+        setSave(unchanged ? 'saved' : 'pending');
+      } catch (e) {
+        if (onSessionLost(e)) return;
+        if (e instanceof AppApiError && e.status === 409) {
+          setConflict(((e.body as { doc?: OutingDoc } | null)?.doc ?? null) as OutingDoc | null);
+          setSave('conflict');
+        } else setSave('error');
+      }
+    })();
+    await inFlight.current;
+    inFlight.current = null;
+    if (saveStateRef.current === 'pending') timer.current = setTimeout(() => void flush(), 800);
+  }, [event.token, onSessionLost]);
+
+  const saveStateRef = useRef<SaveState>('saved');
+  const setSave = (s: SaveState) => {
+    saveStateRef.current = s;
+    setSaveState(s);
+  };
+
+  // En fermant ou en changeant de sortie, ce qui n'est pas encore parti est enregistré.
+  useEffect(() => {
+    closeRef.current = flush;
+    return () => {
+      void flush();
+    };
+  }, [flush, closeRef]);
+
+  const update = (fn: (d: OutingDoc) => OutingDoc) => {
+    const current = docRef.current;
+    if (!current || saveStateRef.current === 'conflict') return;
+    const next = fn(current);
+    docRef.current = next;
+    setDoc(next);
+    setSave('pending');
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => void flush(), 1000);
+  };
+
+  const updateDive = (fn: (d: Dive) => Dive) => update((d) => ({ ...d, dives: d.dives.map((x) => (x.id === diveId ? fn(x) : x)) }));
+
+  if (loadError) {
+    return (
+      <div role="alert" className="m-5 p-4 rounded-xl bg-danger-soft text-danger text-sm flex items-start gap-2.5">
+        <AlertTriangle className="w-5 h-5 shrink-0" />
+        <div className="flex-1">
+          <span className="font-semibold block">Sortie indisponible</span>
+          {loadError}
+        </div>
+        <button type="button" onClick={load} className="inline-flex items-center gap-1 font-semibold underline">
+          <RefreshCw className="w-4 h-4" /> Réessayer
+        </button>
+      </div>
+    );
+  }
+  if (!doc || !roster) return <p className="m-auto p-8 text-muted">Chargement de la sortie…</p>;
+
+  const dive = doc.dives.find((d) => d.id === diveId) ?? doc.dives[0]!;
+
+  return (
+    <div className="px-5 sm:px-6 py-5 space-y-5">
+      <header className="flex flex-wrap items-start justify-between gap-3 print:hidden">
+        <div className="min-w-0">
+          <h3 className="text-xl sm:text-2xl font-semibold text-brand leading-snug">{event.title}</h3>
+          <p className="text-sm text-muted first-letter:uppercase">
+            {new Date(event.start).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            {event.location && ` · ${event.location}`} · {roster.length} inscrit{roster.length > 1 ? 's' : ''}
+          </p>
+        </div>
+        <SaveBadge state={saveState} doc={doc} onRetry={() => void flush()} />
+      </header>
+
+      {saveState === 'conflict' && (
+        <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-sm flex flex-wrap items-center gap-3 print:hidden">
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <span className="flex-1 min-w-0">
+            {conflict?.updatedBy ?? 'Quelqu’un'} a enregistré cette sortie pendant que vous la modifiiez. Vos derniers changements ne sont pas enregistrés.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (!conflict) return void load();
+              docRef.current = conflict;
+              revRef.current = conflict.rev ?? 0;
+              setDoc(conflict);
+              setConflict(null);
+              setSave('saved');
+            }}
+            className="h-9 px-3.5 rounded-lg bg-surface border border-warn/40 font-semibold"
+          >
+            Charger sa version
+          </button>
+        </div>
+      )}
+
+      {/* Plongées */}
+      <nav className="flex flex-wrap items-center gap-2 print:hidden" aria-label="Plongées">
+        {doc.dives.map((d) => (
+          <button
+            key={d.id}
+            onClick={() => {
+              setDiveId(d.id);
+              setTab(d.validated ? 'fiche' : 'palanquees');
+            }}
+            aria-pressed={d.id === dive.id}
+            className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-sm font-semibold ${
+              d.id === dive.id ? 'bg-fill text-white border-fill' : 'border-line text-ink hover:border-brand/40'
+            }`}
+          >
+            {d.validated && <Lock className="w-3.5 h-3.5" />}
+            {d.label}
+          </button>
+        ))}
+        <button
+          onClick={() => {
+            const added = nextDive(doc);
+            update((d) => ({ ...d, dives: [...d.dives, added] }));
+            setDiveId(added.id);
+            setTab('palanquees');
+          }}
+          className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border border-dashed border-brand/40 text-sm font-semibold text-brand hover:bg-tint"
+        >
+          <Plus className="w-4 h-4" /> Plongée
+        </button>
+        {doc.dives.length > 1 && (
+          <button
+            onClick={() => {
+              if (!window.confirm(`Supprimer « ${dive.label} » et sa fiche de sécurité ?`)) return;
+              const rest = doc.dives.filter((d) => d.id !== dive.id);
+              update((d) => ({ ...d, dives: rest }));
+              setDiveId(rest[0]!.id);
+            }}
+            aria-label={`Supprimer ${dive.label}`}
+            title={`Supprimer ${dive.label}`}
+            className="ml-auto w-9 h-9 flex items-center justify-center rounded-full text-muted hover:text-danger hover:bg-danger-soft"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
+      </nav>
+
+      {/* Palanquées / Fiche */}
+      <div className="flex border-b border-line print:hidden" role="tablist">
+        <TabButton active={tab === 'palanquees'} onClick={() => setTab('palanquees')} icon={<Users className="w-4 h-4" />}>
+          Palanquées
+        </TabButton>
+        <TabButton active={tab === 'fiche'} disabled={!dive.validated} onClick={() => setTab('fiche')} icon={dive.validated ? <ClipboardList className="w-4 h-4" /> : <Lock className="w-4 h-4" />}>
+          Fiche de sécurité
+        </TabButton>
+      </div>
+
+      {tab === 'palanquees' || !dive.validated || !dive.plan ? (
+        <PalanqueesEditor
+          title={event.title}
+          roster={roster}
+          doc={doc}
+          dive={dive}
+          onSettings={(settings) => update((d) => ({ ...d, settings }))}
+          onPlan={(plan) => updateDive((d) => ({ ...d, plan }))}
+          onValidate={() => {
+            updateDive((d) => ({ ...d, validated: { by: me, at: new Date().toISOString() } }));
+            setTab('fiche');
+          }}
+          onReopen={() => updateDive((d) => ({ ...d, validated: null }))}
+        />
+      ) : (
+        <SafetySheet
+          doc={doc}
+          dive={dive}
+          onHeader={(header) => update((d) => ({ ...d, header }))}
+          onSheet={(id, sheet) => updateDive((d) => ({ ...d, sheets: { ...d.sheets, [id]: sheet } }))}
+          onGas={(id, gas) => updateDive((d) => ({ ...d, gas: { ...d.gas, [id]: gas } }))}
+        />
+      )}
+    </div>
+  );
+}
+
+function TabButton({ active, disabled, onClick, icon, children }: { active: boolean; disabled?: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      disabled={disabled}
+      onClick={onClick}
+      title={disabled ? 'Validez d’abord les palanquées' : undefined}
+      className={`inline-flex items-center gap-2 px-4 h-11 -mb-px border-b-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
+        active ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-ink'
+      }`}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function SaveBadge({ state, doc, onRetry }: { state: SaveState; doc: OutingDoc; onRetry: () => void }) {
+  if (state === 'error') {
+    return (
+      <button onClick={onRetry} className="inline-flex items-center gap-1.5 text-sm font-semibold text-danger">
+        <AlertTriangle className="w-4 h-4" /> Non enregistré · réessayer
+      </button>
+    );
+  }
+  if (state === 'pending' || state === 'saving') return <span className="text-sm text-muted">Enregistrement…</span>;
+  if (state === 'conflict') return null;
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm text-muted" title={doc.updatedAt ? `Par ${doc.updatedBy}` : undefined}>
+      <Check className="w-4 h-4 text-ok" />
+      {doc.updatedAt
+        ? `Enregistré · ${new Date(doc.updatedAt).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}${doc.updatedBy ? ` par ${doc.updatedBy}` : ''}`
+        : 'Rien d’enregistré pour l’instant'}
+    </span>
+  );
+}

@@ -8,10 +8,12 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "probe": "tsx scripts/probe.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.1",
+    "@upstash/redis": "^1.39.0",
     "lucide-react": "^0.546.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

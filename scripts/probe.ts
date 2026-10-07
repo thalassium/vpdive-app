@@ -148,9 +148,26 @@ for (const [i, evToken] of upcoming.entries()) {
       roles: [roleTokens[0]],
     });
   }
+  // Palanquées ("teams") as VPDive stores them, and who is registered.
+  await probe(`${n}e_teams`, 'GET', `/calendar/event/${evToken}/teams`);
 }
 
-// ── 4. Done ───────────────────────────────────────────────────
+// ── 4. Admin rights, diver levels, members ────────────────────
+// Admin = what VPDive's own web app checks before opening member profiles
+// (`member_view`). Levels come from the club's capacity reference. The member
+// search is the one VPDive's member picker calls; it only reads.
+await probe('20_roles_permissions', 'GET', '/me/roles-permissions');
+await probe('21_capacities', 'GET', '/calendar/capacities?all=false');
+await probe('22_settings_capacities', 'GET', '/user/settings/capacities');
+await probe('23_user_club', 'GET', '/user/club');
+await probe('24_member_self_api_user', 'GET', `/user?uct_token=${encodeURIComponent(traceability)}`);
+await probe('25_member_self_profile', 'GET', `/user/member/${traceability}`);
+await probe('26_licence_ffessm_details', 'GET', '/user/licence/ffessm/details');
+await probe('27_search_user', 'POST', '/search/user', { query: 'ma', route: 'assignment' });
+// VPDive has no JSON member list. Does a one-letter search return everyone, or is it capped?
+await probe('28_search_user_one_letter', 'POST', '/search/user', { query: 'e', route: 'assignment' });
+
+// ── 5. Done ───────────────────────────────────────────────────
 await call('GET', '/logout'); // revoke the probe's JWT
 finish();
 

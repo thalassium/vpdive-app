@@ -31,6 +31,8 @@ export interface Session {
   firstName: string;
   lastName: string;
   clubName: string;
+  /** Club admin on VPDive (permission `member_view`). Absent on sessions saved before this field existed. */
+  isAdmin?: boolean;
 }
 
 export interface Tag {
@@ -72,12 +74,68 @@ export interface TariffOption {
   price: number;
 }
 
+export interface MaterialChoice {
+  id: string;
+  /** As the club named it in VPDive, e.g. "M" or "Taille M". */
+  name: string;
+  price: number;
+}
+
 export interface MaterialOption {
   id: number;
   name: string;
   price: number;
   maxQuantity: number;
+  /** Variants set up by the club (usually sizes). Empty when the item has none. */
+  choices: MaterialChoice[];
 }
+
+/** A club member found by name (VPDive's member picker search). */
+export interface MemberMatch {
+  /** Club membership token (UserClubTraceability), 43 characters. */
+  id: string;
+  name: string;
+  /** Absolute URL of the member's own photo; empty when VPDive shows its default avatar. */
+  picture: string;
+}
+
+const VPDIVE_ORIGIN = 'https://septentrion-env.vpdive.com';
+/** VPDive returns site-relative paths; its default avatars live under /files/images/. */
+const pictureUrl = (path: string) =>
+  !path || path.startsWith('/files/images/') ? '' : path.startsWith('http') ? path : `${VPDIVE_ORIGIN}${path.startsWith('/') ? '' : '/'}${path}`;
+
+export interface MemberProfile {
+  levels: string[];
+  teaching: string[];
+  qualifications: string[];
+  email: string;
+  phone: string;
+  birthday: string;
+  medicalUntil: string;
+}
+
+/** Someone registered on an outing, from the event detail's `user_registered`. */
+export interface RosterEntry {
+  /** VPDive user id (same as /user/me `id`). */
+  id: string;
+  name: string;
+  firstname: string;
+  lastname: string;
+  /** Short codes (P1, E3, PE40…) from the level, teaching, qualification and autonomy families. */
+  levels: string[];
+  /** Club "prépas" the member belongs to (POLARIS, Prépa N2…). */
+  training: string[];
+  /** Outing roles from VPDive: "Directeur de plongée", "Enseignant/Encadrant", "Sécurité surface", "Pilote". */
+  roles: string[];
+  age: number | null;
+  waitingList: boolean;
+  comment: string;
+  medical: { until: string | null; valid: boolean };
+}
+
+/** VPDive outing roles that keep someone out of the water by default. */
+export const SURFACE_ROLES = /s[ée]curit[ée] surface|pilote/i;
+export const DP_ROLE = /directeur de plong/i;
 
 export interface EventDetail {
   token: string;
@@ -108,8 +166,10 @@ export interface BookingRequest {
   tariffToken: string | null;
   people: number;
   comment: string;
-  /** material id → quantity */
+  /** material id → quantity, for items without variants */
   materials: Record<number, number>;
+  /** `${materialId}_${choiceId}` → quantity, for items with variants (sizes) */
+  choices: Record<string, number>;
 }
 
 export interface MeteoSlot {
@@ -172,6 +232,26 @@ function htmlToText(html: string): string {
   return (doc.body.textContent ?? '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/**
+ * Permission check, same lookup as VPDive's own web app: `permissions` is
+ * `{ user: {...}, club: {...}, user_club_traceability: {...} }` and a key may
+ * sit at the top level or in any of those groups.
+ */
+function hasPermission(permissions: unknown, key: string): boolean {
+  const p = obj(permissions);
+  if (!p) return false;
+  if (key in p) return p[key] === true;
+  return Object.values(p).some((group) => obj(group)?.[key] === true);
+}
+
+/**
+ * Club admin = may view member profiles. It is the permission VPDive itself
+ * checks before opening the member directory and member profiles.
+ */
+const ADMIN_PERMISSION = 'member_view';
+
+type RequestInit_ = { method?: 'GET' | 'POST'; body?: unknown; auth?: boolean };
+
 // ── Client ───────────────────────────────────────────────────────
 
 class VpDiveClient {
@@ -209,7 +289,21 @@ class VpDiveClient {
     }
   }
 
-  private async request(path: string, init: { method?: 'GET' | 'POST'; body?: unknown; auth?: boolean } = {}) {
+  private async request(path: string, init: RequestInit_ = {}): Promise<Json> {
+    const data = await this.call(path, init);
+    const o = obj(data);
+    if (o === null) throw new VpDiveError('Réponse VPDive inattendue.', 0);
+    return o;
+  }
+
+  /** Same as request(), for the few endpoints that answer with a bare JSON array. */
+  private async requestList(path: string, init: RequestInit_ = {}): Promise<unknown[]> {
+    const data = await this.call(path, init);
+    if (!Array.isArray(data)) throw new VpDiveError('Réponse VPDive inattendue.', 0);
+    return data;
+  }
+
+  private async call(path: string, init: RequestInit_ = {}): Promise<unknown> {
     const { method = 'GET', body, auth = true } = init;
     const headers: Record<string, string> = { Accept: 'application/json' };
 
@@ -261,10 +355,10 @@ class VpDiveClient {
       const details = Array.isArray(o?.errors) ? o.errors.filter((x): x is string => typeof x === 'string') : [];
       throw new VpDiveError(details.length ? `${base} : ${details.join(', ')}` : base, status);
     }
-    if (o === null) {
+    if (data === null) {
       throw new VpDiveError(`Réponse VPDive inattendue (HTTP ${res.status}).`, res.status);
     }
-    return o;
+    return data;
   }
 
   // ── Authentication ─────────────────────────────────────────────
@@ -325,6 +419,7 @@ class VpDiveClient {
       firstName: str(me.first_name),
       lastName: str(me.last_name),
       clubName: str(obj(trace.club)?.name),
+      isAdmin: hasPermission(trace.permissions, ADMIN_PERMISSION),
     };
     this.setSession(session);
     return session;
@@ -414,6 +509,11 @@ class VpDiveClient {
     for (const [id, qty] of Object.entries(b.materials)) {
       if (qty > 0) field(`material_${id}`, String(qty));
     }
+    // Sizes: VPDive's web app sends a chosen variant as choice_<material>_<choice>
+    // instead of material_<material>.
+    for (const [key, qty] of Object.entries(b.choices)) {
+      if (qty > 0) field(`choice_${key}`, String(qty));
+    }
 
     try {
       const res = await this.request('/calendar/registration', { method: 'POST', body: f });
@@ -432,6 +532,105 @@ class VpDiveClient {
 
   async unregister(eventToken: string): Promise<void> {
     await this.request(`/calendar/unregistered/${eventToken}`);
+  }
+
+  // ── Members ────────────────────────────────────────────────────
+
+  /**
+   * Club members whose name contains `query` — the search behind VPDive's own
+   * member picker (`route: "assignment"`). Exact substrings only: see
+   * lib/fuzzy.ts for typos.
+   */
+  async searchMembers(query: string): Promise<MemberMatch[]> {
+    const list = await this.requestList('/search/user', { method: 'POST', body: { query, route: 'assignment' } });
+    return list
+      .map((raw) => {
+        const o = obj(raw);
+        // `id` is the member's 43-character club token (UserClubTraceability),
+        // not a number: it opens the member profile (memberProfile below).
+        const id = str(o?.id) || (num(o?.id) !== null ? String(o?.id) : '');
+        const name = str(o?.value).trim() || `${str(o?.first_name)} ${str(o?.last_name)}`.trim() || str(o?.username);
+        return id && name ? { id, name, picture: pictureUrl(str(o?.profile_picture)) } : null;
+      })
+      .filter((m): m is MemberMatch => m !== null);
+  }
+
+  /**
+   * A member's levels, teaching qualifications and other qualifications, by
+   * their club token (the `id` of searchMembers). Same call as VPDive's own
+   * member profile page; needs `member_view`.
+   */
+  async memberProfile(memberToken: string): Promise<MemberProfile> {
+    const u = await this.request(`/user?uct_token=${encodeURIComponent(memberToken)}`);
+    const names = (key: string, inner: string) =>
+      (Array.isArray(u[key]) ? u[key] : []).map((x) => str(obj(obj(x)?.[inner])?.name).trim()).filter(Boolean);
+    return {
+      levels: names('user_level', 'level'),
+      teaching: names('user_teaching', 'teaching'),
+      qualifications: names('user_qualification', 'qualification'),
+      email: str(u.email),
+      phone: str(u.phone),
+      birthday: str(u.birthday),
+      medicalUntil: str(u.medical_examination).slice(0, 10),
+    };
+  }
+
+  /** Same headers as VPDive calls, for the app's own API (/api/app), which checks them with VPDive. */
+  authHeaders(): Record<string, string> {
+    const s = this.getSession();
+    if (!s) throw new SessionExpiredError();
+    return { Authorization: `Bearer ${s.token}`, userClubTraceability: s.traceability };
+  }
+
+  /**
+   * Club member directory. VPDive has no JSON endpoint listing members (its
+   * own "Profil des membres" page is a legacy server-rendered page), but the
+   * member search is not capped: searching each vowel and merging the answers
+   * returns everyone whose name has a vowel — in practice the whole club
+   * (one-letter search measured at 476 members, uncapped, October 2026).
+   */
+  async fetchMemberDirectory(): Promise<MemberMatch[]> {
+    const lists = await Promise.all(['a', 'e', 'i', 'o', 'u', 'y'].map((v) => this.searchMembers(v)));
+    const byId = new Map(lists.flat().map((m) => [m.id, m]));
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+  }
+
+  /**
+   * Who is registered on an outing: `user_registered` of the event detail,
+   * keyed by user id. Richer than the "booked equipment" page: first and last
+   * name apart (safety sheet columns), age (minors), outing roles (DP, pilot,
+   * surface safety) and levels grouped by family. Shapes recorded by
+   * `npm run probe`, October 2026.
+   */
+  async fetchRoster(eventToken: string): Promise<RosterEntry[]> {
+    const res = await this.request(`/calendar/${eventToken}/event`);
+    const registered = obj(obj(res.data)?.user_registered);
+    if (!registered) throw new VpDiveError('Liste des inscrits introuvable dans la réponse VPDive.', 0);
+    const values = (v: unknown): Json[] => (Array.isArray(v) ? v : Object.values(obj(v) ?? {})).map(obj).filter((x): x is Json => x !== null);
+    return Object.entries(registered)
+      .map(([key, raw]) => {
+        const u = obj(raw) ?? {};
+        const levels = ['level', 'teaching', 'qualification', 'autonome']
+          .flatMap((family) => values(u[family]).map((q) => str(q.abbreviation).trim() || str(q.name).trim()))
+          .filter(Boolean);
+        const firstname = str(u.firstname).trim();
+        const lastname = str(u.lastname).trim();
+        const med = obj(u.medical_examination) ?? {};
+        return {
+          id: String(u.id ?? key),
+          name: `${lastname.toUpperCase()} ${firstname}`.trim() || str(u.name).trim() || 'Sans nom',
+          firstname,
+          lastname,
+          levels: [...new Set(levels)],
+          training: values(u.prepa).map((p) => str(p.name).trim()).filter(Boolean),
+          roles: values(u.roles).map((r) => str(r.role)).filter(Boolean),
+          age: num(u.age),
+          waitingList: u.waitingList === true,
+          comment: str(u.comment).trim(),
+          medical: { until: str(obj(med.until)?.date).slice(0, 10) || null, valid: med.status === true },
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   }
 
   // ── Weather (Open-Meteo, no key needed) ────────────────────────
@@ -524,22 +723,30 @@ function mapDetail(token: string, data: Json, ev: Json, userId: number | null): 
     label: str(label) || key,
   }));
 
-  // list_material: [{ "<id>": { obj: { id, name }, tariff: "3.00", max_selectable_quantity } }, ...]
+  // list_material: [{ "<id>": { obj: { id, name }, tariff: "3.00", max_selectable_quantity,
+  //                             choices: [{ "<choiceId>": { obj: { name }, tariff } }] } }, ...]
+  // `choices` (sizes…) is read the way VPDive's own web app reads it: an array
+  // or an object of maps keyed by choice id.
+  const values = (v: unknown): unknown[] => (Array.isArray(v) ? v : obj(v) ? Object.values(obj(v)!) : []);
   const materials: MaterialOption[] = [];
-  if (Array.isArray(data.list_material)) {
-    for (const wrapper of data.list_material) {
-      for (const m of Object.values(obj(wrapper) ?? {})) {
-        const mo = obj(m);
-        const item = obj(mo?.obj);
-        const id = num(item?.id);
-        const choices = mo?.choices;
-        const hasChoices = Array.isArray(choices) ? choices.length > 0 : !!obj(choices) && Object.keys(obj(choices)!).length > 0;
-        // Items with sub-choices (sizes…) need VPDive's own form: not offered here.
-        if (id === null || hasChoices) continue;
-        const max = num(mo?.max_selectable_quantity) ?? num(mo?.available_quantity) ?? 0;
-        if (max <= 0) continue;
-        materials.push({ id, name: str(item?.name).trim() || `Matériel ${id}`, price: num(mo?.tariff) ?? 0, maxQuantity: max });
+  for (const wrapper of values(data.list_material)) {
+    for (const [key, m] of Object.entries(obj(wrapper) ?? {})) {
+      const mo = obj(m);
+      const item = obj(mo?.obj);
+      const id = num(item?.id) ?? num(key);
+      if (id === null) continue;
+      const price = num(mo?.tariff) ?? 0;
+      const choices: MaterialChoice[] = [];
+      for (const group of values(mo?.choices)) {
+        for (const [choiceId, c] of Object.entries(obj(group) ?? {})) {
+          const co = obj(c);
+          const name = str(obj(co?.obj)?.name).trim();
+          if (name) choices.push({ id: choiceId, name, price: num(co?.tariff) ?? price });
+        }
       }
+      const max = num(mo?.max_selectable_quantity) ?? num(mo?.available_quantity) ?? (choices.length ? 1 : 0);
+      if (max <= 0) continue;
+      materials.push({ id, name: str(item?.name).trim() || `Matériel ${id}`, price, maxQuantity: max, choices });
     }
   }
 

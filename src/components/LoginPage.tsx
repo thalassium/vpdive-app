@@ -3,6 +3,7 @@ import { AlertCircle, ArrowRight } from 'lucide-react';
 import { vpdive, type Session } from '../services/vpdiveApi';
 import { Logo } from './Brand';
 import { ThemeToggle } from './ThemeToggle';
+import { SeaBackdrop } from './SeaBackdrop';
 
 interface LoginPageProps {
   onLoginSuccess: (session: Session) => void;
@@ -33,10 +34,8 @@ export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
   };
 
   return (
-    <div className="relative min-h-dvh bg-canvas flex flex-col overflow-hidden">
-      {/* Soft colour washes in the brand's navy and pink */}
-      <div aria-hidden className="pointer-events-none absolute -top-48 -left-40 w-[36rem] h-[36rem] rounded-full bg-fill/15 blur-3xl" />
-      <div aria-hidden className="pointer-events-none absolute -bottom-56 -right-40 w-[34rem] h-[34rem] rounded-full bg-pink/25 dark:bg-pink/10 blur-3xl" />
+    <div className="relative min-h-dvh flex flex-col">
+      <SeaBackdrop rose="center" />
 
       <div className="relative flex justify-end p-3">
         <ThemeToggle />
