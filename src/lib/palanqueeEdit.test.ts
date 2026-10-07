@@ -231,3 +231,37 @@ test('plongeur supplémentaire à la main vers une exploration encadrée ; un E1
   assert.equal(fresh.guide, null, 'un E1 seul n’encadre pas en exploration');
   assert.deepEqual(fresh.members.map((m) => m.id), [ini.id]);
 });
+
+test('changer d’encadrant : l’ancien prend la place laissée quand il le peut, sinon il redevient disponible', () => {
+  const a = diverOf('E3a', 'MF1');
+  const b = diverOf('E3b', 'MF1');
+  const n1 = (k: string) => diverOf(k, 'P1');
+  const base: Plan = {
+    palanquees: [
+      { id: 'p1', kind: 'guided', guide: a, extra: null, members: [n1('x1'), n1('x2')] },
+      { id: 'p2', kind: 'guided', guide: b, extra: null, members: [n1('y1'), n1('y2')] },
+    ],
+    unassigned: [],
+  };
+  // Deux E3 échangent leurs palanquées en un seul déplacement.
+  const swapped = assignGuide(base, 'p2', a);
+  assert.equal(swapped.palanquees.find((p) => p.id === 'p2')!.guide?.id, a.id);
+  assert.equal(swapped.palanquees.find((p) => p.id === 'p1')!.guide?.id, b.id);
+  assert.equal(swapped.unassigned.length, 0);
+
+  // Un E3 qui forme des FN3 va remplacer un E2 : l’E2 ne peut pas reprendre des FN3, il devient disponible.
+  const e2 = diverOf('E2', 'Initiateur', 'N4');
+  const fn3 = [diverOf('F3a', 'N2', 'FN3'), diverOf('F3b', 'N2', 'FN3')];
+  const fn1 = [diverOf('F1a', 'FN1'), diverOf('F1b', 'FN1')];
+  const teaching: Plan = {
+    palanquees: [
+      { id: 't1', kind: 'teaching', guide: a, extra: null, members: fn3 },
+      { id: 't2', kind: 'teaching', guide: e2, extra: null, members: fn1 },
+    ],
+    unassigned: [],
+  };
+  const moved = assignGuide(teaching, 't2', a);
+  assert.equal(moved.palanquees.find((p) => p.id === 't2')!.guide?.id, a.id);
+  assert.equal(moved.palanquees.find((p) => p.id === 't1')!.guide, null, 'les FN3 attendent un enseignant');
+  assert.deepEqual(moved.unassigned.map((u) => u.diver.id), [e2.id]);
+});

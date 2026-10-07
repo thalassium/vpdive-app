@@ -3,7 +3,7 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, canGuideExploration, extraLabel, guideLabel, kindLabel, memberLabel, prerogativeLabel, settleKind, toTeaching, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, canGuideExploration, canTeach, extraLabel, guideLabel, kindLabel, memberLabel, prerogativeLabel, settleKind, studentsOf, toTeaching, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -154,20 +154,28 @@ export function deletePalanquee(plan: Plan, palanqueeId: string): Plan {
   };
 }
 
+/** Peut prendre la tête de cette palanquée : jamais un élève ; en formation un enseignant qui suffit à ses élèves, en exploration un N4/GP au moins. */
+const canLead = (d: Diver, p: Palanquee): boolean => !d.training && (p.kind === 'teaching' ? canTeach(d, studentsOf(p)) : canGuideExploration(d));
+
 /**
  * Désigne l'encadrant (ou l'enseignant) d'une palanquée, qu'il vienne d'une
- * autre palanquée, des disponibles ou de la palanquée elle-même. L'ancien
- * encadrant redevient disponible. Une palanquée autonome devient encadrée.
+ * autre palanquée, des disponibles ou de la palanquée elle-même. Une
+ * palanquée autonome devient encadrée. S'il encadrait une autre palanquée,
+ * l'ancien encadrant d'ici prend sa place là-bas quand il le peut (deux E3
+ * échangent leurs palanquées en un seul déplacement) ; sinon il redevient
+ * disponible (un E2 ne reprend pas une formation FN3).
  */
 export function assignGuide(plan: Plan, palanqueeId: string, diver: Diver): Plan {
   const previous = plan.palanquees.find((p) => p.id === palanqueeId)?.guide;
   if (previous?.id === diver.id) return plan;
+  const origin = plan.palanquees.find((p) => p.id !== palanqueeId && p.guide?.id === diver.id);
+  const swap = previous && origin && canLead(previous, { ...origin, guide: null }) ? { to: origin.id, guide: previous } : null;
   const palanquees = plan.palanquees
     .map((p) => without(p, diver.id))
-    .map((p) => (p.id === palanqueeId ? { ...p, guide: diver } : p))
+    .map((p) => (p.id === palanqueeId ? { ...p, guide: diver } : swap && p.id === swap.to ? { ...p, guide: swap.guide } : p))
     .map(settleKind);
   const unassigned = plan.unassigned.filter((u) => u.diver.id !== diver.id);
-  if (previous) unassigned.push({ diver: previous, reason: 'Remplacé comme encadrant.' });
+  if (previous && !swap) unassigned.push({ diver: previous, reason: 'Remplacé comme encadrant.' });
   return { palanquees, unassigned };
 }
 
