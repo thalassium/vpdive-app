@@ -217,7 +217,12 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             </>
           }
           sections={[
-            { selected: forcedRaw ? undefined : '', onSelect: setLevel, options: [{ value: '', label: fromVpdive || 'Aucune', hint: 'VPDive' }] },
+            // Revenir à VPDive : retire l'aptitude retenue à la main (sans aptitude VPDive, le plongeur redevient « Apt. ? »).
+            {
+              selected: forcedRaw ? undefined : '',
+              onSelect: setLevel,
+              options: [{ value: '', label: fromVpdive ? `${fromVpdive.replace(' · ', '/')} (VPDive)` : 'Aucune (retirer)', hint: forcedRaw ? 'annule le choix' : undefined }],
+            },
             { title: 'Plongeur', selected: forcedRaw, onSelect: setLevel, options: PREROGATIVE_OPTIONS.divers.map((v) => ({ value: v, label: v })) },
             { title: 'Encadrant', selected: forcedRaw, onSelect: setLevel, options: PREROGATIVE_OPTIONS.instructors.map((v) => ({ value: v, label: v })) },
           ]}

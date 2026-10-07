@@ -105,6 +105,11 @@ test('brevet étranger : prérogative retenue à la main, cumulable avec une for
   assert.equal(d!.pe, 20, 'PE20 retenu');
   assert.equal(d!.training, 2, 'et en formation N2');
   assert.deepEqual(d!.original, ['PADI - OWD'], 'le brevet d’origine reste en vue');
+  // Le choix se retire : retour à ce que dit VPDive (ici rien), la formation reste.
+  const cleared = setDiverChoice(settings, 'levels', 'p', '');
+  assert.equal(cleared.levels?.p, undefined);
+  assert.equal(rosterToDivers([padi], cleared)[0]!.pe, 0);
+  assert.equal(cleared.training?.p, 'FN2');
 
   // En formation, il plonge en palanquée PE40 avec un E3.
   const plan = proposePalanquees([d!, ...rosterToDivers([entry('m', 'MONI M', ['E3'])])]);
