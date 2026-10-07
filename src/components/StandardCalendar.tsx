@@ -44,8 +44,31 @@ function daytimeWind(slots: MeteoSlot[] | undefined) {
 // Phones open on the list: a 7-column grid of event titles is unreadable at 375 px.
 const isPhone = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
 
+// The view the member chose stays put, visit after visit; only a first visit
+// picks one from the screen size.
+const VIEW_KEY = 'calendarView';
+const readView = (): 'month' | 'list' => {
+  try {
+    const saved = localStorage.getItem(VIEW_KEY);
+    if (saved === 'month' || saved === 'list') return saved;
+  } catch {
+    // Private browsing: fall back to the screen size.
+  }
+  return isPhone() ? 'list' : 'month';
+};
+
 export function StandardCalendar({ month, onMonthChange, events, meteoData, isLoading, error, onRefresh, onOpenEvent }: Props) {
-  const [viewMode, setViewMode] = useState<'month' | 'list'>(() => (isPhone() ? 'list' : 'month'));
+  const [viewMode, setViewModeState] = useState<'month' | 'list'>(readView);
+  const setViewMode = (mode: 'month' | 'list') => {
+    setViewModeState(mode);
+    try {
+      localStorage.setItem(VIEW_KEY, mode);
+    } catch {
+      // Private browsing: the choice lasts for this visit.
+    }
+  };
+  /** Month cell showing all its outings instead of the first three. */
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [onlyMine, setOnlyMine] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -120,9 +143,10 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
           </IconButton>
           <button
             onClick={() => onMonthChange(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}
+            title="Revenir au mois en cours"
             className="px-2.5 sm:px-3 h-9 text-sm font-medium text-brand rounded-full hover:bg-raised transition-colors"
           >
-            Aujourd’hui
+            {MOIS_FR[new Date().getMonth()]}
           </button>
           <IconButton label="Mois suivant" onClick={() => onMonthChange(new Date(year, m + 1, 1))}>
             <ChevronRight className="w-5 h-5" />
@@ -166,7 +190,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
             }`}
           >
             {onlyMine && <Check className="w-4 h-4" strokeWidth={2.5} />}
-            Mes inscriptions
+            Mes sorties
           </button>
           <button
             onClick={onRefresh}
@@ -261,12 +285,15 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
 
                     {/* Larger screens: chips */}
                     <div className="hidden sm:block mt-1.5 space-y-1 flex-1">
-                      {dayEvents.slice(0, 3).map((ev) => (
+                      {(expandedDay === day.date ? dayEvents : dayEvents.slice(0, 3)).map((ev) => (
                         <EventChip key={ev.token} ev={ev} onClick={() => onOpenEvent(ev)} />
                       ))}
                       {dayEvents.length > 3 && (
-                        <button onClick={() => setViewMode('list')} className="text-xs text-brand underline underline-offset-2 block ml-auto">
-                          +{dayEvents.length - 3} de plus
+                        <button
+                          onClick={() => setExpandedDay(expandedDay === day.date ? null : day.date)}
+                          className="text-xs text-brand underline underline-offset-2 block ml-auto"
+                        >
+                          {expandedDay === day.date ? 'Réduire' : `+${dayEvents.length - 3} de plus`}
                         </button>
                       )}
                     </div>

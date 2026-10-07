@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { proposePalanquees, validate } from './palanquees';
-import { buddyPairs, moveDiver, planToText, rosterToDivers, setDepth, setGuide, setKind } from './palanqueeEdit';
+import { assignGuide, buddyPairs, moveDiver, planToText, rosterToDivers, setDepth, setKind } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
@@ -56,25 +56,26 @@ test('déplacer, nommer encadrant, basculer en autonome', () => {
   assert.ok(validate(left, 40).includes('Pas d’encadrant.'));
 });
 
-test('setGuide échange encadrant et membre', () => {
-  const divers = rosterToDivers([entry('a', 'A', ['N4']), entry('b', 'B', ['MF1']), entry('c', 'C', ['N1'])]);
+test('choisir l’encadrant : il quitte sa place, l’ancien redevient disponible', () => {
+  const divers = rosterToDivers([entry('a', 'A A', ['N4']), entry('b', 'B B', ['MF1']), entry('c', 'C C', ['N1'])]);
   let plan = proposePalanquees(divers);
   const p = plan.palanquees.find((x) => x.kind === 'guided')!;
-  const other = divers.find((d) => d.id !== p.guide!.id && d.guide)!;
-  plan = moveDiver(plan, other, p.id);
-  plan = setGuide(plan, p.id, other.id);
+  const before = p.guide!;
+  const other = divers.find((d) => d.guide && d.id !== before.id)!;
+  plan = assignGuide(plan, p.id, other);
   const after = plan.palanquees.find((x) => x.id === p.id)!;
   assert.equal(after.guide!.id, other.id);
-  assert.ok(after.members.some((m) => m.id === p.guide!.id));
+  assert.ok(plan.unassigned.some((u) => u.diver.id === before.id), 'l’ancien encadrant est disponible');
+  assert.equal(plan.palanquees.filter((x) => [x.guide, x.extra, ...x.members].some((d) => d?.id === other.id)).length, 1, 'une seule place');
 });
 
 test('export texte lisible', () => {
   const plan = proposePalanquees(rosterToDivers(roster.slice(0, 5)), { maxDepth: 40 });
   const text = planToText('Épave du Liban', plan);
   assert.match(text, /^Palanquées — Épave du Liban/);
-  assert.match(text, /P1 · PE 20/);
+  assert.match(text, /P1 · Encadrée · PE20/);
   assert.match(text, /Encadrant : GUIDE Gaby \(GP \/ N4\)/);
-  assert.match(text, /PA 40/);
+  assert.match(text, /PA40/);
 });
 
 test('mineurs repérés par l’âge, formation choisie à la main', () => {

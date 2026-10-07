@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aptitudesFromLabels, aptLabel, chosenDepth, depthOf, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, aptLabel, chosenDepth, depthOf, levelName, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee } from './palanquees';
 
 let n = 0;
 const diver = (name: string, ...labels: string[]): Diver => ({ id: `d${++n}`, name, labels, ...aptitudesFromLabels(labels) });
@@ -111,22 +111,34 @@ test('encadrants insuffisants : les plongeurs en trop sont signalés, pas placé
   assert.match(plan.unassigned[0]!.reason, /encadrants/);
 });
 
-test('N2 encadrés à 40 m s’il y a des encadrants, autonomes à 20 m sinon', () => {
+test('les N2 sont autonomes PA20 entre eux ; un encadrant libre plonge avec eux', () => {
   const n2 = [diver('A', 'N2'), diver('B', 'N2'), diver('C', 'N2')];
+  const plan = proposePalanquees([diver('G', 'N4'), ...n2]);
+  assert.ok(plan.palanquees.every((p) => p.kind === 'autonomous'));
+  assert.equal(plan.palanquees.reduce((s, p) => s + p.members.length, 0), 4);
+  assert.ok(plan.palanquees.every((p) => chosenDepth(p) === 20), 'prérogative du moins formé : PA20');
+});
 
-  const withGuide = proposePalanquees([diver('G', 'N4'), ...n2], { maxDepth: 40 });
-  assert.equal(withGuide.palanquees.length, 1);
-  assert.equal(withGuide.palanquees[0]!.kind, 'guided');
-  assert.equal(depthOf(withGuide.palanquees[0]!, 40), 40);
+test('autonomes regroupés par prérogative : PA60 ensemble, PA20 ensemble', () => {
+  const plan = proposePalanquees([diver('N3a', 'N3'), diver('N3b', 'N3'), diver('N2a', 'N2'), diver('N2b', 'N2'), diver('N3c', 'N3')], { maxDepth: 60 });
+  const of = (n: string) => plan.palanquees.find((p) => p.members.some((m) => m.name === n))!;
+  assert.equal(of('N3a'), of('N3c'));
+  assert.equal(chosenDepth({ ...of('N3a'), depth: 60 }), 60);
+  assert.equal(of('N2a'), of('N2b'));
+  assert.equal(depthOf(of('N2a')), 20);
+});
 
-  const noGuide = proposePalanquees(n2, { maxDepth: 40 });
-  assert.equal(noGuide.palanquees[0]!.kind, 'autonomous');
-  assert.equal(depthOf(noGuide.palanquees[0]!, 40), 20);
+test('un PA40 seul à son niveau rejoint les PA20 (la palanquée reste PA20)', () => {
+  const plan = proposePalanquees([diver('X', 'PA40'), diver('A', 'N2'), diver('B', 'N2')]);
+  assert.equal(plan.palanquees.length, 1);
+  assert.equal(depthOf(plan.palanquees[0]!), 20);
+});
 
-  // À 20 m les N2 sont autonomes : le GP n'a personne à encadrer et plonge avec eux.
-  const shallow = proposePalanquees([diver('G', 'N4'), ...n2], { maxDepth: 20 });
-  assert.ok(shallow.palanquees.every((p) => p.kind === 'autonomous'));
-  assert.equal(shallow.palanquees.reduce((s, p) => s + p.members.length, 0), 4);
+test('un E1 n’encadre que des débutants ; les N1 attendent un N4/GP', () => {
+  const plan = proposePalanquees([diver('Ini', 'Initiateur', 'N2'), diver('Bob', 'Débutant'), diver('N1', 'N1')]);
+  const bob = plan.palanquees.find((p) => p.members.some((m) => m.name === 'Bob'))!;
+  assert.equal(bob.guide!.name, 'Ini');
+  assert.match(plan.unassigned.find((u) => u.diver.name === 'N1')!.reason, /N4\/GP/);
 });
 
 test('le moins qualifié suffisant encadre : le MF2 reste pour les PE-60', () => {
@@ -244,6 +256,9 @@ test('formation : FN# lu dans les libellés', () => {
   assert.equal(aptitudesFromLabels(['P1', 'FN2']).pe, 20, 'garde son niveau actuel');
   assert.equal(aptLabel(aptitudesFromLabels(['P1', 'FN2'])), 'FN2');
   assert.equal(aptitudesFromLabels(['SECTION SPORTIVE']).training, 0);
+  // Un élève en prépa N2 n'est pas encore N2.
+  const prepa = aptitudesFromLabels(['P1', 'Prépa N2']);
+  assert.deepEqual([prepa.pe, prepa.pa, prepa.training], [20, 0, 2]);
 });
 
 test('les élèves FN# plongent avec un enseignant dont la zone suffit', () => {
@@ -261,7 +276,7 @@ test('les élèves FN# plongent avec un enseignant dont la zone suffit', () => {
   assert.equal(chosenDepth(of('F1a')), 20);
   assert.equal(of('N1a').kind, 'guided');
   assert.equal(of('N1a').guide!.name, 'Guy');
-  assert.equal(prerogativeLabel(of('F2a')), 'Formation E3 · 40 m');
+  assert.equal(prerogativeLabel(of('F2a')), 'PE40');
   for (const p of plan.palanquees) assert.deepEqual(validate(p), [], p.members.map((m) => m.name).join());
 });
 
@@ -276,9 +291,24 @@ test('profondeur par palanquée : 40 m au plus en automatique, 60 m seulement à
   const n2 = plan.palanquees.find((p) => p.members.some((m) => m.name === 'C'))!;
   assert.equal(depthOf(deep), 60, 'prérogative PA60');
   assert.equal(chosenDepth(deep), 40, 'proposée à 40 m');
-  assert.equal(prerogativeLabel(deep), 'PA 40');
+  assert.equal(prerogativeLabel(deep), 'PA40');
   assert.equal(chosenDepth({ ...deep, depth: 60 }), 60);
-  assert.equal(prerogativeLabel({ ...deep, depth: 20 }), 'PA 20');
-  assert.equal(prerogativeLabel(n2), 'PA 20');
+  assert.equal(prerogativeLabel({ ...deep, depth: 20 }), 'PA20');
+  assert.equal(prerogativeLabel(n2), 'PA20');
   assert.ok(validate({ ...n2, depth: 40 }).some((i) => /dépasse la prérogative/.test(i)));
+});
+
+test('nom du niveau trouvé, prérogative la plus haute', () => {
+  const name = (...l: string[]) => levelName(aptitudesFromLabels(l));
+  assert.equal(name('P4', 'E3'), 'MF1');
+  assert.equal(name('E2'), 'E2');
+  assert.equal(name('Initiateur', 'P4'), 'E2', 'Initiateur + N4 = E2');
+  assert.equal(name('P4-ANMP'), 'N4 / GP');
+  assert.equal(name('P5-DPE'), 'N4 / GP');
+  assert.equal(name('MF2'), 'MF2');
+  assert.equal(name('P3'), 'N3');
+  assert.equal(name('P2'), 'N2');
+  assert.equal(name('PE-40'), 'PE40');
+  assert.equal(name('P1-ANMP'), 'N1');
+  assert.equal(name('PADI - AOW'), '');
 });
