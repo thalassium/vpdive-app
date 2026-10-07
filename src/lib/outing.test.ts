@@ -1,15 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayParticipants, defaultVolunteers, postsByPerson, setVolunteer } from './outing';
+import { dayParticipants, defaultRoles, headerFromRoles, postsByPerson, rolesOf, setVolunteer, toggleRole } from './outing';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const person = (id: string, roles: string[] = [], waitingList = false): RosterEntry => ({
   id, name: id, firstname: id, lastname: id, levels: [], display: [], training: [], roles, age: 30, waitingList, comment: '', medical: { until: null, valid: true },
 });
 
-test('bénévoles proposés : pilote et sécurité surface connus de VPDive', () => {
-  const roster = [person('p', ['Pilote']), person('s', ['Sécurité surface']), person('d', ['Directeur de plongée']), person('x')];
-  assert.deepEqual(defaultVolunteers(roster), { pilotage: ['p'], securite: ['s'] });
+test('rôles proposés : DP, pilote et sécurité surface connus de VPDive', () => {
+  const roster = [person('p', ['Pilote']), person('s', ['Sécurité surface']), person('d', ['Directeur de plongée']), person('x'), person('w', ['Pilote'], true)];
+  assert.deepEqual(defaultRoles(roster), { dp: ['d'], pilote: ['p'], securite: ['s'] });
+});
+
+test('rôles : un même inscrit peut cumuler, plongeur ou non ; l’en-tête de la fiche suit', () => {
+  let roles = toggleRole({}, 'dp', 'a');
+  roles = toggleRole(roles, 'securite', 'a');
+  roles = toggleRole(roles, 'securite', 'b');
+  assert.deepEqual(rolesOf(roles, 'a'), ['dp', 'securite']);
+  assert.deepEqual(headerFromRoles([person('a'), person('b')], roles), { dp: 'a a', pilote: '', securite: 'a a, b b' });
+  assert.deepEqual(toggleRole(roles, 'securite', 'a').securite, ['b'], 'un second clic retire le rôle');
 });
 
 test('participants de la journée : sans la liste d’attente', () => {

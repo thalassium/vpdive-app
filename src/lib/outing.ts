@@ -53,12 +53,59 @@ export interface OutingDoc {
   dives: Dive[];
   /** Bénévoles de la sortie : id de poste → inscrits (2 au plus). Absent sur les sorties enregistrées avant. */
   volunteers?: Volunteers;
+  /** DP, pilote, sécurité surface : id de rôle → inscrits. Absent sur les sorties enregistrées avant. */
+  roles?: Roles;
 }
 
-/** Postes tenus par des bénévoles pendant la sortie (un par ligne de l'écran Bénévoles). */
+/**
+ * Rôles de la sortie, à part des bénévoles : chacun est tenu par un inscrit,
+ * encadrant ou non, qu'il plonge ou non. Ils remplissent l'en-tête de la fiche de sécurité.
+ */
+export const DIVE_ROLES = [
+  { id: 'dp', label: 'Directeur de plongée', short: 'DP' },
+  { id: 'pilote', label: 'Pilote', short: 'Pilote' },
+  { id: 'securite', label: 'Sécurité surface', short: 'Sécu' },
+] as const;
+export type DiveRole = (typeof DIVE_ROLES)[number]['id'];
+export type Roles = Partial<Record<DiveRole, string[]>>;
+
+const ROLE_FROM_VPDIVE: Record<DiveRole, RegExp> = { dp: DP_ROLE, pilote: /pilote/i, securite: /s[ée]curit[ée] surface/i };
+
+/** Rôles proposés au départ : ceux que VPDive connaît déjà (rôles de la sortie). */
+export function defaultRoles(roster: RosterEntry[]): Roles {
+  const out: Roles = {};
+  for (const { id } of DIVE_ROLES) {
+    const ids = dayParticipants(roster)
+      .filter((r) => r.roles.some((x) => ROLE_FROM_VPDIVE[id].test(x)))
+      .map((r) => r.id);
+    if (ids.length) out[id] = ids;
+  }
+  return out;
+}
+
+/** Donne ou retire un rôle à un inscrit. */
+export function toggleRole(roles: Roles, role: DiveRole, id: string): Roles {
+  const current = roles[role] ?? [];
+  return { ...roles, [role]: current.includes(id) ? current.filter((x) => x !== id) : [...current, id] };
+}
+
+/** Rôles d'un inscrit, dans l'ordre DP, pilote, sécurité surface. */
+export const rolesOf = (roles: Roles, id: string): DiveRole[] => DIVE_ROLES.filter((r) => roles[r.id]?.includes(id)).map((r) => r.id);
+
+/** En-tête de la fiche (DP, pilote, sécurité surface) d'après les rôles : « Prénom Nom, Prénom Nom ». */
+export function headerFromRoles(roster: RosterEntry[], roles: Roles): Pick<SafetyHeader, DiveRole> {
+  const byId = new Map(roster.map((r) => [r.id, r]));
+  const names = (role: DiveRole) =>
+    (roles[role] ?? [])
+      .map((id) => byId.get(id))
+      .filter((r): r is RosterEntry => !!r)
+      .map((r) => `${r.firstname} ${r.lastname}`.trim() || r.name)
+      .join(', ');
+  return { dp: names('dp'), pilote: names('pilote'), securite: names('securite') };
+}
+
+/** Postes tenus par des bénévoles pendant la sortie (un par ligne de l'écran Bénévoles). Pilote et sécurité surface sont des rôles (DIVE_ROLES). */
 export const VOLUNTEER_POSTS = [
-  { id: 'pilotage', label: 'Pilotage' },
-  { id: 'securite', label: 'Sécurité surface' },
   { id: 'matelotage', label: 'Matelotage' },
   { id: 'detendeurs', label: 'Détendeurs' },
   { id: 'gilets', label: 'Gilets stabilisateurs' },
@@ -72,24 +119,6 @@ export const MAX_PER_POST = 2;
 
 /** Ceux qu'on peut désigner : les inscrits de la journée, hors liste d'attente. */
 export const dayParticipants = (roster: RosterEntry[]) => roster.filter((r) => !r.waitingList);
-
-/**
- * Bénévoles proposés au départ : le pilote et la sécurité surface que VPDive
- * connaît déjà (rôles de la sortie). Le reste est à remplir.
- */
-export function defaultVolunteers(roster: RosterEntry[]): Volunteers {
-  const withRole = (re: RegExp) =>
-    dayParticipants(roster)
-      .filter((r) => r.roles.some((x) => re.test(x)))
-      .map((r) => r.id)
-      .slice(0, MAX_PER_POST);
-  const out: Volunteers = {};
-  const pilots = withRole(/pilote/i);
-  const safety = withRole(/s[ée]curit[ée] surface/i);
-  if (pilots.length) out.pilotage = pilots;
-  if (safety.length) out.securite = safety;
-  return out;
-}
 
 /** Met (ou retire, avec null) une personne à une place d'un poste. Pas de doublon sur un même poste. */
 export function setVolunteer(v: Volunteers, post: VolunteerPost, slot: number, id: string | null): Volunteers {
@@ -110,16 +139,11 @@ export function postsByPerson(v: Volunteers): Map<string, VolunteerPost[]> {
 export const emptyParams = (): DiveParams => ({ duration: '', depth: '', time: '' });
 export const emptySheet = (): PalanqueeSheet => ({ planned: emptyParams(), actual: emptyParams() });
 
-const namesWithRole = (roster: RosterEntry[], re: RegExp) =>
-  roster
-    .filter((r) => r.roles.some((x) => re.test(x)))
-    .map((r) => `${r.firstname} ${r.lastname}`.trim())
-    .join(', ');
-
-/** Nouvelle sortie : en-tête pré-rempli depuis VPDive, personne en liste d'attente ni à terre dans l'eau. */
+/** Nouvelle sortie : en-tête et rôles pré-remplis depuis VPDive, personne en liste d'attente ni à terre dans l'eau. */
 export function newOuting(event: CalendarEvent, roster: RosterEntry[], clubName: string): OutingDoc {
   const start = new Date(event.start);
   const hour = start.getHours();
+  const roles = defaultRoles(roster);
   return {
     settings: {
       levels: {},
@@ -130,15 +154,14 @@ export function newOuting(event: CalendarEvent, roster: RosterEntry[], clubName:
       etablissement: clubName,
       reference: '',
       bateau: '',
-      pilote: namesWithRole(roster, /pilote/i),
-      dp: namesWithRole(roster, DP_ROLE),
-      securite: namesWithRole(roster, /s[ée]curit[ée] surface/i),
+      ...headerFromRoles(roster, roles),
       date: event.start.slice(0, 10),
       creneau: event.allDay ? '' : hour < 12 ? 'Matin' : hour < 18 ? 'Après-midi' : 'Nuit',
       lieu: event.title,
     },
     dives: [{ id: 'd1', label: 'Plongée 1', plan: null, validated: null, sheets: {}, gas: {} }],
-    volunteers: defaultVolunteers(roster),
+    volunteers: {},
+    roles,
   };
 }
 

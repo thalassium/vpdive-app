@@ -112,7 +112,14 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
     });
   }, [m, year, byDay, todayStr]);
 
-  const listDays = Object.keys(byDay).filter(inMonth).sort();
+  // Current month: the list starts the day before (older outings are history); other months show in full.
+  const isCurrentMonth = inMonth(todayStr);
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const listFrom = isCurrentMonth ? ymd(yesterday) : '';
+  const listDays = Object.keys(byDay)
+    .filter((d) => inMonth(d) && d >= listFrom)
+    .sort();
   const monthTotal = events.filter((e) => inMonth(eventDay(e))).length;
   const registeredCount = events.filter((e) => e.registered && inMonth(eventDay(e))).length;
   const shownCount = listDays.reduce((n, d) => n + (byDay[d]?.length ?? 0), 0);
@@ -298,7 +305,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
         <div className="mt-6 space-y-7">
           {firstLoad && <Skeletons />}
           {!isLoading && !error && shownCount === 0 && (
-            <p className="py-14 text-center text-muted font-serif italic">{onlyMine ? 'Aucune inscription ce mois-ci.' : 'Aucune sortie ce mois-ci.'}</p>
+            <p className="py-14 text-center text-muted font-serif italic">{isCurrentMonth ? 'Plus aucune' : 'Aucune'} {onlyMine ? 'inscription' : 'sortie'} ce mois-ci.</p>
           )}
           {listDays.map((date) => (
             <section key={date}>

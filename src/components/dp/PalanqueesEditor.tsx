@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, Check, ChevronDown, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX } from 'lucide-react';
+import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { AlertTriangle, Check, ChevronDown, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX, X } from 'lucide-react';
 import type { RosterEntry } from '../../services/vpdiveApi';
 import {
   DEPTHS,
@@ -7,8 +7,11 @@ import {
   typeOf,
   TRAINING_TARGET,
   aptitudesFromLabels,
+  canGuideExploration,
   chosenDepth,
   depthOf,
+  hasStudent,
+  instructorMemberLabel,
   prerogativeCode,
   prerogativeLabel,
   proposePalanquees,
@@ -37,7 +40,7 @@ import {
   removeGuide,
   setType,
 } from '../../lib/palanqueeEdit';
-import type { Dive, OutingDoc } from '../../lib/outing';
+import { DIVE_ROLES, dayParticipants, defaultRoles, rolesOf, toggleRole, type Dive, type DiveRole, type OutingDoc, type Roles } from '../../lib/outing';
 import { Menu, type MenuSection } from '../Menu';
 
 interface Props {
@@ -46,6 +49,7 @@ interface Props {
   doc: OutingDoc;
   dive: Dive;
   onSettings: (settings: OutingDoc['settings']) => void;
+  onRoles: (roles: Roles) => void;
   onPlan: (plan: Plan) => void;
   onValidate: () => void;
   onReopen: () => void;
@@ -70,13 +74,25 @@ const diplomas = (d: Diver) => {
 const shownLevel = (d: Diver) => (d.training ? `FN${d.training} · ${describe(d)}` : describe(d));
 const isInstructor = (d: Diver) => !!d.guide;
 
+/** Rôles de la sortie de chaque inscrit (DP, pilote, sécurité surface), pour les badges à côté des noms. */
+const RolesContext = createContext<Map<string, DiveRole[]>>(new Map());
+
+function RoleBadges({ id }: { id: string }) {
+  const mine = useContext(RolesContext).get(id) ?? [];
+  return mine.map((role) => (
+    <span key={role} className="shrink-0 px-1.5 py-0.5 rounded-md bg-tint text-brand text-xs font-bold">
+      {DIVE_ROLES.find((r) => r.id === role)!.short}
+    </span>
+  ));
+}
+
 /**
  * Palanquées d'une plongée. Une palanquée = un type (Formation, Encadrée,
  * Autonome), un encadrant si le type en demande un, et une prérogative (PE12…
  * PA60) qui découle des gens qui la composent. Validées, elles sont figées et
  * débloquent la fiche de sécurité ; « Modifier » les rouvre.
  */
-export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan, onValidate, onReopen }: Props) {
+export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles, onPlan, onValidate, onReopen }: Props) {
   const [copied, setCopied] = useState(false);
   const settings = doc.settings;
   const excluded = useMemo(() => new Set(settings.excluded), [settings.excluded]);
@@ -85,6 +101,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
   const locked = !!dive.validated;
   // Tant que ce n'est pas validé, chaque plongeur apparaît avec ses réglages actuels.
   const plan = dive.plan && !locked ? refreshDivers(dive.plan, divers) : dive.plan;
+  const roles = doc.roles ?? defaultRoles(roster);
+  const roleMap = useMemo(() => new Map(roster.map((r) => [r.id, rolesOf(roles, r.id)])), [roster, roles]);
 
   const generate = () => {
     const ids = new Set(diving.map((d) => d.id));
@@ -192,7 +210,10 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
             className="w-5 h-5 accent-[var(--fill)] shrink-0"
           />
           <span className="min-w-0">
-            <span className="font-medium text-ink truncate block">{d.name}</span>
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className="font-medium text-ink truncate">{d.name}</span>
+              <RoleBadges id={d.id} />
+            </span>
             <span className="text-sm text-muted">
               VPDive : {r.display.join(', ') || 'aucun niveau'}
               {forced && <span className="text-brand font-semibold"> → prérogative retenue : {forced}</span>}
@@ -225,6 +246,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
   };
 
   return (
+    <RolesContext.Provider value={roleMap}>
     <div className="space-y-7">
       {locked && (
         <div className="p-4 rounded-xl bg-ok-soft text-ok flex flex-wrap items-center gap-3">
@@ -238,6 +260,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
           </button>
         </div>
       )}
+
+      <RolesSection roster={roster} roles={roles} excluded={excluded} onRoles={onRoles} />
 
       {/* 1. Qui plonge : encadrants d'un côté, plongeurs de l'autre */}
       {!locked && (
@@ -367,6 +391,67 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
         </section>
       )}
     </div>
+    </RolesContext.Provider>
+  );
+}
+
+/**
+ * Rôles de la sortie : DP, pilote, sécurité surface. N'importe quel inscrit de la
+ * journée, encadrant ou non, qu'il plonge ou non ; un même inscrit peut en cumuler.
+ */
+function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntry[]; roles: Roles; excluded: Set<string>; onRoles: (roles: Roles) => void }) {
+  const people = dayParticipants(roster).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  const byId = new Map(roster.map((r) => [r.id, r]));
+  return (
+    <section>
+      <h3 className="text-base font-semibold text-brand mb-2">Rôles de la sortie</h3>
+      <ul className="rounded-xl border border-line divide-y divide-line">
+        {DIVE_ROLES.map((role) => {
+          const ids = roles[role.id] ?? [];
+          return (
+            <li key={role.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
+              <span className="w-44 shrink-0 font-semibold text-ink">{role.label}</span>
+              <span className="flex-1 flex flex-wrap items-center gap-2">
+                {ids.map((id) => {
+                  const name = byId.get(id)?.name ?? 'Inscrit retiré';
+                  return (
+                    <span key={id} className="inline-flex items-center gap-1 h-9 pl-3 pr-1 rounded-lg border border-brand/40 bg-tint text-brand font-semibold">
+                      {name}
+                      <button
+                        type="button"
+                        onClick={() => onRoles(toggleRole(roles, role.id, id))}
+                        aria-label={`Retirer ${name} : ${role.label}`}
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-muted hover:text-danger hover:bg-danger-soft"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </span>
+                  );
+                })}
+                <Menu
+                  ariaLabel={`${role.label} : choisir`}
+                  triggerClassName="h-9 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-line px-3 text-muted hover:border-brand/40 hover:text-brand"
+                  trigger={
+                    <>
+                      <Plus className="w-4 h-4" />
+                      {ids.length ? 'Ajouter' : 'Choisir…'}
+                    </>
+                  }
+                  sections={[
+                    {
+                      onSelect: (id) => onRoles(toggleRole(roles, role.id, id)),
+                      options: people
+                        .filter((r) => !ids.includes(r.id))
+                        .map((r) => ({ value: r.id, label: r.name, hint: excluded.has(r.id) ? 'ne plonge pas' : undefined })),
+                    },
+                  ]}
+                />
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -381,12 +466,20 @@ function RosterGroup({ title, count, children }: { title: string; count: number;
   );
 }
 
-/** Prérogative propre d'un plongeur dans cette palanquée (PA en autonomie, PE encadré, FN# en formation). */
+/**
+ * Prérogative propre d'un plongeur dans cette palanquée (PA en autonomie, PE encadré, FN# en formation).
+ * Un moniteur plongeur affiche son statut en formation, celle de la palanquée en exploration
+ * (instructorMemberLabel) ; sa profondeur reste la sienne, pour signaler s'il limite la palanquée.
+ */
 function ownPrerogative(d: Diver, p: Palanquee): { label: string; depth: number } {
-  if (p.kind === 'autonomous') return d.pa ? { label: `PA${d.pa}`, depth: d.pa } : { label: 'pas PA', depth: 0 };
-  if (p.kind === 'teaching' && d.training) return { label: `FN${d.training}`, depth: TRAINING_TARGET[d.training] };
-  if (d.pe) return { label: `PE${d.pe}`, depth: d.pe };
-  return d.beginner ? { label: 'Débutant', depth: 6 } : { label: '?', depth: 0 };
+  const own = ((): { label: string; depth: number } => {
+    if (p.kind === 'autonomous') return d.pa ? { label: `PA${d.pa}`, depth: d.pa } : { label: 'pas PA', depth: 0 };
+    if (p.kind === 'teaching' && d.training) return { label: `FN${d.training}`, depth: TRAINING_TARGET[d.training] };
+    if (d.pe) return { label: `PE${d.pe}`, depth: d.pe };
+    return d.beginner ? { label: 'Débutant', depth: 6 } : { label: '?', depth: 0 };
+  })();
+  const label = instructorMemberLabel(d, p);
+  return label ? { ...own, label } : own;
 }
 
 function PalanqueeCard({
@@ -419,7 +512,7 @@ function PalanqueeCard({
   const issues = validate(p);
   const legal = depthOf(p);
   const depth = chosenDepth(p);
-  const eligible = instructors.filter((d) => (p.kind === 'teaching' ? d.teach > 0 : !!d.guide));
+  const eligible = instructors.filter((d) => (p.kind === 'teaching' ? d.teach > 0 : canGuideExploration(d)));
   const letter = p.kind === 'autonomous' ? 'PA' : 'PE';
   // Le DP peut remonter la prérogative de toute palanquée, formation comprise, jamais la dépasser.
   const selectable = !locked && legal > 0;
@@ -431,8 +524,10 @@ function PalanqueeCard({
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-8 h-8 shrink-0 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">P{index}</span>
           <span className="min-w-0">
-            {locked ? (
-              <span className="block font-semibold">{TYPE_LABEL[typeOf(p)]}</span>
+            {locked || hasStudent(p) ? (
+              <span className="block font-semibold" title={locked ? undefined : 'Un élève en formation (FN#) : palanquée de formation'}>
+                {TYPE_LABEL[typeOf(p)]}
+              </span>
             ) : (
               <Menu
                 ariaLabel="Type de palanquée"
@@ -561,6 +656,7 @@ function GuideRow({
         {g ? prerogativeCode(g) || '?' : role}
       </span>
       <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
         {editable ? (
           <Menu
             ariaLabel={role}
@@ -585,6 +681,8 @@ function GuideRow({
         ) : (
           <span className={`block truncate ${g ? 'font-bold text-ink' : ''}`}>{g ? g.name : teaching ? 'Aucun enseignant disponible' : 'Sans encadrant'}</span>
         )}
+        {g && <RoleBadges id={g.id} />}
+        </div>
         <span className="block text-sm text-muted truncate">
           {g ? role : teaching ? 'Une formation demande un enseignant (E1, E2, E3…)' : 'Plongeurs autonomes'}
           {g && diplomas(g).length > 0 && ` · ${diplomas(g).join(' · ')}`}
@@ -638,7 +736,10 @@ function DiverRow({
         </span>
       )}
       <span className="flex-1 min-w-0">
-        <span className="block truncate text-ink">{d.name}</span>
+        <span className="flex items-center gap-1.5 min-w-0">
+          <span className="truncate text-ink">{d.name}</span>
+          <RoleBadges id={d.id} />
+        </span>
         <span className="block text-sm text-muted truncate">
           {d.training ? `en formation FN${d.training} · ${describe(d)}` : describe(d)}
           {d.original && <span title="Le DP a retenu un équivalent FFESSM"> · équivalent retenu</span>}
@@ -664,6 +765,7 @@ function FreeList({ title, items, targets, onMove, instructor }: { title: string
           {items.map(({ diver, reason }) => (
             <li key={diver.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base">
               <span className="font-medium text-ink">{diver.name}</span>
+              <RoleBadges id={diver.id} />
               <span className="text-sm text-muted">{shownLevel(diver)}</span>
               <span className="basis-full text-sm text-muted">{reason}</span>
               <MoveSelect targets={targets} onMove={(t) => onMove(diver, t)} instructor={instructor} allowUnassign={false} />

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { vpdive, ymd, DP_ROLE, type CalendarEvent, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import { appApi, AppApiError, type AppRole } from '../../services/appApi';
-import { defaultVolunteers, newOuting, nextDive, type Dive, type OutingDoc } from '../../lib/outing';
+import { headerFromRoles, newOuting, nextDive, type Dive, type OutingDoc } from '../../lib/outing';
 import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
@@ -421,7 +421,7 @@ function OutingWorkspace({
       {view === 'benevoles' ? (
         <VolunteersPanel
           roster={roster}
-          volunteers={doc.volunteers ?? defaultVolunteers(roster)}
+          volunteers={doc.volunteers ?? {}}
           onChange={(volunteers) => update((d) => ({ ...d, volunteers }))}
         />
       ) : (
@@ -443,6 +443,8 @@ function OutingWorkspace({
             doc={doc}
             dive={dive}
             onSettings={(settings) => update((d) => ({ ...d, settings }))}
+            // Les rôles remplissent aussi l'en-tête de la fiche ; il reste modifiable à la main (pilote extérieur…).
+            onRoles={(roles) => update((d) => ({ ...d, roles, header: { ...d.header, ...headerFromRoles(roster, roles) } }))}
             onPlan={(plan) => updateDive((d) => ({ ...d, plan }))}
             onValidate={() => {
               updateDive((d) => ({ ...d, validated: { by: me, at: new Date().toISOString() } }));

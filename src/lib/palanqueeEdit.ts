@@ -3,7 +3,7 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, aptLabel, GUIDE_LABEL, KIND_LABEL, prerogativeLabel, settleKind, type Depth, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, aptLabel, GUIDE_LABEL, KIND_LABEL, prerogativeLabel, settleKind, toTeaching, type Depth, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -66,13 +66,14 @@ export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = 
 /**
  * Remet à jour les plongeurs d'une composition avec leurs réglages actuels
  * (prérogative retenue, formation…), à leur place. Sans cela, un choix fait
- * après la génération ne se verrait qu'en refaisant les palanquées.
+ * après la génération ne se verrait qu'en refaisant les palanquées. Un plongeur
+ * passé en formation (FN#) fait passer sa palanquée en formation (settleKind).
  */
 export function refreshDivers(plan: Plan, divers: Diver[]): Plan {
   const byId = new Map(divers.map((d) => [d.id, d]));
   const fresh = <T extends Diver | null>(d: T): T => (d ? ((byId.get(d.id) ?? d) as T) : d);
   return {
-    palanquees: plan.palanquees.map((p) => ({ ...p, guide: fresh(p.guide), extra: fresh(p.extra), members: p.members.map(fresh) })),
+    palanquees: plan.palanquees.map((p) => settleKind({ ...p, guide: fresh(p.guide), extra: fresh(p.extra), members: p.members.map(fresh) })),
     unassigned: plan.unassigned.map((u) => ({ ...u, diver: fresh(u.diver) })),
   };
 }
@@ -162,12 +163,7 @@ export function assignGuide(plan: Plan, palanqueeId: string, diver: Diver): Plan
  * encadrant (settleKind).
  */
 export function setType(plan: Plan, palanqueeId: string, type: PalanqueeType): Plan {
-  return mapPal(plan, palanqueeId, (p) => {
-    if (type === 'exploration') return settleKind({ ...p, kind: p.guide ? 'guided' : 'autonomous' });
-    if (p.guide) return { ...p, kind: 'teaching' };
-    const teacher = [...p.members].filter((m) => m.teach > 0).sort((a, b) => b.teach - a.teach)[0] ?? null;
-    return { ...p, kind: 'teaching', guide: teacher, members: p.members.filter((m) => m !== teacher) };
-  });
+  return mapPal(plan, palanqueeId, (p) => (type === 'exploration' ? settleKind({ ...p, kind: p.guide ? 'guided' : 'autonomous' }) : toTeaching(p)));
 }
 
 /** Retire l'encadrant : il redevient disponible, la palanquée d'exploration devient autonome. */

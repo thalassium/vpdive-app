@@ -1,4 +1,4 @@
-import type { Diver, Palanquee } from './palanquees';
+import { instructorMemberLabel, type Diver, type Palanquee } from './palanquees';
 import type { SafetyHeader } from './outing';
 
 /**
@@ -21,33 +21,42 @@ export const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: str
 export const SHEET_FOOTNOTE =
   'Le non-respect des paramètres prévus par le DP engage potentiellement la responsabilité de l’encadrant de palanquée ou des plongeurs ' +
   'autonomes. Gaz : laisser vide pour une plongée à l’air. Aptitudes PE/PA pour les plongeurs, niveau pour les encadrants (GP/P4, E1, E2, ' +
-  'E3…) : E2 en enseignement (20 m), GP/P4 en exploration.';
+  'E3, E4) : le plus haut, en exploration comme en enseignement.';
 
 export type SheetSlot = 'guide' | 'member' | 'extra';
 
 /**
  * Colonne APT de la fiche (note 5 du modèle) : aptitude PE/PA pour les
- * plongeurs, niveau pour les encadrants, E2 en enseignement mais GP/P4 en
- * exploration, FN# pour un élève.
+ * plongeurs, niveau le plus haut pour les encadrants (un E4 qui guide en
+ * exploration reste E4), FN# pour un élève. Un moniteur plongeur : son statut en
+ * formation, la prérogative de la palanquée en exploration.
  */
 export function sheetApt(d: Diver, p: Palanquee, slot: SheetSlot): string {
   if (slot === 'extra') return 'GP / P4';
   if (slot === 'guide') {
     if (p.kind === 'teaching') return d.teach ? `E${d.teach}` : '?';
-    return d.guide === 'GP' ? 'GP / P4' : d.guide ? (d.teach >= 3 ? `E${d.teach}` : d.guide) : '?';
+    // Exploration : sa prérogative la plus haute (un E4 qui guide reste E4), N4/GP au minimum.
+    return d.teach ? `E${d.teach}` : d.guide === 'GP' ? 'GP / P4' : '?';
   }
+  const instructor = instructorMemberLabel(d, p);
+  if (instructor) return instructor;
   if (d.training && p.kind === 'teaching') return `FN${d.training}`;
   if (p.kind === 'autonomous') return d.pa ? `PA${d.pa}` : '?';
   if (d.beginner && !d.pe) return 'Débutant';
   return d.pe ? `PE${d.pe}` : '?';
 }
 
-/** Les six lignes d'une palanquée sur la fiche : une palanquée autonome n'a pas d'encadrant, ses plongeurs prennent les lignes 1 à 4. */
+/**
+ * Les lignes d'une palanquée sur la fiche, six d'ordinaire : une palanquée autonome n'a pas
+ * d'encadrant, ses plongeurs prennent les lignes 1 à 4. Une formation peut compter, en plus
+ * de ses 4 élèves, des moniteurs qui plongent avec elle : une ligne de plus pour chacun.
+ */
 export function sheetRows(p: Palanquee): { label: string; d: Diver | null; slot: SheetSlot }[] {
   const divers = p.kind === 'autonomous' ? [p.guide, ...p.members].filter((d): d is Diver => !!d) : p.members;
+  const lines = Array.from({ length: Math.max(4, divers.length) }, (_, n) => n);
   return [
     { label: p.kind === 'teaching' ? 'Enseignant' : 'Encadrant', d: p.kind === 'autonomous' ? null : p.guide, slot: 'guide' },
-    ...[0, 1, 2, 3].map((n) => ({ label: `Plongeur ${n + 1}`, d: divers[n] ?? null, slot: 'member' as const })),
+    ...lines.map((n) => ({ label: `Plongeur ${n + 1}`, d: divers[n] ?? null, slot: 'member' as const })),
     { label: 'GP suppl.', d: p.extra, slot: 'extra' },
   ];
 }

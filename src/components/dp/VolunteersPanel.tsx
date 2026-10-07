@@ -13,8 +13,8 @@ const nameOf = (r: RosterEntry) => `${r.firstname} ${r.lastname}`.trim() || r.na
 const postLabel = (id: VolunteerPost) => VOLUNTEER_POSTS.find((p) => p.id === id)?.label ?? id;
 
 /**
- * Bénévoles de la sortie : qui tient chaque poste (pilotage, sécurité surface,
- * matelotage…), deux personnes au plus par poste, choisies parmi les inscrits
+ * Bénévoles de la sortie : qui tient chaque poste (matelotage, détendeurs,
+ * eau…), deux personnes au plus par poste, choisies parmi les inscrits
  * de la journée. Une même personne peut tenir plusieurs postes.
  */
 export function VolunteersPanel({ roster, volunteers, onChange }: Props) {

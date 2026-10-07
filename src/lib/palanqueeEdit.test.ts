@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { depthOf, proposePalanquees, validate } from './palanquees';
+import { aptitudesFromLabels, depthOf, proposePalanquees, validate, type Diver, type Plan } from './palanquees';
 import { NO_TRAINING, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setType } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -182,4 +182,18 @@ test('« Pas en formation » l’emporte sur une prépa VPDive', () => {
   const r = { ...entry('t', 'CHEVALIER Tom', ['P1']), training: ['Prépa N2'] };
   assert.equal(rosterToDivers([r])[0]!.training, 2, 'prépa N2 : FN2');
   assert.equal(rosterToDivers([r], setDiverChoice({}, 'training', 't', NO_TRAINING))[0]!.training, 0);
+});
+
+const diverOf = (name: string, ...labels: string[]): Diver => ({ id: name, name, labels, ...aptitudesFromLabels(labels) });
+
+test('un élève FN# fait passer la palanquée en formation ; un moniteur qui enseigne remplace le GP', () => {
+  const gp = diverOf('GP', 'N4');
+  const mf1 = diverOf('MF1', 'MF1');
+  const student = diverOf('Élève', 'P1', 'FN2');
+  const plan: Plan = { palanquees: [{ id: 'p', kind: 'guided', guide: gp, extra: null, members: [diverOf('N2', 'P2'), mf1] }], unassigned: [{ diver: student, reason: '' }] };
+  const p = moveDiver(plan, student, 'p').palanquees[0]!;
+  assert.equal(p.kind, 'teaching');
+  assert.equal(p.guide?.id, mf1.id, 'le MF1 enseigne');
+  assert.ok(p.members.some((m) => m.id === gp.id), 'le GP plonge comme moniteur');
+  assert.equal(setType({ ...plan, palanquees: [p] }, 'p', 'exploration').palanquees[0]!.kind, 'teaching', 'pas d’exploration avec un élève');
 });
