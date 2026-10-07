@@ -421,7 +421,8 @@ function PalanqueeCard({
   const depth = chosenDepth(p);
   const eligible = instructors.filter((d) => (p.kind === 'teaching' ? d.teach > 0 : !!d.guide));
   const letter = p.kind === 'autonomous' ? 'PA' : 'PE';
-  const selectable = !locked && p.kind !== 'teaching' && legal > 0;
+  // Le DP peut remonter la prérogative de toute palanquée, formation comprise, jamais la dépasser.
+  const selectable = !locked && legal > 0;
 
   return (
     <article className={`rounded-2xl border-2 bg-surface overflow-hidden ${issues.length ? 'border-danger/60' : 'border-line'}`}>
