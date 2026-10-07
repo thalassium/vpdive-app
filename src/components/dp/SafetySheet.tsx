@@ -98,7 +98,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
             <section key={p.id} className="rounded-xl border border-line overflow-hidden break-inside-avoid print:rounded-none print:border-black">
               <header className="flex items-center justify-between gap-2 px-3 py-2 bg-raised print:bg-white print:border-b print:border-black">
                 <span className="font-semibold text-brand print:text-black">P{i + 1}</span>
-                <span className="text-sm font-semibold text-muted print:text-black">{kindLabel(p)} · {prerogativeLabel(p)}</span>
+                <span className="text-sm font-semibold text-muted print:text-black">{kindLabel(p)} · {prerogativeLabel(p)} · {chosenDepth(p)} m</span>
               </header>
               <table className="w-full text-sm">
                 <thead>

@@ -2,7 +2,6 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 import { AlertTriangle, Check, ChevronDown, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX, X } from 'lucide-react';
 import type { RosterEntry } from '../../services/vpdiveApi';
 import {
-  DEPTHS,
   TYPE_LABEL,
   typeOf,
   trainingLabel,
@@ -23,7 +22,6 @@ import {
   prerogativeLabel,
   proposePalanquees,
   validate,
-  type Depth,
   type Diver,
   type Palanquee,
   type PalanqueeKind,
@@ -513,7 +511,7 @@ function PalanqueeCard({
   onType: (t: PalanqueeType) => void;
   onRemoveGuide: () => void;
   levelSections: (d: Diver) => MenuSection[];
-  onDepth: (d: Depth | undefined) => void;
+  onDepth: (d: number | undefined) => void;
   onDelete: () => void;
 }) {
   const issues = validate(p);
@@ -521,9 +519,7 @@ function PalanqueeCard({
   const depth = chosenDepth(p);
   // Qui peut prendre la tête de cette palanquée : un élève (FN#) jamais ; en formation un enseignant qui suffit à ses élèves ; en exploration un N4/GP au moins.
   const eligible = instructors.filter((d) => !d.training && (p.kind === 'teaching' ? canTeach(d, studentsOf(p)) : canGuideExploration(d)));
-  const letter = p.kind === 'autonomous' ? 'PA' : 'PE';
-  // Le DP peut remonter la prérogative de toute palanquée, formation comprise, jamais la dépasser.
-  const selectable = !locked && legal > 0;
+  // La prérogative vient des aptitudes ; le DP fixe la profondeur max en dessous (40 m par défaut), librement (25 m…).
 
   return (
     <article className={`rounded-2xl border-2 bg-surface overflow-hidden ${issues.length ? 'border-danger/60' : 'border-line'}`}>
@@ -569,34 +565,38 @@ function PalanqueeCard({
             </button>
           )}
         </div>
-        <div className="text-right shrink-0">
-          <span className="block text-xs font-bold uppercase tracking-wider text-white/85">Prérogative</span>
-          {selectable ? (
-            <Menu
-              ariaLabel="Prérogative de la palanquée"
-              triggerClassName={`${BADGE} bg-surface text-brand ${prerogativeLabel(p).length > 5 ? 'text-base' : 'text-2xl'}`}
-              trigger={
-                <>
-                  {prerogativeLabel(p)}
-                  <ChevronDown className="w-4 h-4 opacity-60" />
-                </>
-              }
-              sections={[
-                {
-                  selected: String(depth),
-                  onSelect: (v) => onDepth(Number(v) as Depth),
-                  options: DEPTHS.filter((d) => d <= legal && (d > 6 || legal === 6)).map((d) => ({
-                    value: String(d),
-                    label: `${letter}${d}`,
-                    hint: d === 60 ? 'à la main' : undefined,
-                  })),
-                },
-              ]}
-            />
-          ) : (
-            <span className={`${BADGE} ${depth ? 'bg-surface text-brand' : 'bg-white/15 text-white'} ${depth && prerogativeLabel(p).length <= 5 ? 'text-2xl' : 'text-base'}`}>
+        <div className="flex items-end gap-2 shrink-0">
+          <div className="text-right">
+            <span className="block text-xs font-bold uppercase tracking-wider text-white/85">Prérogative</span>
+            <span className={`${BADGE} ${legal ? 'bg-surface text-brand' : 'bg-white/15 text-white'} ${legal && prerogativeLabel(p).length <= 5 ? 'text-2xl' : 'text-base'}`}>
               {prerogativeLabel(p)}
             </span>
+          </div>
+          {legal > 0 && (
+            <div className="text-right">
+              <span className="block text-xs font-bold uppercase tracking-wider text-white/85">Prof. max</span>
+              {locked ? (
+                <span className={`${BADGE} bg-white/15 text-white text-2xl`}>{depth} m</span>
+              ) : (
+                <label className={`${BADGE} bg-white/15 text-white cursor-text focus-within:bg-white/25`} title={`Jusqu’à ${legal} m (prérogative)`}>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={legal}
+                    step={1}
+                    value={depth}
+                    aria-label="Profondeur maximale de la palanquée, en mètres"
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      onDepth(v > 0 ? Math.min(v, legal) : undefined);
+                    }}
+                    className="w-14 bg-transparent text-right text-2xl font-bold tabular-nums focus:outline-none"
+                  />
+                  <span className="text-base">m</span>
+                </label>
+              )}
+            </div>
           )}
         </div>
       </header>

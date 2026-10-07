@@ -147,10 +147,11 @@ export interface Palanquee {
   extra: Diver | null;
   members: Diver[];
   /**
-   * Profondeur retenue par le DP pour cette palanquée. Absente : la prérogative
-   * maximale de la palanquée, plafonnée à 40 m (AUTO_MAX_DEPTH).
+   * Profondeur maximale retenue par le DP pour cette palanquée, en mètres
+   * (25 m…), jamais au-delà de sa prérogative. Absente : la prérogative,
+   * plafonnée à 40 m (AUTO_MAX_DEPTH).
    */
-  depth?: Depth;
+  depth?: number;
 }
 
 export interface Plan {
@@ -378,13 +379,14 @@ export function depthOf(p: Palanquee, outingMax: Depth = 60): Depth | 0 {
 }
 
 /**
- * Profondeur à laquelle la palanquée plonge : celle choisie par le DP si elle
- * respecte la prérogative, sinon la prérogative plafonnée à 40 m.
+ * Profondeur maximale à laquelle la palanquée plonge : celle fixée par le DP si
+ * elle respecte la prérogative, sinon la prérogative plafonnée à 40 m. C'est un
+ * paramètre de plongée, distinct de la prérogative (prerogativeLabel).
  */
-export function chosenDepth(p: Palanquee): Depth | 0 {
+export function chosenDepth(p: Palanquee): number {
   const legal = depthOf(p);
   if (!legal) return 0;
-  return p.depth && p.depth <= legal ? p.depth : minDepth(legal, AUTO_MAX_DEPTH);
+  return p.depth && p.depth <= legal ? Math.round(p.depth) : Math.min(legal, AUTO_MAX_DEPTH);
 }
 
 /**
@@ -473,12 +475,13 @@ export function settleKind(p: Palanquee): Palanquee {
 }
 
 /**
- * Prérogative sous laquelle la palanquée plonge : PE12, PE20, PA20, PE40,
- * PA40, PE60, PA60 (PE pour une palanquée encadrée ou de formation, PA pour une
- * autonome), ou « Débutants 6 m ».
+ * Prérogative de la palanquée, d'après les aptitudes de ceux qui la composent :
+ * PE12, PE20, PA20, PE40, PA40, PE60, PA60 (PE pour une palanquée encadrée ou
+ * de formation, PA pour une autonome), ou « Débutants 6 m ». La profondeur max
+ * retenue par le DP (chosenDepth) ne la change pas : un PE40 à 25 m reste PE40.
  */
 export function prerogativeLabel(p: Palanquee): string {
-  const d = chosenDepth(p);
+  const d = depthOf(p);
   if (!d) return 'À revoir';
   if (p.kind === 'autonomous') return `PA${d}`;
   const students = p.kind === 'teaching' ? studentsOf(p) : p.members;
@@ -518,18 +521,20 @@ export function guideLabel(d: Aptitudes, p: Palanquee): string {
 }
 
 /**
- * Plongeur (membre) tel qu'il est noté, mêmes trois endroits :
- * - formation : FN# pour un élève ; E# pour un enseignant qui plonge sans
- *   enseigner (hors des 4 élèves) ; la prérogative de la palanquée pour un
- *   N4/GP qui assiste (hors des 4 lui aussi, mais sans statut N4) ; PE ou
- *   Débutant pour les autres ;
+ * Plongeur (membre) tel qu'il est noté, mêmes trois endroits. L'aptitude est la
+ * prérogative (celle du niveau, ou celle que le DP a retenue) ; la formation
+ * n'est qu'un objectif, écrit en tête de palanquée (objectiveLabel).
+ * - formation : son aptitude PE (ou Débutant) pour un élève ; E# pour un
+ *   enseignant qui plonge sans enseigner (hors des 4 élèves) ; la prérogative
+ *   de la palanquée pour un N4/GP qui assiste (hors des 4 lui aussi, mais
+ *   sans statut N4) ;
  * - exploration : la prérogative de la palanquée pour tout moniteur (celle du
  *   moins formé : un N2 PA20 avec trois E4, les trois E4 plongent PA20) ;
  *   PA ou PE propre sinon.
  */
 export function memberLabel(d: Diver, p: Palanquee): string {
   if (p.kind === 'teaching') {
-    if (d.training) return trainingLabel(d);
+    if (d.training) return d.pe ? `PE${d.pe}` : d.beginner || d.training === 1 ? 'Débutant' : '?';
     if (d.teach) return `E${d.teach}`;
     if (d.guide) return prerogativeLabel(p);
   } else if (isInstructor(d)) {

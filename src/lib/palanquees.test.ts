@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aptitudesFromLabels, chosenDepth, depthOf, guideLabel, lowestTeacher, memberLabel, minTeachFor, trainingLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
+import { aptitudesFromLabels, chosenDepth, depthOf, guideLabel, kindLabel, lowestTeacher, memberLabel, minTeachFor, trainingLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
 
 let n = 0;
 const diver = (name: string, ...labels: string[]): Diver => ({ id: `d${++n}`, name, labels, ...aptitudesFromLabels(labels) });
@@ -254,7 +254,7 @@ test('formation : FN# lu dans les libellés', () => {
   assert.equal(aptitudesFromLabels(['Prépa N2']).training, 2);
   assert.equal(aptitudesFromLabels(['Formation niveau 1']).training, 1);
   assert.equal(aptitudesFromLabels(['P1', 'FN2']).pe, 20, 'garde son niveau actuel');
-  assert.equal(memberLabel(diver('X', 'P1', 'FN2'), { id: 't', kind: 'teaching', guide: null, extra: null, members: [] }), 'FN2');
+  assert.equal(memberLabel(diver('X', 'P1', 'FN2'), { id: 't', kind: 'teaching', guide: null, extra: null, members: [] }), 'PE20', 'l’aptitude, pas l’objectif');
   assert.equal(aptitudesFromLabels(['SECTION SPORTIVE']).training, 0);
   // Un élève en prépa N2 n'est pas encore N2.
   const prepa = aptitudesFromLabels(['P1', 'Prépa N2']);
@@ -291,9 +291,10 @@ test('profondeur par palanquée : 40 m au plus en automatique, 60 m seulement à
   const n2 = plan.palanquees.find((p) => p.members.some((m) => m.name === 'C'))!;
   assert.equal(depthOf(deep), 60, 'prérogative PA60');
   assert.equal(chosenDepth(deep), 40, 'proposée à 40 m');
-  assert.equal(prerogativeLabel(deep), 'PA40');
+  assert.equal(prerogativeLabel(deep), 'PA60', 'la prérogative vient des aptitudes, pas de la profondeur retenue');
   assert.equal(chosenDepth({ ...deep, depth: 60 }), 60);
-  assert.equal(prerogativeLabel({ ...deep, depth: 20 }), 'PA20');
+  assert.equal(chosenDepth({ ...deep, depth: 25 }), 25, 'profondeur max libre');
+  assert.equal(prerogativeLabel({ ...deep, depth: 20 }), 'PA60');
   assert.equal(prerogativeLabel(n2), 'PA20');
   assert.ok(validate({ ...n2, depth: 40 }).some((i) => /dépasse la prérogative/.test(i)));
 });
@@ -508,7 +509,8 @@ test('formation vers une aptitude précise : FPA20 pour un PE40, zone 20 m, un E
   assert.equal(p.kind, 'teaching');
   assert.equal(p.guide!.name, 'E2', 'l’E2 se positionne, l’E3 reste libre');
   assert.equal(chosenDepth(p), 20);
-  assert.equal(memberLabel(student, p), 'FPA20');
+  assert.equal(memberLabel(student, p), 'PE40', 'aptitude = prérogative ; l’objectif est en tête');
+  assert.equal(kindLabel(p), 'Formation FPA20');
   assert.deepEqual(validate(p), []);
   // Le même élève noté FN2 mobilise l’E3.
   const vague = proposePalanquees([e2, e3, diver('Paul', 'PE40', 'FN2'), diver('N1', 'N1')]);

@@ -3,7 +3,7 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, canGuideExploration, extraLabel, guideLabel, kindLabel, memberLabel, prerogativeLabel, settleKind, toTeaching, type Depth, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, canGuideExploration, chosenDepth, extraLabel, guideLabel, kindLabel, memberLabel, prerogativeLabel, settleKind, toTeaching, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -207,9 +207,9 @@ export function setExtra(plan: Plan, palanqueeId: string, diver: Diver): Plan {
   return { palanquees, unassigned };
 }
 
-/** Profondeur retenue par le DP pour une palanquée (undefined : prérogative, 40 m au plus). */
-export function setDepth(plan: Plan, palanqueeId: string, depth: Depth | undefined): Plan {
-  return mapPal(plan, palanqueeId, (p) => ({ ...p, depth }));
+/** Profondeur maximale retenue par le DP pour une palanquée, en mètres (undefined : prérogative, 40 m au plus). */
+export function setDepth(plan: Plan, palanqueeId: string, depth: number | undefined): Plan {
+  return mapPal(plan, palanqueeId, (p) => ({ ...p, depth: depth && depth > 0 ? Math.round(depth) : undefined }));
 }
 
 function mapPal(plan: Plan, id: string, fn: (p: Palanquee) => Palanquee): Plan {
@@ -220,7 +220,7 @@ function mapPal(plan: Plan, id: string, fn: (p: Palanquee) => Palanquee): Plan {
 export function planToText(title: string, plan: Plan): string {
   const lines = [`Palanquées — ${title}`, ''];
   plan.palanquees.forEach((p, i) => {
-    lines.push(`P${i + 1} · ${kindLabel(p)} · ${prerogativeLabel(p)}`);
+    lines.push(`P${i + 1} · ${kindLabel(p)} · ${prerogativeLabel(p)} · ${chosenDepth(p)} m`);
     if (p.guide) lines.push(`  ${p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} : ${p.guide.name} (${guideLabel(p.guide, p)})`);
     for (const m of p.members) lines.push(`  - ${m.name} (${memberLabel(m, p)})`);
     if (p.extra) lines.push(`  + ${p.extra.name} (GP suppl., ${extraLabel(p)})`);

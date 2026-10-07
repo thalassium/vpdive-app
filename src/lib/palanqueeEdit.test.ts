@@ -72,7 +72,7 @@ test('export texte lisible', () => {
   assert.match(text, /^Palanquées — Épave du Liban/);
   assert.match(text, /P1 · Exploration · PE20/);
   assert.match(text, /Encadrant : GUIDE Gaby \(GP\)/);
-  assert.match(text, /PA40/);
+  assert.match(text, /PA60 · 40 m/, 'prérogative PA60, profondeur max 40 m par défaut');
 });
 
 test('mineurs repérés par l’âge, formation choisie à la main', () => {

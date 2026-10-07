@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { autoTable, type CellInput, type RowInput } from 'jspdf-autotable';
-import { kindLabel, prerogativeLabel } from './palanquees';
+import { chosenDepth, kindLabel, prerogativeLabel } from './palanquees';
 import { diversInWater, emptySheet, type Dive, type OutingDoc } from './outing';
 import { HEADER_FIELDS, SHEET_FOOTNOTE, firstNameOf, headerText, lastNameOf, sheetApt, sheetRows } from './safetySheet';
 
@@ -134,7 +134,7 @@ export function safetySheetPdf(outing: OutingDoc, dive: Dive, title: string): js
         head: [
           [
             { content: `P${i + 1}`, styles: { fontSize: 10 } },
-            { content: pdfText(`${kindLabel(p)} · ${prerogativeLabel(p)}`), colSpan: 4, styles: { halign: 'right' } },
+            { content: pdfText(`${kindLabel(p)} · ${prerogativeLabel(p)} · ${chosenDepth(p)} m`), colSpan: 4, styles: { halign: 'right' } },
           ],
           ['', 'Nom', 'Prénom', 'Apt', 'Gaz'].map((h) => ({ content: h, styles: sub })),
         ],
