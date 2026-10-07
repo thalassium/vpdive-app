@@ -530,3 +530,22 @@ test('dans une palanquée, tous les plongeurs portent l’aptitude la plus faibl
   const auto: Palanquee = { id: 'a', kind: 'autonomous', guide: null, extra: null, members: [diver('C', 'N3'), diver('D', 'N2')] };
   assert.equal(memberLabel(auto.members[0]!, auto), 'PA20');
 });
+
+test('le directeur de plongée reste sur le bateau, sauf si sans lui des plongeurs restent à terre', () => {
+  const dp = diver('DP', 'N4');
+  const guide = diver('Guide', 'N4');
+  const n1 = (k: number) => Array.from({ length: k }, (_, i) => diver(`N1-${k}-${i}`, 'N1'));
+  const everyone = (p: Plan) => p.palanquees.flatMap((x) => [x.guide, x.extra, ...x.members]).filter(Boolean).map((d) => d!.id);
+
+  // Quatre N1 : un seul encadrant suffit, palanquée pleine ; le DP ne plonge pas.
+  const four = proposePalanquees([dp, guide, ...n1(4)], { lastResort: [dp.id] });
+  assert.ok(!everyone(four).includes(dp.id));
+  assert.equal(four.unassigned.find((u) => u.diver.id === dp.id)?.reason, 'Directeur de plongée : reste sur le bateau.');
+  assert.equal(four.palanquees[0]!.members.length, 4);
+
+  // Cinq N1 : sans lui, un N1 resterait à terre ; il encadre.
+  const five = proposePalanquees([dp, guide, ...n1(5)], { lastResort: [dp.id] });
+  assert.ok(everyone(five).includes(dp.id));
+  assert.equal(five.unassigned.length, 0);
+
+});

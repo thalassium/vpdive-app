@@ -119,7 +119,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
     if (plan && !window.confirm('Refaire les palanquées ? La composition actuelle sera remplacée.')) return;
     const ids = new Set(diving.map((d) => d.id));
     const buddies = buddyPairs(roster).filter(([a, b]) => ids.has(a) && ids.has(b));
-    onPlan(proposePalanquees(diving, { buddies }));
+    // Le DP (rôle de la sortie) reste sur le bateau, sauf si sans lui des plongeurs restaient à terre.
+    onPlan(proposePalanquees(diving, { buddies, lastResort: roles.dp ?? [] }));
   };
 
   // Qui est où dans le plan ; ceux qui plongent sans y figurer sont « disponibles ».

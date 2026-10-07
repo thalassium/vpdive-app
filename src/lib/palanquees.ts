@@ -167,7 +167,16 @@ export interface PlanOptions {
   maxDepth?: Depth;
   /** Binômes souhaités : paires d'identifiants que l'on essaie de garder ensemble. */
   buddies?: [string, string][];
+  /**
+   * Ne plongent que si c'est nécessaire (identifiants) : le directeur de
+   * plongée reste sur le bateau, sauf si sans lui des plongeurs resteraient à
+   * terre, quitte à remplir les palanquées au maximum.
+   */
+  lastResort?: string[];
 }
+
+/** Raison affichée pour le directeur de plongée laissé hors des palanquées. */
+export const DP_STAYS_ABOARD = 'Directeur de plongée : reste sur le bateau.';
 
 // ── Lecture des niveaux VPDive ───────────────────────────────────
 
@@ -687,8 +696,24 @@ function guidedGroups(divers: Diver[], guideCount: number, outingMax: Depth, dep
  *      palanquées encadrées, puis plongent en autonomie, un par palanquée autant
  *      que possible, avec les autonomes du plus haut niveau.
  *   5. Les binômes demandés sont réunis quand un échange garde tout conforme.
+ * Le directeur de plongée (opts.lastResort) est choisi en dernier : on compose
+ * d'abord sans lui, et il ne plonge que si cela place des plongeurs qui
+ * resteraient sinon à terre.
  */
 export function proposePalanquees(divers: Diver[], opts: PlanOptions = {}): Plan {
+  const reserve = new Set(opts.lastResort ?? []);
+  const held = divers.filter((d) => reserve.has(d.id));
+  if (!held.length) return composePalanquees(divers, opts);
+  const without = composePalanquees(divers.filter((d) => !reserve.has(d.id)), opts);
+  const stranded = (p: Plan) => p.unassigned.filter((u) => !reserve.has(u.diver.id)).length;
+  if (stranded(without) > 0) {
+    const withAll = composePalanquees(divers, opts);
+    if (stranded(withAll) < stranded(without)) return withAll;
+  }
+  return { ...without, unassigned: [...without.unassigned, ...held.map((diver) => ({ diver, reason: DP_STAYS_ABOARD }))] };
+}
+
+function composePalanquees(divers: Diver[], opts: PlanOptions): Plan {
   const outingMax = opts.maxDepth ?? AUTO_MAX_DEPTH;
   const unassigned: Plan['unassigned'] = [];
   const palanquees: Palanquee[] = [];
