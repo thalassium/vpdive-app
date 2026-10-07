@@ -77,25 +77,35 @@ export function safetySheetPdf(outing: OutingDoc, dive: Dive, title: string): js
   const nameW = (colW - widths[0]! - widths[3]! - widths[4]!) / 2;
   widths[1] = nameW;
   widths[2] = nameW;
-  let blockH = 0;
   const palanquees = plan?.palanquees ?? [];
+  // Hauteur d'une ligne de tableau (minCellHeight) et des en-têtes, pour prévoir le saut de page avant de dessiner.
+  const ROW_H = 5.2;
+  const HEAD_H = 6.5;
 
   for (let row = 0; row * PER_ROW < palanquees.length; row++) {
-    if (blockH && y + blockH > PAGE.h - PAGE.margin - 12) {
+    const trio = palanquees.slice(row * PER_ROW, row * PER_ROW + PER_ROW);
+    // Les trois tableaux d'une rangée ont le même nombre de lignes : colonnes alignées, hauteur connue d'avance.
+    const lines = Math.max(...trio.map((p) => sheetRows(p).length));
+    const blockH = (lines + 3) * ROW_H + 2 * HEAD_H + PAGE.gap;
+    if (y + blockH > PAGE.h - PAGE.margin - 12) {
       pdf.addPage();
       y = PAGE.margin;
     }
     let bottom = y;
-    palanquees.slice(row * PER_ROW, row * PER_ROW + PER_ROW).forEach((p, k) => {
+    trio.forEach((p, k) => {
       const i = row * PER_ROW + k;
       const sheet = dive.sheets[p.id] ?? emptySheet();
-      const people: RowInput[] = sheetRows(p).map((r) => [
-        pdfText(r.label),
-        r.d ? pdfText(lastNameOf(r.d)) : '',
-        r.d ? pdfText(firstNameOf(r.d)) : '',
-        r.d ? pdfText(sheetApt(r.d, p, r.slot)) : '',
-        r.d ? pdfText(dive.gas[r.d.id] ?? '') : '',
-      ]);
+      const rows = sheetRows(p);
+      const people: RowInput[] = [
+        ...rows.map((r): RowInput => [
+          pdfText(r.label),
+          r.d ? pdfText(lastNameOf(r.d)) : '',
+          r.d ? pdfText(firstNameOf(r.d)) : '',
+          r.d ? pdfText(sheetApt(r.d, p, r.slot)) : '',
+          r.d ? pdfText(dive.gas[r.d.id] ?? '') : '',
+        ]),
+        ...Array.from({ length: lines - rows.length }, (): RowInput => ['', '', '', '', '']),
+      ];
       const sub = { fillColor: TINT, textColor: GREY, fontStyle: 'bold' as const, fontSize: 7 };
       const params: RowInput[] = [
         [
@@ -141,7 +151,6 @@ export function safetySheetPdf(outing: OutingDoc, dive: Dive, title: string): js
       });
       bottom = Math.max(bottom, pdf.lastAutoTable?.finalY ?? y);
     });
-    blockH = bottom - y + PAGE.gap;
     y = bottom + PAGE.gap;
   }
 

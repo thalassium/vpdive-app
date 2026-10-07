@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { aptitudesFromLabels, depthOf, proposePalanquees, validate, type Diver, type Plan } from './palanquees';
-import { NO_TRAINING, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setType } from './palanqueeEdit';
+import { NO_TRAINING, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setExtra, setType } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
@@ -71,7 +71,7 @@ test('export texte lisible', () => {
   const text = planToText('Épave du Liban', plan);
   assert.match(text, /^Palanquées — Épave du Liban/);
   assert.match(text, /P1 · Exploration · PE20/);
-  assert.match(text, /Encadrant : GUIDE Gaby \(GP \/ N4\)/);
+  assert.match(text, /Encadrant : GUIDE Gaby \(GP\)/);
   assert.match(text, /PA40/);
 });
 
@@ -196,4 +196,32 @@ test('un élève FN# fait passer la palanquée en formation ; un moniteur qui en
   assert.equal(p.guide?.id, mf1.id, 'le MF1 enseigne');
   assert.ok(p.members.some((m) => m.id === gp.id), 'le GP plonge comme moniteur');
   assert.equal(setType({ ...plan, palanquees: [p] }, 'p', 'exploration').palanquees[0]!.kind, 'teaching', 'pas d’exploration avec un élève');
+});
+
+test('export texte : mêmes étiquettes que la fiche (E2 enseignant, moniteurs à la prérogative de la palanquée)', () => {
+  const e2 = diverOf('E2', 'Initiateur', 'N4');
+  const plan: Plan = {
+    palanquees: [
+      { id: 't', kind: 'teaching', guide: e2, extra: null, members: [diverOf('F1', 'FN1')] },
+      { id: 'a', kind: 'autonomous', guide: null, extra: null, members: [diverOf('N2', 'P2'), diverOf('M1', 'MF2'), diverOf('M2', 'MF2')] },
+    ],
+    unassigned: [],
+  };
+  const text = planToText('Test', plan);
+  assert.match(text, /Enseignant : E2 \(E2\)/);
+  assert.match(text, /- M1 \(PA20\)/);
+  assert.match(text, /- N2 \(PA20\)/);
+});
+
+test('plongeur supplémentaire à la main vers une exploration encadrée ; un E1 seul ouvre une palanquée comme plongeur', () => {
+  const g = diverOf('G', 'N4');
+  const gp2 = diverOf('GP2', 'N4');
+  let plan: Plan = { palanquees: [{ id: 'p', kind: 'guided', guide: g, extra: null, members: [diverOf('N1', 'P1')] }], unassigned: [{ diver: gp2, reason: '' }] };
+  plan = setExtra(plan, 'p', gp2);
+  assert.equal(plan.palanquees[0]!.extra?.id, gp2.id);
+  assert.equal(plan.unassigned.length, 0);
+  const ini = diverOf('Ini', 'Initiateur', 'N2');
+  const fresh = moveDiver({ palanquees: [], unassigned: [{ diver: ini, reason: '' }] }, ini, 'new').palanquees[0]!;
+  assert.equal(fresh.guide, null, 'un E1 seul n’encadre pas en exploration');
+  assert.deepEqual(fresh.members.map((m) => m.id), [ini.id]);
 });

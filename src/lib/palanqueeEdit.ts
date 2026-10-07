@@ -3,7 +3,7 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, aptLabel, GUIDE_LABEL, KIND_LABEL, prerogativeLabel, settleKind, toTeaching, type Depth, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, canGuideExploration, extraLabel, guideLabel, KIND_LABEL, memberLabel, prerogativeLabel, settleKind, toTeaching, type Depth, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -110,8 +110,9 @@ export function moveDiver(plan: Plan, diver: Diver, target: string | 'new' | 'un
 
   if (target === 'unassigned') unassigned.push({ diver, reason: 'Retiré à la main.' });
   else if (target === 'new') {
-    // Une nouvelle palanquée d'exploration : son encadrant si c'en est un, sinon un premier plongeur.
-    palanquees.push({ id: newId(), kind: 'autonomous', guide: diver.guide ? diver : null, extra: null, members: diver.guide ? [] : [diver] });
+    // Une nouvelle palanquée d'exploration : son encadrant s'il peut l'être (N4/GP au moins, pas en formation), sinon un premier plongeur.
+    const leads = canGuideExploration(diver) && !diver.training;
+    palanquees.push({ id: newId(), kind: 'autonomous', guide: leads ? diver : null, extra: null, members: leads ? [] : [diver] });
   } else {
     palanquees = palanquees.map((p) => (p.id === target ? { ...p, members: [...p.members, diver] } : p));
   }
@@ -158,9 +159,9 @@ export function assignGuide(plan: Plan, palanqueeId: string, diver: Diver): Plan
 
 /**
  * Change le type d'une palanquée : Formation ou Exploration. En formation, il
- * faut un enseignant : s'il n'y en a pas, le plus qualifié des membres le
- * devient. En exploration, elle est encadrée ou autonome selon qu'elle a un
- * encadrant (settleKind).
+ * faut un enseignant : l'encadrant s'il suffit, sinon le moins qualifié qui
+ * suffit parmi tous (toTeaching). En exploration, elle est encadrée ou
+ * autonome selon qu'elle a un encadrant (settleKind).
  */
 export function setType(plan: Plan, palanqueeId: string, type: PalanqueeType): Plan {
   return mapPal(plan, palanqueeId, (p) => (type === 'exploration' ? settleKind({ ...p, kind: p.guide ? 'guided' : 'autonomous' }) : toTeaching(p)));
@@ -174,6 +175,23 @@ export function removeGuide(plan: Plan, palanqueeId: string): Plan {
     palanquees: plan.palanquees.map((x) => (x.id === palanqueeId ? settleKind({ ...x, guide: null }) : x)),
     unassigned: [...plan.unassigned, { diver: p.guide, reason: 'Retiré comme encadrant.' }],
   };
+}
+
+/**
+ * Plongeur supplémentaire d'une exploration encadrée (GP/N4 au moins, la
+ * palanquée reste à 40 m au plus) : le plongeur quitte sa place actuelle ;
+ * celui qui tenait le slot redevient disponible.
+ */
+export function setExtra(plan: Plan, palanqueeId: string, diver: Diver): Plan {
+  const previous = plan.palanquees.find((p) => p.id === palanqueeId)?.extra;
+  if (previous?.id === diver.id) return plan;
+  const palanquees = plan.palanquees
+    .map((p) => without(p, diver.id))
+    .map((p) => (p.id === palanqueeId ? { ...p, extra: diver } : p))
+    .map(settleKind);
+  const unassigned = plan.unassigned.filter((u) => u.diver.id !== diver.id);
+  if (previous) unassigned.push({ diver: previous, reason: 'Remplacé comme plongeur supplémentaire.' });
+  return { palanquees, unassigned };
 }
 
 /** Profondeur retenue par le DP pour une palanquée (undefined : prérogative, 40 m au plus). */
@@ -190,9 +208,9 @@ export function planToText(title: string, plan: Plan): string {
   const lines = [`Palanquées — ${title}`, ''];
   plan.palanquees.forEach((p, i) => {
     lines.push(`P${i + 1} · ${KIND_LABEL[p.kind]} · ${prerogativeLabel(p)}`);
-    if (p.guide) lines.push(`  ${p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} : ${p.guide.name} (${p.guide.guide ? GUIDE_LABEL[p.guide.guide] : aptLabel(p.guide)})`);
-    for (const m of p.members) lines.push(`  - ${m.name} (${aptLabel(m)})`);
-    if (p.extra) lines.push(`  + ${p.extra.name} (GP suppl.)`);
+    if (p.guide) lines.push(`  ${p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} : ${p.guide.name} (${guideLabel(p.guide, p)})`);
+    for (const m of p.members) lines.push(`  - ${m.name} (${memberLabel(m, p)})`);
+    if (p.extra) lines.push(`  + ${p.extra.name} (GP suppl., ${extraLabel(p)})`);
     lines.push('');
   });
   if (plan.unassigned.length) {

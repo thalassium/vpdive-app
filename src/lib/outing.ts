@@ -92,8 +92,12 @@ export function toggleRole(roles: Roles, role: DiveRole, id: string): Roles {
 /** Rôles d'un inscrit, dans l'ordre DP, pilote, sécurité surface. */
 export const rolesOf = (roles: Roles, id: string): DiveRole[] => DIVE_ROLES.filter((r) => roles[r.id]?.includes(id)).map((r) => r.id);
 
-/** En-tête de la fiche (DP, pilote, sécurité surface) d'après les rôles : « Prénom Nom, Prénom Nom ». */
-export function headerFromRoles(roster: RosterEntry[], roles: Roles): Pick<SafetyHeader, DiveRole> {
+/**
+ * En-tête de la fiche (DP, pilote, sécurité surface) d'après les rôles :
+ * « Prénom Nom, Prénom Nom ». Avec `only`, seulement ce champ : changer un
+ * rôle ne réécrit pas ce que le DP a saisi à la main dans les deux autres.
+ */
+export function headerFromRoles(roster: RosterEntry[], roles: Roles, only?: DiveRole): Partial<Pick<SafetyHeader, DiveRole>> {
   const byId = new Map(roster.map((r) => [r.id, r]));
   const names = (role: DiveRole) =>
     (roles[role] ?? [])
@@ -101,7 +105,9 @@ export function headerFromRoles(roster: RosterEntry[], roles: Roles): Pick<Safet
       .filter((r): r is RosterEntry => !!r)
       .map((r) => `${r.firstname} ${r.lastname}`.trim() || r.name)
       .join(', ');
-  return { dp: names('dp'), pilote: names('pilote'), securite: names('securite') };
+  const out: Partial<Pick<SafetyHeader, DiveRole>> = {};
+  for (const { id } of DIVE_ROLES) if (!only || only === id) out[id] = names(id);
+  return out;
 }
 
 /** Postes tenus par des bénévoles pendant la sortie (un par ligne de l'écran Bénévoles). Pilote et sécurité surface sont des rôles (DIVE_ROLES). */
@@ -120,13 +126,19 @@ export const MAX_PER_POST = 2;
 /** Ceux qu'on peut désigner : les inscrits de la journée, hors liste d'attente. */
 export const dayParticipants = (roster: RosterEntry[]) => roster.filter((r) => !r.waitingList);
 
-/** Met (ou retire, avec null) une personne à une place d'un poste. Pas de doublon sur un même poste. */
+/**
+ * Met (ou retire, avec null) une personne à une place d'un poste. Pas de doublon
+ * sur un même poste. Ne garde que les postes actuels : les anciens « pilotage »
+ * et « securite » (devenus des rôles) disparaissent à la première modification.
+ */
 export function setVolunteer(v: Volunteers, post: VolunteerPost, slot: number, id: string | null): Volunteers {
   const current = [...(v[post] ?? [])];
   if (id && current.some((x, i) => x === id && i !== slot)) return v;
   if (id) current[slot] = id;
   else current.splice(slot, 1);
-  return { ...v, [post]: current.filter(Boolean).slice(0, MAX_PER_POST) };
+  const out: Volunteers = {};
+  for (const { id: key } of VOLUNTEER_POSTS) if (v[key]) out[key] = v[key];
+  return { ...out, [post]: current.filter(Boolean).slice(0, MAX_PER_POST) };
 }
 
 /** Qui fait quoi : id d'inscrit → postes, pour le récapitulatif. */
@@ -154,6 +166,9 @@ export function newOuting(event: CalendarEvent, roster: RosterEntry[], clubName:
       etablissement: clubName,
       reference: '',
       bateau: '',
+      dp: '',
+      pilote: '',
+      securite: '',
       ...headerFromRoles(roster, roles),
       date: event.start.slice(0, 10),
       creneau: event.allDay ? '' : hour < 12 ? 'Matin' : hour < 18 ? 'Après-midi' : 'Nuit',

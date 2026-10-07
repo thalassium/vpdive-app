@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aptitudesFromLabels, aptLabel, chosenDepth, depthOf, instructorMemberLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, chosenDepth, depthOf, guideLabel, lowestTeacher, memberLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
 
 let n = 0;
 const diver = (name: string, ...labels: string[]): Diver => ({ id: `d${++n}`, name, labels, ...aptitudesFromLabels(labels) });
@@ -241,12 +241,12 @@ test('prérogative la plus haute : un N4 + MF1 est MF1 (E3)', () => {
   const a = aptitudesFromLabels(['P4', 'E3']);
   assert.equal(a.guide, 'E3');
   assert.equal(a.teach, 3);
-  assert.equal(aptLabel(a), 'E3');
-  assert.equal(aptLabel(aptitudesFromLabels(['E2'])), 'E2 / GP');
-  assert.equal(aptLabel(aptitudesFromLabels(['P4'])), 'GP');
-  assert.equal(aptLabel(aptitudesFromLabels(['P2'])), 'PA20 / PE40');
-  assert.equal(aptLabel(aptitudesFromLabels(['P3'])), 'PA60');
-  assert.equal(aptLabel(aptitudesFromLabels(['P1'])), 'PE20');
+  assert.equal(prerogativeCode(a), 'E3');
+  assert.equal(prerogativeCode(aptitudesFromLabels(['E2'])), 'E2');
+  assert.equal(prerogativeCode(aptitudesFromLabels(['P4'])), 'GP');
+  assert.equal(prerogativeCode(aptitudesFromLabels(['P2'])), 'PE40 · PA20');
+  assert.equal(prerogativeCode(aptitudesFromLabels(['P3'])), 'PA60');
+  assert.equal(prerogativeCode(aptitudesFromLabels(['P1'])), 'PE20');
 });
 
 test('formation : FN# lu dans les libellés', () => {
@@ -254,7 +254,7 @@ test('formation : FN# lu dans les libellés', () => {
   assert.equal(aptitudesFromLabels(['Prépa N2']).training, 2);
   assert.equal(aptitudesFromLabels(['Formation niveau 1']).training, 1);
   assert.equal(aptitudesFromLabels(['P1', 'FN2']).pe, 20, 'garde son niveau actuel');
-  assert.equal(aptLabel(aptitudesFromLabels(['P1', 'FN2'])), 'FN2');
+  assert.equal(memberLabel(diver('X', 'P1', 'FN2'), { id: 't', kind: 'teaching', guide: null, extra: null, members: [] }), 'FN2');
   assert.equal(aptitudesFromLabels(['SECTION SPORTIVE']).training, 0);
   // Un élève en prépa N2 n'est pas encore N2.
   const prepa = aptitudesFromLabels(['P1', 'Prépa N2']);
@@ -354,24 +354,24 @@ test('moniteur plongeur en exploration : la prérogative de la palanquée, celle
   const n2 = diver('N2', 'Niveau 2');
   const e4s = [diver('A', 'MF2'), diver('B', 'MF2'), diver('C', 'MF2')];
   const p: Palanquee = { id: 'p', kind: 'autonomous', guide: null, extra: null, members: [n2, ...e4s] };
-  for (const e of e4s) assert.equal(instructorMemberLabel(e, p), 'PA20');
-  assert.equal(instructorMemberLabel(n2, p), null, 'un plongeur qui n’est pas moniteur garde sa propre prérogative');
+  for (const e of e4s) assert.equal(memberLabel(e, p), 'PA20');
+  assert.equal(memberLabel(n2, p), 'PA20', 'un plongeur qui n’est pas moniteur garde sa propre prérogative');
 
   const gp = diver('GP', 'N4');
   const guided: Palanquee = { id: 'g', kind: 'guided', guide: gp, extra: null, members: [diver('N1', 'Niveau 1'), diver('E3', 'MF1')] };
-  assert.equal(instructorMemberLabel(guided.members[1]!, guided), 'PE20');
+  assert.equal(memberLabel(guided.members[1]!, guided), 'PE20');
 });
 
-test('moniteur plongeur en formation : son plus haut statut, hors des 4 élèves', () => {
+test('moniteur plongeur en formation : statut E# pour un enseignant, prérogative de la palanquée pour un GP, hors des 4 élèves', () => {
   const teacher = diver('Prof', 'MF1');
   const students = [1, 2, 3, 4].map((i) => diver(`S${i}`, 'P1', 'FN2'));
   const gp = diver('GP', 'N4');
   const e2 = diver('E2', 'Initiateur', 'N4');
   const mf2 = diver('MF2', 'MF2');
   const p: Palanquee = { id: 'p', kind: 'teaching', guide: teacher, extra: null, members: [...students, gp, e2, mf2] };
-  assert.equal(instructorMemberLabel(gp, p), 'GP');
-  assert.equal(instructorMemberLabel(e2, p), 'E2');
-  assert.equal(instructorMemberLabel(mf2, p), 'E4');
+  assert.equal(memberLabel(gp, p), 'PE40', 'un N4/GP qui assiste n’a pas de statut N4');
+  assert.equal(memberLabel(e2, p), 'E2');
+  assert.equal(memberLabel(mf2, p), 'E4');
   assert.deepEqual(validate(p).filter((i) => i.includes('élève')), [], '4 élèves + 3 moniteurs : conforme');
 
   const fifth = { ...p, members: [...p.members, diver('S5', 'P1', 'FN2')] };
@@ -401,4 +401,95 @@ test('un N4/GP n’encadre jamais une formation ; un E1 n’encadre pas en explo
   const auto = proposePalanquees([ini, diver('Bob', 'Débutant')]);
   assert.equal(auto.palanquees[0]!.kind, 'teaching', 'les débutants avec un E1 : palanquée de formation');
   assert.deepEqual(validate(auto.palanquees[0]!), []);
+});
+
+test('un Initiateur est au moins N2 : PE40 / PA20 si rien d’autre n’est connu', () => {
+  const e1 = aptitudesFromLabels(['E1']);
+  assert.deepEqual([e1.pe, e1.pa, e1.guide, e1.teach], [40, 20, 'E1', 1]);
+  assert.equal(aptitudesFromLabels(['Initiateur', 'N3']).pa, 60, 'ne rabaisse pas un N3');
+});
+
+test('enseignant minimum : E2 pour FN1, E3 pour FN2 à FN4 ; sans lui, les élèves attendent', () => {
+  const e2 = diver('E2', 'E2');
+  const e3 = diver('E3', 'MF1');
+  const e4 = diver('E4', 'MF2');
+  const fn4 = diver('Prépa', 'N3', 'Prépa N4');
+  const of = (plan: Plan, name: string) => plan.palanquees.find((p) => [p.guide, ...p.members].some((m) => m?.name === name))!;
+  // Un E3 suffit pour un FN4 : le MF2 reste libre.
+  const plan = proposePalanquees([e3, e4, fn4, diver('N3', 'N3')]);
+  assert.equal(of(plan, 'Prépa').guide!.name, 'E3');
+  // Un E2 seul : le FN4 attend, avec la raison ; personne ne disparaît.
+  const short = proposePalanquees([e2, fn4, diver('N1', 'N1')]);
+  assert.match(short.unassigned.find((u) => u.diver.name === 'Prépa')!.reason, /E3 au minimum/);
+  const placed = short.palanquees.flatMap((p) => [p.guide, p.extra, ...p.members]).filter(Boolean).length + short.unassigned.length;
+  assert.equal(placed, 3);
+  // Plus de repli sur un E1 pour des FN1.
+  assert.equal(lowestTeacher([diver('Ini', 'Initiateur', 'N2')], [diver('F', 'FN1')]), undefined);
+  const bad: Palanquee = { id: 'b', kind: 'teaching', guide: e2, extra: null, members: [diver('F2', 'P1', 'FN2')] };
+  assert.ok(validate(bad).some((i) => /FN2 demande un E3/.test(i)));
+});
+
+test('un moniteur en formation est élève ce jour-là : jamais encadrant ni enseignant, et personne ne disparaît', () => {
+  const ini = diver('Ini', 'Initiateur', 'N3', 'Prépa N4');
+  const all = [ini, diver('GP', 'N4'), diver('F1', 'FN1'), diver('N1', 'N1')];
+  const plan = proposePalanquees(all);
+  const everyone = plan.palanquees.flatMap((p) => [p.guide, p.extra, ...p.members]).filter(Boolean).length + plan.unassigned.length;
+  assert.equal(everyone, all.length, 'aucun plongeur perdu');
+  assert.ok(plan.palanquees.every((p) => p.guide?.id !== ini.id));
+  assert.match(plan.unassigned.find((u) => u.diver.id === ini.id)!.reason, /aucun enseignant/);
+  const asGuide: Palanquee = { id: 'g', kind: 'guided', guide: { ...diver('GP2', 'N4'), training: 4 }, extra: null, members: [diver('N1b', 'N1')] };
+  assert.ok(validate(asGuide).some((i) => /ne peut pas encadrer/.test(i)));
+});
+
+test('un N4/GP qui assiste une formation : hors des 4 élèves, à la prérogative de la palanquée ; l’encadrant d’exploration à sa plus haute', () => {
+  const t = diver('T', 'MF1');
+  const gp = diver('GP', 'N4');
+  const e3 = diver('E3b', 'MF1');
+  const students = [1, 2, 3, 4].map((i) => diver(`S${i}`, 'P1', 'FN2'));
+  const p: Palanquee = { id: 'p', kind: 'teaching', guide: t, extra: null, members: [...students, gp, e3] };
+  assert.equal(memberLabel(gp, p), 'PE40');
+  assert.equal(memberLabel(e3, p), 'E3');
+  assert.equal(guideLabel(t, p), 'E3');
+  assert.deepEqual(validate(p), []);
+  const g: Palanquee = { id: 'g', kind: 'guided', guide: diver('MF2', 'MF2'), extra: null, members: [diver('N1', 'N1'), gp] };
+  assert.equal(guideLabel(g.guide!, g), 'E4');
+  assert.equal(memberLabel(gp, g), 'PE20');
+  assert.equal(guideLabel(diver('G', 'N4'), g), 'GP');
+});
+
+test('formation qui perd son enseignant : un membre qui suffit est promu, sinon « Pas d’enseignant »', () => {
+  const e3 = diver('E3', 'MF1');
+  const e2 = diver('E2', 'E2');
+  const gp = diver('GP', 'N4');
+  const fn2 = diver('F2', 'P1', 'FN2');
+  const p: Palanquee = { id: 'p', kind: 'teaching', guide: e3, extra: null, members: [fn2, e2, gp] };
+  const orphan = settleKind({ ...p, guide: null });
+  assert.equal(orphan.guide, null, 'l’E2 ne suffit pas pour un FN2, le GP jamais');
+  assert.ok(validate(orphan).includes('Pas d’enseignant.'));
+  const fn1 = settleKind({ ...p, guide: null, members: [diver('F1', 'FN1'), e2, gp] });
+  assert.equal(fn1.guide?.name, 'E2');
+  // Un E2 encadrant quand un FN2 arrive : l’E3 membre prend la formation, l’E2 plonge comme E2.
+  const swapped = settleKind({ id: 'q', kind: 'guided', guide: e2, extra: null, members: [e3, fn2] });
+  assert.equal(swapped.kind, 'teaching');
+  assert.equal(swapped.guide?.name, 'E3');
+  assert.equal(memberLabel(e2, swapped), 'E2');
+});
+
+test('un moniteur mineur n’est ni encadrant ni autonome ; un enfant est signalé', () => {
+  const kid = { ...diver('Kid', 'N4'), minor: true };
+  const plan = proposePalanquees([kid, diver('G', 'N4'), diver('N1', 'N1'), diver('N1b', 'N1')]);
+  assert.ok(plan.palanquees.every((p) => p.guide?.id !== kid.id && !(p.kind === 'autonomous' && p.members.includes(kid))));
+  const child = { ...diver('Bronze', 'PBR'), minor: true };
+  assert.ok(validate({ id: 'c', kind: 'guided', guide: diver('G2', 'N4'), extra: null, members: [child] }).some((i) => /enfant/.test(i)));
+});
+
+test('plongeur supplémentaire : exploration encadrée seulement ; en formation le GP seul devient plongeur', () => {
+  const plan = proposePalanquees([diver('E2', 'E2'), diver('G2', 'N4'), diver('F1', 'FN1')], { maxDepth: 20 });
+  const p = plan.palanquees[0]!;
+  assert.equal(plan.palanquees.length, 1);
+  assert.equal(p.kind, 'teaching');
+  assert.equal(p.extra, null);
+  assert.ok(p.members.some((m) => m.name === 'G2'), 'le GP assiste la formation comme plongeur');
+  assert.deepEqual(validate(p, 20), []);
+  assert.ok(validate({ ...p, extra: diver('G3', 'N4') }).some((i) => /pas de plongeur supplémentaire en formation/.test(i)));
 });

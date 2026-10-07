@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayParticipants, defaultRoles, headerFromRoles, postsByPerson, rolesOf, setVolunteer, toggleRole } from './outing';
+import { dayParticipants, defaultRoles, headerFromRoles, postsByPerson, rolesOf, setVolunteer, toggleRole, type Volunteers } from './outing';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const person = (id: string, roles: string[] = [], waitingList = false): RosterEntry => ({
@@ -37,4 +37,13 @@ test('deux personnes au plus par poste, une personne sur plusieurs postes', () =
   v = setVolunteer(v, 'matelotage', 1, 'c');
   v = setVolunteer(v, 'matelotage', 2, 'd');
   assert.equal(v.matelotage!.length, 2);
+});
+
+test('en-tête de la fiche : seul le champ du rôle changé est réécrit ; les anciens postes pilotage/securite disparaissent', () => {
+  const roster = [person('a'), person('b')];
+  const roles = toggleRole(toggleRole({}, 'dp', 'a'), 'pilote', 'b');
+  assert.deepEqual(headerFromRoles(roster, roles, 'pilote'), { pilote: 'b b' });
+  assert.deepEqual(headerFromRoles(roster, roles), { dp: 'a a', pilote: 'b b', securite: '' });
+  const legacy = { pilotage: ['x'], securite: ['y'], matelotage: ['a'] } as Volunteers;
+  assert.deepEqual(setVolunteer(legacy, 'eau', 0, 'b'), { matelotage: ['a'], eau: ['b'] });
 });

@@ -443,8 +443,8 @@ function OutingWorkspace({
             doc={doc}
             dive={dive}
             onSettings={(settings) => update((d) => ({ ...d, settings }))}
-            // Les rôles remplissent aussi l'en-tête de la fiche ; il reste modifiable à la main (pilote extérieur…).
-            onRoles={(roles) => update((d) => ({ ...d, roles, header: { ...d.header, ...headerFromRoles(roster, roles) } }))}
+            // Le rôle changé remplit son champ de l'en-tête de la fiche ; les deux autres gardent ce qui y est écrit (pilote extérieur…).
+            onRoles={(roles, role) => update((d) => ({ ...d, roles, header: { ...d.header, ...headerFromRoles(roster, roles, role) } }))}
             onPlan={(plan) => updateDive((d) => ({ ...d, plan }))}
             onValidate={() => {
               updateDive((d) => ({ ...d, validated: { by: me, at: new Date().toISOString() } }));

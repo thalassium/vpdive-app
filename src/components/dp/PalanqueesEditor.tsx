@@ -10,9 +10,14 @@ import {
   canGuideExploration,
   chosenDepth,
   depthOf,
+  canTeach,
+  extraLabel,
+  guideLabel,
   hasStudent,
-  instructorMemberLabel,
+  isInstructor,
+  memberLabel,
   prerogativeCode,
+  studentsOf,
   prerogativeLabel,
   proposePalanquees,
   validate,
@@ -37,6 +42,7 @@ import {
   rosterToDivers,
   setDepth,
   setDiverChoice,
+  setExtra,
   removeGuide,
   setType,
 } from '../../lib/palanqueeEdit';
@@ -49,7 +55,8 @@ interface Props {
   doc: OutingDoc;
   dive: Dive;
   onSettings: (settings: OutingDoc['settings']) => void;
-  onRoles: (roles: Roles) => void;
+  /** Rôles de la sortie, et celui qui vient de changer (pour l'en-tête de la fiche). */
+  onRoles: (roles: Roles, role: DiveRole) => void;
   onPlan: (plan: Plan) => void;
   onValidate: () => void;
   onReopen: () => void;
@@ -72,7 +79,6 @@ const diplomas = (d: Diver) => {
   return (d.display ?? []).filter((x) => !parts.has(flat(x)));
 };
 const shownLevel = (d: Diver) => (d.training ? `FN${d.training} · ${describe(d)}` : describe(d));
-const isInstructor = (d: Diver) => !!d.guide;
 
 /** Rôles de la sortie de chaque inscrit (DP, pilote, sécurité surface), pour les badges à côté des noms. */
 const RolesContext = createContext<Map<string, DiveRole[]>>(new Map());
@@ -101,7 +107,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
   const locked = !!dive.validated;
   // Tant que ce n'est pas validé, chaque plongeur apparaît avec ses réglages actuels.
   const plan = dive.plan && !locked ? refreshDivers(dive.plan, divers) : dive.plan;
-  const roles = doc.roles ?? defaultRoles(roster);
+  const roles = useMemo(() => doc.roles ?? defaultRoles(roster), [doc.roles, roster]);
   const roleMap = useMemo(() => new Map(roster.map((r) => [r.id, rolesOf(roles, r.id)])), [roster, roles]);
 
   const generate = () => {
@@ -123,7 +129,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
   const instructors = diving.filter(isInstructor).map((d) => placed.get(d.id) ?? d);
 
   const issues = plan ? plan.palanquees.flatMap((p) => validate(p)) : [];
-  const unknownLevels = diving.filter((d) => !d.pe && !d.beginner && !d.guide && !d.training);
+  const unknownLevels = diving.filter((d) => !d.pe && !d.beginner && !isInstructor(d) && !d.training);
 
   const copy = async () => {
     if (!plan) return;
@@ -140,9 +146,13 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
   const moveTo = (d: Diver, target: string) => {
     if (!plan) return;
     if (target.startsWith('guide:')) onPlan(assignGuide(plan, target.slice(6), d));
+    else if (target.startsWith('extra:')) onPlan(setExtra(plan, target.slice(6), d));
     else onPlan(moveDiver(plan, d, target));
   };
-  const targetsFor = (exclude?: string) => (plan?.palanquees ?? []).map((p, i) => ({ id: p.id, label: `P${i + 1}`, kind: p.kind })).filter((t) => t.id !== exclude);
+  const targetsFor = (exclude?: string): Target[] =>
+    (plan?.palanquees ?? [])
+      .map((p, i) => ({ id: p.id, label: `P${i + 1}`, kind: p.kind, students: studentsOf(p), extraOk: p.kind === 'guided' && !p.extra && depthOf(p) <= 40 }))
+      .filter((t) => t.id !== exclude);
 
   /**
    * Menu d'un plongeur, depuis la liste « Qui plonge » ou depuis sa pastille
@@ -167,24 +177,21 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
           ...PREROGATIVE_OPTIONS.instructors.map((v) => ({ value: v, label: v, hint: v === 'GP' ? 'guide' : 'ens.' })),
         ],
       },
-      ...(isInstructor(d)
-        ? []
-        : [
-            {
-              title: 'Formation',
-              selected: fn ?? '',
-              onSelect: (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) }),
-              options: [
-                ...(prepa
-                  ? [
-                      { value: '', label: `FN${prepa}`, hint: 'prépa VPDive' },
-                      { value: NO_TRAINING, label: 'Pas en formation', hint: 'cette sortie' },
-                    ]
-                  : [{ value: '', label: 'Pas en formation' }]),
-                ...TRAINING_OPTIONS.filter((t) => t !== `FN${prepa}`).map((t) => ({ value: t, label: t, hint: `vers N${t.slice(2)}` })),
-              ],
-            },
-          ]),
+      // Un moniteur aussi peut être en formation ce jour-là (un N3 Initiateur en prépa N4) : il est alors élève.
+      {
+        title: 'Formation',
+        selected: fn ?? '',
+        onSelect: (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) }),
+        options: [
+          ...(prepa
+            ? [
+                { value: '', label: `FN${prepa}`, hint: 'prépa VPDive' },
+                { value: NO_TRAINING, label: 'Pas en formation', hint: 'cette sortie' },
+              ]
+            : [{ value: '', label: 'Pas en formation' }]),
+          ...TRAINING_OPTIONS.filter((t) => t !== `FN${prepa}`).map((t) => ({ value: t, label: t, hint: `vers N${t.slice(2)}` })),
+        ],
+      },
     ];
   };
 
@@ -308,7 +315,9 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
                 <Plus className="w-4 h-4" /> Composer à la main
               </button>
             )}
-            <span className="text-sm text-muted">Autonomes par niveau, puis formations avec un E1/E2/E3, puis encadrés avec un N4/GP au moins.</span>
+            <span className="text-sm text-muted">
+              Autonomes par niveau, puis formations (E2 pour FN1, E3 au-delà), puis encadrés avec un N4/GP au moins ; un E1 ne prend que des débutants (0–6 m).
+            </span>
           </div>
         </section>
       )}
@@ -384,9 +393,10 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
           )}
 
           <p className="mt-4 text-sm text-muted leading-relaxed">
-            Code du sport (annexes III-14 à III-16, plongée à l’air) : formation et encadrée avec un encadrant (4 élèves ou plongeurs au plus, +1
-            GP/N4 jusqu’à 40 m), autonome de 2 à 3 plongeurs majeurs autonomes. La prérogative de la palanquée est celle du moins formé. Le directeur
-            de plongée reste seul juge de la composition finale.
+            Code du sport (annexes III-14 à III-16, plongée à l’air) : formation avec un enseignant (4 élèves au plus ; les moniteurs qui plongent
+            avec eux ne comptent pas), exploration encadrée par un N4/GP au moins (4 plongeurs au plus, +1 GP/N4 jusqu’à 40 m), autonome de 2 à 3
+            plongeurs majeurs autonomes. Un élève en formation (FN#) impose une formation. La prérogative de la palanquée est celle du moins formé.
+            Le directeur de plongée reste seul juge de la composition finale.
           </p>
         </section>
       )}
@@ -399,7 +409,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
  * Rôles de la sortie : DP, pilote, sécurité surface. N'importe quel inscrit de la
  * journée, encadrant ou non, qu'il plonge ou non ; un même inscrit peut en cumuler.
  */
-function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntry[]; roles: Roles; excluded: Set<string>; onRoles: (roles: Roles) => void }) {
+function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntry[]; roles: Roles; excluded: Set<string>; onRoles: (roles: Roles, role: DiveRole) => void }) {
   const people = dayParticipants(roster).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   const byId = new Map(roster.map((r) => [r.id, r]));
   return (
@@ -419,7 +429,7 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
                       {name}
                       <button
                         type="button"
-                        onClick={() => onRoles(toggleRole(roles, role.id, id))}
+                        onClick={() => onRoles(toggleRole(roles, role.id, id), role.id)}
                         aria-label={`Retirer ${name} : ${role.label}`}
                         className="w-7 h-7 flex items-center justify-center rounded-md text-muted hover:text-danger hover:bg-danger-soft"
                       >
@@ -439,7 +449,7 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
                   }
                   sections={[
                     {
-                      onSelect: (id) => onRoles(toggleRole(roles, role.id, id)),
+                      onSelect: (id) => onRoles(toggleRole(roles, role.id, id), role.id),
                       options: people
                         .filter((r) => !ids.includes(r.id))
                         .map((r) => ({ value: r.id, label: r.name, hint: excluded.has(r.id) ? 'ne plonge pas' : undefined })),
@@ -467,19 +477,13 @@ function RosterGroup({ title, count, children }: { title: string; count: number;
 }
 
 /**
- * Prérogative propre d'un plongeur dans cette palanquée (PA en autonomie, PE encadré, FN# en formation).
- * Un moniteur plongeur affiche son statut en formation, celle de la palanquée en exploration
- * (instructorMemberLabel) ; sa profondeur reste la sienne, pour signaler s'il limite la palanquée.
+ * Pastille d'un plongeur dans cette palanquée : l'étiquette commune à l'écran,
+ * la fiche et l'export (memberLabel), et sa profondeur propre, pour signaler
+ * celui qui limite la palanquée.
  */
 function ownPrerogative(d: Diver, p: Palanquee): { label: string; depth: number } {
-  const own = ((): { label: string; depth: number } => {
-    if (p.kind === 'autonomous') return d.pa ? { label: `PA${d.pa}`, depth: d.pa } : { label: 'pas PA', depth: 0 };
-    if (p.kind === 'teaching' && d.training) return { label: `FN${d.training}`, depth: TRAINING_TARGET[d.training] };
-    if (d.pe) return { label: `PE${d.pe}`, depth: d.pe };
-    return d.beginner ? { label: 'Débutant', depth: 6 } : { label: '?', depth: 0 };
-  })();
-  const label = instructorMemberLabel(d, p);
-  return label ? { ...own, label } : own;
+  const depth = p.kind === 'autonomous' ? d.pa : p.kind === 'teaching' && d.training ? TRAINING_TARGET[d.training] : d.pe || (d.beginner ? 6 : 0);
+  return { label: memberLabel(d, p), depth };
 }
 
 function PalanqueeCard({
@@ -512,7 +516,8 @@ function PalanqueeCard({
   const issues = validate(p);
   const legal = depthOf(p);
   const depth = chosenDepth(p);
-  const eligible = instructors.filter((d) => (p.kind === 'teaching' ? d.teach > 0 : canGuideExploration(d)));
+  // Qui peut prendre la tête de cette palanquée : un élève (FN#) jamais ; en formation un enseignant qui suffit à ses élèves ; en exploration un N4/GP au moins.
+  const eligible = instructors.filter((d) => !d.training && (p.kind === 'teaching' ? canTeach(d, studentsOf(p)) : canGuideExploration(d)));
   const letter = p.kind === 'autonomous' ? 'PA' : 'PE';
   // Le DP peut remonter la prérogative de toute palanquée, formation comprise, jamais la dépasser.
   const selectable = !locked && legal > 0;
@@ -601,7 +606,7 @@ function PalanqueeCard({
             <DiverRow key={m.id} d={m} own={own.label} limiting={limiting} locked={locked} targets={targets} onMove={onMove} levelSections={levelSections} />
           );
         })}
-        {p.extra && <DiverRow d={p.extra} own="GP suppl." locked={locked} targets={targets} onMove={onMove} />}
+        {p.extra && <DiverRow d={p.extra} own={extraLabel(p)} locked={locked} targets={targets} onMove={onMove} />}
         {p.members.length === 0 && <li className="text-muted font-serif italic">Aucun plongeur.</li>}
       </ul>
 
@@ -653,7 +658,7 @@ function GuideRow({
     <li className={`-mx-2 px-2 py-1.5 rounded-lg flex items-center gap-2 ${g ? 'bg-raised border border-line' : missingTone}`}>
       <span className={`shrink-0 min-w-16 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-sm font-bold ${g ? 'bg-pink text-on-pink' : teaching ? 'bg-danger-soft' : 'bg-raised'}`}>
         <Star className={`w-3 h-3 ${g ? 'fill-current' : ''}`} />
-        {g ? prerogativeCode(g) || '?' : role}
+        {g ? guideLabel(g, p) : role}
       </span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
@@ -684,12 +689,12 @@ function GuideRow({
         {g && <RoleBadges id={g.id} />}
         </div>
         <span className="block text-sm text-muted truncate">
-          {g ? role : teaching ? 'Une formation demande un enseignant (E1, E2, E3…)' : 'Plongeurs autonomes'}
+          {g ? role : teaching ? 'Une formation demande un enseignant (E2 pour FN1, E3 au-delà ; E1 pour des débutants)' : 'Plongeurs autonomes'}
           {g && diplomas(g).length > 0 && ` · ${diplomas(g).join(' · ')}`}
         </span>
       </div>
       {g && !locked && (
-        <MoveSelect targets={targets} onMove={(t) => (t === 'unassigned' ? onRemove() : onMove(g, t))} instructor unassignLabel={teaching ? 'Retirer l’enseignant' : 'Retirer l’encadrant (autonome)'} />
+        <MoveSelect targets={targets} onMove={(t) => (t === 'unassigned' ? onRemove() : onMove(g, t))} diver={g} unassignLabel={teaching ? 'Retirer l’enseignant' : 'Retirer l’encadrant (autonome)'} />
       )}
     </li>
   );
@@ -747,7 +752,7 @@ function DiverRow({
           {limiting ? ' · fixe la prérogative' : ''}
         </span>
       </span>
-      {!locked && <MoveSelect targets={targets} onMove={(t) => onMove(d, t)} instructor={!!d.guide} />}
+      {!locked && <MoveSelect targets={targets} onMove={(t) => onMove(d, t)} diver={d} />}
     </li>
   );
 }
@@ -768,7 +773,7 @@ function FreeList({ title, items, targets, onMove, instructor }: { title: string
               <RoleBadges id={diver.id} />
               <span className="text-sm text-muted">{shownLevel(diver)}</span>
               <span className="basis-full text-sm text-muted">{reason}</span>
-              <MoveSelect targets={targets} onMove={(t) => onMove(diver, t)} instructor={instructor} allowUnassign={false} />
+              <MoveSelect targets={targets} onMove={(t) => onMove(diver, t)} diver={diver} allowUnassign={false} />
             </li>
           ))}
         </ul>
@@ -777,24 +782,32 @@ function FreeList({ title, items, targets, onMove, instructor }: { title: string
   );
 }
 
-type Target = { id: string; label: string; kind: PalanqueeKind };
+/** Une palanquée cible du menu Déplacer : ses élèves (pour savoir qui peut l'enseigner) et si elle accepte un plongeur supplémentaire. */
+type Target = { id: string; label: string; kind: PalanqueeKind; students: Diver[]; extraOk: boolean };
 
-/** Déplacer vers une palanquée (comme plongeur, ou comme encadrant pour un encadrant), une nouvelle, ou retirer. */
+/**
+ * Déplacer vers une palanquée : comme plongeur ; comme enseignant ou encadrant
+ * si le plongeur peut l'être de cette palanquée-là (jamais un élève ; en
+ * formation un enseignant qui suffit, en exploration un N4/GP au moins) ;
+ * comme plongeur supplémentaire d'une exploration encadrée ≤ 40 m pour un
+ * GP/N4 ; vers une nouvelle palanquée ; ou retirer.
+ */
 function MoveSelect({
   targets,
   onMove,
-  instructor,
+  diver,
   allowUnassign = true,
   unassignLabel = 'Retirer de la palanquée',
 }: {
   targets: Target[];
   onMove: (t: string) => void;
-  instructor?: boolean;
+  diver: Diver;
   allowUnassign?: boolean;
   unassignLabel?: string;
 }) {
-  // Un encadrant peut encadrer n'importe quelle palanquée : une exploration autonome devient encadrée.
-  const asGuide = instructor ? targets : [];
+  const instructor = isInstructor(diver);
+  const asGuide = diver.training ? [] : targets.filter((t) => (t.kind === 'teaching' ? canTeach(diver, t.students) : canGuideExploration(diver)));
+  const asExtra = diver.canBeExtra && !diver.training ? targets.filter((t) => t.extraOk) : [];
   return (
     <Menu
       ariaLabel="Déplacer"
@@ -806,7 +819,12 @@ function MoveSelect({
         </>
       }
       sections={[
-        ...(asGuide.length ? [{ title: 'Comme encadrant', onSelect: onMove, options: asGuide.map((t) => ({ value: `guide:${t.id}`, label: `Encadrant de ${t.label}` })) }] : []),
+        ...(asGuide.length
+          ? [{ title: 'Comme encadrant', onSelect: onMove, options: asGuide.map((t) => ({ value: `guide:${t.id}`, label: `${t.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} de ${t.label}` })) }]
+          : []),
+        ...(asExtra.length
+          ? [{ title: 'Comme plongeur supplémentaire', onSelect: onMove, options: asExtra.map((t) => ({ value: `extra:${t.id}`, label: `GP suppl. de ${t.label}`, hint: '≤ 40 m' })) }]
+          : []),
         {
           title: instructor ? 'Comme plongeur' : undefined,
           onSelect: onMove,
