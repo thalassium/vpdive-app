@@ -254,7 +254,7 @@ test('formation : FN# lu dans les libellés', () => {
   assert.equal(aptitudesFromLabels(['Prépa N2']).training, 2);
   assert.equal(aptitudesFromLabels(['Formation niveau 1']).training, 1);
   assert.equal(aptitudesFromLabels(['P1', 'FN2']).pe, 20, 'garde son niveau actuel');
-  assert.equal(memberLabel(diver('X', 'P1', 'FN2'), { id: 't', kind: 'teaching', guide: null, extra: null, members: [] }), 'PE20', 'l’aptitude, pas l’objectif');
+  assert.equal(memberLabel(diver('X', 'P1', 'FN2'), { id: 't', kind: 'teaching', guide: null, extra: null, members: [] }), 'PE20', 'sans enseignant, sa propre aptitude, pas l’objectif');
   assert.equal(aptitudesFromLabels(['SECTION SPORTIVE']).training, 0);
   // Un élève en prépa N2 n'est pas encore N2.
   const prepa = aptitudesFromLabels(['P1', 'Prépa N2']);
@@ -509,7 +509,7 @@ test('formation vers une aptitude précise : FPA20 pour un PE40, zone 20 m, un E
   assert.equal(p.kind, 'teaching');
   assert.equal(p.guide!.name, 'E2', 'l’E2 se positionne, l’E3 reste libre');
   assert.equal(chosenDepth(p), 20);
-  assert.equal(memberLabel(student, p), 'PE40', 'aptitude = prérogative ; l’objectif est en tête');
+  assert.equal(memberLabel(student, p), 'PE20', 'l’aptitude la plus faible du groupe (zone 20 m), pas la sienne ; l’objectif est en tête');
   assert.equal(kindLabel(p), 'Formation FPA20');
   assert.deepEqual(validate(p), []);
   // Le même élève noté FN2 mobilise l’E3.
@@ -517,4 +517,16 @@ test('formation vers une aptitude précise : FPA20 pour un PE40, zone 20 m, un E
   assert.equal(vague.palanquees.find((x) => x.kind === 'teaching')!.guide!.name, 'E3');
   const bad: Palanquee = { id: 'b', kind: 'teaching', guide: e2, extra: null, members: [diver('F', 'FPE40')] };
   assert.ok(validate(bad).some((i) => /FPE40 demande un E3/.test(i)));
+});
+
+test('dans une palanquée, tous les plongeurs portent l’aptitude la plus faible du groupe', () => {
+  const g = diver('G', 'N4');
+  const pe40 = diver('A', 'PE40');
+  const pe20 = diver('B', 'N1');
+  const p: Palanquee = { id: 'p', kind: 'guided', guide: g, extra: null, members: [pe40, pe20] };
+  assert.equal(memberLabel(pe40, p), 'PE20', 'le PE40 plonge PE20');
+  assert.equal(memberLabel(pe20, p), 'PE20');
+  assert.equal(guideLabel(g, p), 'GP', 'l’encadrant garde sa prérogative');
+  const auto: Palanquee = { id: 'a', kind: 'autonomous', guide: null, extra: null, members: [diver('C', 'N3'), diver('D', 'N2')] };
+  assert.equal(memberLabel(auto.members[0]!, auto), 'PA20');
 });

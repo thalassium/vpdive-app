@@ -521,28 +521,22 @@ export function guideLabel(d: Aptitudes, p: Palanquee): string {
 }
 
 /**
- * Plongeur (membre) tel qu'il est noté, mêmes trois endroits. L'aptitude est la
- * prérogative (celle du niveau, ou celle que le DP a retenue) ; la formation
- * n'est qu'un objectif, écrit en tête de palanquée (objectiveLabel).
- * - formation : son aptitude PE (ou Débutant) pour un élève ; E# pour un
- *   enseignant qui plonge sans enseigner (hors des 4 élèves) ; la prérogative
- *   de la palanquée pour un N4/GP qui assiste (hors des 4 lui aussi, mais
- *   sans statut N4) ;
- * - exploration : la prérogative de la palanquée pour tout moniteur (celle du
- *   moins formé : un N2 PA20 avec trois E4, les trois E4 plongent PA20) ;
- *   PA ou PE propre sinon.
+ * Plongeur (membre) tel qu'il est noté, mêmes trois endroits. Hors encadrant
+ * ou enseignant, tout le monde porte l'aptitude la plus faible du groupe, qui
+ * est la prérogative de la palanquée : des PE40 avec un PE20 sont tous PE20,
+ * un N2 PA20 avec trois E4 autonomes, tous PA20, un N4/GP qui assiste une
+ * formation n'a pas de statut N4. Seule exception, un enseignant (E1…E4) qui
+ * plonge dans une formation sans l'enseigner garde son statut E#. La formation
+ * d'un élève n'est qu'un objectif, écrit en tête de palanquée (objectiveLabel).
+ * Si la palanquée ne peut pas plonger telle quelle, chacun montre sa propre
+ * aptitude, pour voir d'où vient le problème.
  */
 export function memberLabel(d: Diver, p: Palanquee): string {
-  if (p.kind === 'teaching') {
-    if (d.training) return d.pe ? `PE${d.pe}` : d.beginner || d.training === 1 ? 'Débutant' : '?';
-    if (d.teach) return `E${d.teach}`;
-    if (d.guide) return prerogativeLabel(p);
-  } else if (isInstructor(d)) {
-    return prerogativeLabel(p);
-  }
+  if (p.kind === 'teaching' && d.teach && !d.training) return `E${d.teach}`;
+  if (depthOf(p)) return prerogativeLabel(p);
   if (p.kind === 'autonomous') return d.pa ? `PA${d.pa}` : 'pas PA';
   if (d.pe) return `PE${d.pe}`;
-  return d.beginner ? 'Débutant' : '?';
+  return d.beginner || d.training === 1 ? 'Débutant' : '?';
 }
 
 /** Plongeur supplémentaire (GP/N4 en exploration encadrée) : la prérogative de la palanquée, pas de statut N4. */
