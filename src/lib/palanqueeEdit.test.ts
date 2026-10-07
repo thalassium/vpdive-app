@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { proposePalanquees, validate } from './palanquees';
-import { assignGuide, buddyPairs, moveDiver, planToText, rosterToDivers, setDepth, setKind } from './palanqueeEdit';
+import { depthOf, proposePalanquees, validate } from './palanquees';
+import { NO_TRAINING, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setType } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
-  id, name, firstname: name.split(' ')[1] ?? '', lastname: name.split(' ')[0] ?? '', levels, training: [], roles: [],
+  id, name, firstname: name.split(' ')[1] ?? '', lastname: name.split(' ')[0] ?? '', levels, display: levels, training: [], roles: [],
   age, waitingList: false, comment, medical: { until: null, valid: true },
 });
 
@@ -44,16 +44,13 @@ test('déplacer, nommer encadrant, basculer en autonome', () => {
   plan = moveDiver(plan, dan, 'unassigned');
   assert.equal(plan.unassigned.at(-1)!.diver, dan);
 
-  const lone = plan.palanquees.find((p) => p.id === auto.id)!;
-  plan = setKind(plan, lone.id, 'guided');
-  assert.equal(plan.palanquees.find((p) => p.id === lone.id)!.kind, 'guided');
-
   plan = moveDiver(plan, divers[0]!, 'new');
   const gp = plan.palanquees.at(-1)!;
   assert.equal(gp.guide?.id, '1');
   const left = plan.palanquees.find((p) => p.id === guided.id)!;
   assert.equal(left.guide, null, 'la palanquée quittée perd son encadrant');
-  assert.ok(validate(left, 40).includes('Pas d’encadrant.'));
+  assert.equal(left.kind, 'autonomous', 'sans encadrant, une exploration est autonome');
+  assert.ok(validate(left, 40).some((i) => /pas autonome/.test(i)), 'des N1 ne peuvent pas être autonomes : signalé');
 });
 
 test('choisir l’encadrant : il quitte sa place, l’ancien redevient disponible', () => {
@@ -73,7 +70,7 @@ test('export texte lisible', () => {
   const plan = proposePalanquees(rosterToDivers(roster.slice(0, 5)), { maxDepth: 40 });
   const text = planToText('Épave du Liban', plan);
   assert.match(text, /^Palanquées — Épave du Liban/);
-  assert.match(text, /P1 · Encadrée · PE20/);
+  assert.match(text, /P1 · Exploration · PE20/);
   assert.match(text, /Encadrant : GUIDE Gaby \(GP \/ N4\)/);
   assert.match(text, /PA40/);
 });
@@ -93,6 +90,96 @@ test('profondeur et type changés à la main', () => {
   plan = setDepth(plan, id, 60);
   assert.equal(plan.palanquees[0]!.depth, 60);
   assert.deepEqual(validate(plan.palanquees[0]!), []);
-  plan = setKind(plan, id, 'teaching');
+  plan = setType(plan, id, 'teaching');
   assert.ok(validate(plan.palanquees[0]!).length > 0, 'pas d’enseignant parmi deux N3');
+});
+
+test('brevet étranger : prérogative retenue à la main, cumulable avec une formation', () => {
+  // Cas réel : un Open Water PADI n'a aucune prérogative dans VPDive.
+  const padi = entry('p', 'MARCHAIS Q', ['PADI - OWD']);
+  assert.equal(rosterToDivers([padi])[0]!.pe, 0, 'sans choix du DP : pas de prérogative');
+
+  let settings = setDiverChoice({}, 'levels', 'p', 'PE20');
+  settings = setDiverChoice(settings, 'training', 'p', 'FN2');
+  const [d] = rosterToDivers([padi], settings);
+  assert.equal(d!.pe, 20, 'PE20 retenu');
+  assert.equal(d!.training, 2, 'et en formation N2');
+  assert.deepEqual(d!.original, ['PADI - OWD'], 'le brevet d’origine reste en vue');
+
+  // En formation, il plonge en palanquée PE40 avec un E3.
+  const plan = proposePalanquees([d!, ...rosterToDivers([entry('m', 'MONI M', ['E3'])])]);
+  assert.equal(plan.palanquees[0]!.kind, 'teaching');
+  assert.equal(depthOf(plan.palanquees[0]!), 40);
+
+  // Effacer la formation garde la prérogative.
+  settings = setDiverChoice(settings, 'training', 'p', '');
+  assert.deepEqual(settings, { levels: { p: 'PE20' }, training: {} });
+});
+
+test('supprimer une palanquée libère tout le monde ; en créer une vide, même sans génération', () => {
+  const divers = rosterToDivers([entry('g', 'G G', ['N4']), entry('a', 'A A', ['N1']), entry('b', 'B B', ['N1'])]);
+  let plan = proposePalanquees(divers);
+  const p = plan.palanquees[0]!;
+  plan = deletePalanquee(plan, p.id);
+  assert.equal(plan.palanquees.length, 0);
+  assert.deepEqual(plan.unassigned.map((u) => u.diver.id).sort(), ['a', 'b', 'g']);
+
+  plan = addPalanquee(plan, divers);
+  const empty = plan.palanquees[0]!;
+  assert.ok(validate(empty).length > 0, 'vide : bloque la validation');
+  plan = assignGuide(plan, empty.id, divers[0]!);
+  plan = moveDiver(plan, divers[1]!, empty.id);
+  plan = moveDiver(plan, divers[2]!, empty.id);
+  assert.deepEqual(validate(plan.palanquees[0]!), []);
+  assert.equal(plan.unassigned.length, 0);
+
+  // Composition entièrement à la main : tout le monde part des disponibles.
+  const scratch = addPalanquee(null, divers, 'autonomous');
+  assert.equal(scratch.palanquees.length, 1);
+  assert.equal(scratch.unassigned.length, 3);
+});
+
+test('Exploration : encadrée dès qu’il y a un encadrant, autonome sinon', () => {
+  const divers = rosterToDivers([entry('g', 'GUIDE G', ['P4']), entry('a', 'AOW A', ['PADI - AOW']), entry('b', 'AOW B', ['PADI - AOW'])], {
+    levels: { a: 'PE40', b: 'PE40' },
+  });
+  let plan = addPalanquee(null, divers);
+  const id = plan.palanquees[0]!.id;
+  plan = moveDiver(plan, divers[1]!, id);
+  plan = moveDiver(plan, divers[2]!, id);
+  assert.equal(plan.palanquees[0]!.kind, 'autonomous', 'pas d’encadrant : autonome');
+  assert.ok(validate(plan.palanquees[0]!).length > 0, 'des PE40 sans PA ne peuvent pas être autonomes');
+
+  plan = assignGuide(plan, id, divers[0]!);
+  assert.equal(plan.palanquees[0]!.kind, 'guided', 'un encadrant : encadrée');
+  assert.deepEqual(validate(plan.palanquees[0]!), [], 'deux PADI AOW retenus PE40 avec un GP : exploration PE40');
+
+  plan = removeGuide(plan, id);
+  assert.equal(plan.palanquees[0]!.kind, 'autonomous');
+  assert.ok(plan.unassigned.some((u) => u.diver.id === 'g'), 'l’encadrant retiré est disponible');
+
+  // Formation : le même AOW, PE40 et FN2, avec un enseignant.
+  const teacher = rosterToDivers([entry('m', 'MONI M', ['E3'])])[0]!;
+  plan = assignGuide(plan, id, teacher);
+  plan = setType(plan, id, 'teaching');
+  assert.equal(plan.palanquees[0]!.kind, 'teaching');
+  plan = setType(plan, id, 'exploration');
+  assert.equal(plan.palanquees[0]!.kind, 'guided', 'retour en exploration, toujours encadrée');
+});
+
+test('un réglage changé après la génération se voit tout de suite dans la palanquée', () => {
+  const roster = [entry('m', 'MONI M', ['E3']), entry('q', 'MARCHAIS Q', ['PADI - OWD'])];
+  let settings = setDiverChoice(setDiverChoice({}, 'levels', 'q', 'PE20'), 'training', 'q', 'FN2');
+  const plan = proposePalanquees(rosterToDivers(roster, settings));
+  assert.equal(plan.palanquees[0]!.members[0]!.training, 2);
+  settings = setDiverChoice(settings, 'training', 'q', '');
+  const shown = refreshDivers(plan, rosterToDivers(roster, settings));
+  assert.equal(shown.palanquees[0]!.members[0]!.training, 0, 'plus en formation');
+  assert.ok(validate(shown.palanquees[0]!).length === 0 || shown.palanquees[0]!.kind === 'teaching', 'même place, valeurs à jour');
+});
+
+test('« Pas en formation » l’emporte sur une prépa VPDive', () => {
+  const r = { ...entry('t', 'CHEVALIER Tom', ['P1']), training: ['Prépa N2'] };
+  assert.equal(rosterToDivers([r])[0]!.training, 2, 'prépa N2 : FN2');
+  assert.equal(rosterToDivers([r], setDiverChoice({}, 'training', 't', NO_TRAINING))[0]!.training, 0);
 });

@@ -10,21 +10,23 @@ export type AppRole = 'superadmin' | 'admin' | 'member';
 
 export interface Me {
   id: number;
+  /** Jeton d'adhésion au club : l'`id` de la personne dans la liste des membres. */
+  uct: string;
   email: string;
   name: string;
   vpdiveAdmin: boolean;
   role: AppRole;
 }
 
-export interface AppUser {
-  id: number;
-  email: string;
-  name: string;
-  vpdiveAdmin: boolean;
-  lastSeen: string;
+/** Un membre qui a un rôle dans l'appli (les autres sont de simples membres). */
+export interface RoleEntry {
+  /** Jeton d'adhésion au club, = MemberMatch.id. */
+  uct: string;
   role: AppRole;
-  /** Super-admin by Vercel setting (SUPER_ADMIN_EMAILS): cannot be changed in the app. */
+  vpdiveAdmin: boolean;
+  /** Super-admin par réglage Vercel (SUPER_ADMIN_EMAILS) : ne se change pas dans l'appli. */
   lockedSuperAdmin: boolean;
+  /** Admin VPDive à qui le rôle admin de l'appli a été retiré. */
   revoked: boolean;
 }
 
@@ -57,9 +59,9 @@ async function call<T>(query: string, init: { method?: 'GET' | 'POST'; body?: un
 
 export const appApi = {
   me: () => call<Me>('action=me'),
-  users: () => call<{ users: AppUser[] }>('action=users').then((r) => r.users),
-  setRole: (userId: number, change: { admin?: boolean; superAdmin?: boolean }) =>
-    call<{ ok: true }>('action=role', { method: 'POST', body: { userId, ...change } }),
+  roles: () => call<{ roles: RoleEntry[] }>('action=roles').then((r) => r.roles),
+  setRole: (uct: string, change: { admin?: boolean; superAdmin?: boolean }) =>
+    call<{ roles: RoleEntry[] }>('action=role', { method: 'POST', body: { uct, ...change } }).then((r) => r.roles),
   getOuting: (event: string) => call<{ doc: OutingDoc | null }>(`action=outing&event=${encodeURIComponent(event)}`).then((r) => r.doc),
   /** Refused with status 409 (body.doc = the newer version) when someone saved in between. */
   saveOuting: (event: string, doc: OutingDoc, baseRev: number) =>

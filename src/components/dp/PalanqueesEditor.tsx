@@ -1,13 +1,15 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, Check, ClipboardCopy, Lock, Pencil, ShieldCheck, Sparkles, Star, UserX } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX } from 'lucide-react';
 import type { RosterEntry } from '../../services/vpdiveApi';
 import {
   DEPTHS,
-  KIND_LABEL,
+  TYPE_LABEL,
+  typeOf,
+  TRAINING_TARGET,
   aptitudesFromLabels,
   chosenDepth,
   depthOf,
-  levelName,
+  prerogativeCode,
   prerogativeLabel,
   proposePalanquees,
   validate,
@@ -15,10 +17,28 @@ import {
   type Diver,
   type Palanquee,
   type PalanqueeKind,
+  type PalanqueeType,
   type Plan,
 } from '../../lib/palanquees';
-import { LEVEL_OVERRIDES, TRAINING_OPTIONS, assignGuide, buddyPairs, moveDiver, planToText, rosterToDivers, setDepth, setKind } from '../../lib/palanqueeEdit';
+import {
+  PREROGATIVE_OPTIONS,
+  TRAINING_OPTIONS,
+  NO_TRAINING,
+  addPalanquee,
+  assignGuide,
+  deletePalanquee,
+  buddyPairs,
+  moveDiver,
+  planToText,
+  refreshDivers,
+  rosterToDivers,
+  setDepth,
+  setDiverChoice,
+  removeGuide,
+  setType,
+} from '../../lib/palanqueeEdit';
 import type { Dive, OutingDoc } from '../../lib/outing';
+import { Menu, type MenuSection } from '../Menu';
 
 interface Props {
   title: string;
@@ -31,10 +51,21 @@ interface Props {
   onReopen: () => void;
 }
 
-const KINDS: PalanqueeKind[] = ['teaching', 'guided', 'autonomous'];
+const TYPES: PalanqueeType[] = ['exploration', 'teaching'];
 
-/** Niveau d'un plongeur tel qu'on le lit sur la carte : FN# pour un élève, sinon MF1, E2, N4 / GP, N2… */
-const shownLevel = (d: Diver) => (d.training ? `FN${d.training}` : levelName(d) || 'niveau ?');
+/**
+ * Comment on présente quelqu'un : sa prérogative (E3, GP, PE40 · PA20…), puis
+ * son niveau ou son diplôme tel que VPDive l'écrit (DEJEPS, MF1, P2…). Un E3
+ * peut être MF1 ou DEJEPS : on ne le devine jamais.
+ */
+const describe = (d: Diver) => [prerogativeCode({ ...d, training: 0 }) || 'niveau ?', ...diplomas(d)].join(' · ');
+/** Niveaux et diplômes VPDive, sans ceux qui répètent la prérogative (« PE-40 » à côté de « PE40 »). */
+const diplomas = (d: Diver) => {
+  const flat = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const parts = new Set(prerogativeCode({ ...d, training: 0 }).split(' · ').map(flat));
+  return (d.display ?? []).filter((x) => !parts.has(flat(x)));
+};
+const shownLevel = (d: Diver) => (d.training ? `FN${d.training} · ${describe(d)}` : describe(d));
 const isInstructor = (d: Diver) => !!d.guide;
 
 /**
@@ -49,8 +80,9 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
   const excluded = useMemo(() => new Set(settings.excluded), [settings.excluded]);
   const divers = useMemo(() => rosterToDivers(roster, settings), [roster, settings]);
   const diving = divers.filter((d) => !excluded.has(d.id));
-  const plan = dive.plan;
   const locked = !!dive.validated;
+  // Tant que ce n'est pas validé, chaque plongeur apparaît avec ses réglages actuels.
+  const plan = dive.plan && !locked ? refreshDivers(dive.plan, divers) : dive.plan;
 
   const generate = () => {
     const ids = new Set(diving.map((d) => d.id));
@@ -85,13 +117,6 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
     }
   };
 
-  const setSetting = (key: 'levels' | 'training', id: string, value: string) => {
-    const next = { ...(settings[key] ?? {}) };
-    if (value) next[id] = value;
-    else delete next[id];
-    onSettings({ ...settings, [key]: next });
-  };
-
   const moveTo = (d: Diver, target: string) => {
     if (!plan) return;
     if (target.startsWith('guide:')) onPlan(assignGuide(plan, target.slice(6), d));
@@ -99,11 +124,62 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
   };
   const targetsFor = (exclude?: string) => (plan?.palanquees ?? []).map((p, i) => ({ id: p.id, label: `P${i + 1}`, kind: p.kind })).filter((t) => t.id !== exclude);
 
+  /**
+   * Menu d'un plongeur, depuis la liste « Qui plonge » ou depuis sa pastille
+   * dans une palanquée : sa prérogative (celle de VPDive, ou une autre retenue
+   * à la main) et, à côté, sa formation en cours. Deux choix indépendants.
+   */
+  const levelSections = (d: Diver): MenuSection[] => {
+    const r = roster.find((x) => x.id === d.id);
+    const fromVpdive = r ? prerogativeCode(aptitudesFromLabels(r.levels)) : '';
+    const forcedRaw = settings.levels?.[d.id];
+    const forced = forcedRaw ? prerogativeCode(aptitudesFromLabels([forcedRaw])) || forcedRaw : undefined;
+    const fn = settings.training?.[d.id];
+    const prepa = r ? aptitudesFromLabels(r.training).training : 0;
+    return [
+      {
+        title: 'Prérogative',
+        selected: forced ?? '',
+        onSelect: (v) => onSettings({ ...settings, ...setDiverChoice(settings, 'levels', d.id, v) }),
+        options: [
+          { value: '', label: fromVpdive || 'Aucune', hint: 'VPDive' },
+          ...PREROGATIVE_OPTIONS.divers.map((v) => ({ value: v, label: v })),
+          ...PREROGATIVE_OPTIONS.instructors.map((v) => ({ value: v, label: v, hint: v === 'GP' ? 'guide' : 'ens.' })),
+        ],
+      },
+      ...(isInstructor(d)
+        ? []
+        : [
+            {
+              title: 'Formation',
+              selected: fn ?? '',
+              onSelect: (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) }),
+              options: [
+                ...(prepa
+                  ? [
+                      { value: '', label: `FN${prepa}`, hint: 'prépa VPDive' },
+                      { value: NO_TRAINING, label: 'Pas en formation', hint: 'cette sortie' },
+                    ]
+                  : [{ value: '', label: 'Pas en formation' }]),
+                ...TRAINING_OPTIONS.filter((t) => t !== `FN${prepa}`).map((t) => ({ value: t, label: t, hint: `vers N${t.slice(2)}` })),
+              ],
+            },
+          ]),
+    ];
+  };
+
   const rosterRow = (d: Diver) => {
     const r = roster.find((x) => x.id === d.id)!;
     const out = excluded.has(d.id);
-    const unknown = !d.pe && !d.beginner && !d.guide && !d.training;
-    const found = levelName(aptitudesFromLabels(r.levels));
+    const fromVpdive = prerogativeCode(aptitudesFromLabels(r.levels));
+    // Anciennes valeurs (« PE20 · N1 », « MF1 »…) : affichées sous leur prérogative.
+    const forcedRaw = settings.levels?.[d.id];
+    const forced = forcedRaw ? prerogativeCode(aptitudesFromLabels([forcedRaw])) || forcedRaw : undefined;
+    const fnChoice = settings.training?.[d.id];
+    const fn = fnChoice === NO_TRAINING ? undefined : fnChoice;
+    const prerogative = forced ?? fromVpdive;
+    // Brevet étranger ou niveau inconnu : sans prérogative, le plongeur ne peut pas être placé.
+    const missing = !prerogative && !d.training;
     return (
       <li key={d.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3.5 py-2.5 ${out ? 'opacity-50' : ''}`}>
         <label className="flex items-center gap-2.5 min-w-[14rem] flex-1 cursor-pointer">
@@ -116,43 +192,32 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
           <span className="min-w-0">
             <span className="font-medium text-ink truncate block">{d.name}</span>
             <span className="text-xs text-muted">
-              {r.levels.join(', ') || 'aucun niveau dans VPDive'}
+              VPDive : {r.display.join(', ') || 'aucun niveau'}
+              {forced && <span className="text-brand font-semibold"> → prérogative retenue : {forced}</span>}
+              {d.training > 0 && <span className="text-brand font-semibold"> · en formation FN{d.training}</span>}
               {d.minor && ' · mineur'}
               {r.roles.length > 0 && ` · ${r.roles.join(', ')}`}
               {r.waitingList && ' · liste d’attente'}
             </span>
           </span>
         </label>
-        <span className="flex flex-wrap items-center gap-1.5 text-sm">
-          <select
-            value={settings.levels?.[d.id] ?? ''}
-            onChange={(e) => setSetting('levels', d.id, e.target.value)}
-            aria-label={`Niveau retenu pour ${d.name}`}
-            className={`h-8 rounded-lg border px-2 text-sm bg-surface font-semibold ${unknown && !out ? 'border-warn text-warn' : 'border-line text-brand'}`}
-          >
-            <option value="">{found || 'Niveau ?'}</option>
-            {LEVEL_OVERRIDES.filter((l) => l !== found).map((l) => (
-              <option key={l} value={l}>
-                {l}
-              </option>
-            ))}
-          </select>
-          {!isInstructor(d) && (
-            <select
-              value={settings.training?.[d.id] ?? ''}
-              onChange={(e) => setSetting('training', d.id, e.target.value)}
-              aria-label={`Formation de ${d.name}`}
-              className={`h-8 rounded-lg border px-2 text-sm bg-surface ${d.training ? 'border-brand text-brand font-semibold' : 'border-line text-muted'}`}
-            >
-              <option value="">{d.training && !settings.training?.[d.id] ? `FN${d.training} (prépa)` : 'Pas en formation'}</option>
-              {TRAINING_OPTIONS.map((t) => (
-                <option key={t} value={t}>
-                  {t} · en formation
-                </option>
-              ))}
-            </select>
-          )}
-        </span>
+        <Menu
+          ariaLabel={`Prérogative et formation de ${d.name}`}
+          triggerClassName={`h-9 min-w-36 inline-flex items-center justify-between gap-2 rounded-lg border px-2.5 text-sm font-semibold ${
+            missing && !out ? 'border-warn bg-warn-soft text-warn' : forced || fn ? 'border-brand bg-tint text-brand' : 'border-line bg-surface text-brand'
+          }`}
+          trigger={
+            <>
+              <span>
+                {prerogative || 'Prérogative ?'}
+                {d.training ? ` · FN${d.training}` : ''}
+              </span>
+              <ChevronDown className="w-4 h-4 opacity-60" />
+            </>
+          }
+          columns
+          sections={levelSections(d)}
+        />
       </li>
     );
   };
@@ -193,7 +258,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
           {unknownLevels.length > 0 && (
             <p className="mt-2 text-sm text-warn flex items-start gap-1.5">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              Niveau non reconnu pour {unknownLevels.map((d) => d.name).join(', ')} : choisissez-le, sinon ils ne seront pas placés.
+              Pas de prérogative pour {unknownLevels.map((d) => d.name).join(', ')} (brevet d’une autre école ou niveau absent de VPDive) :
+              choisissez-la, sinon ils ne seront pas placés.
             </p>
           )}
           <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -206,6 +272,16 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
               <Sparkles className="w-4 h-4" />
               {plan ? 'Refaire les palanquées' : 'Générer les palanquées'}
             </button>
+            {!plan && (
+              <button
+                type="button"
+                onClick={() => onPlan(addPalanquee(null, diving))}
+                disabled={diving.length === 0}
+                className="inline-flex items-center gap-2 h-11 px-4 rounded-xl border border-brand/40 text-brand font-semibold hover:bg-tint disabled:opacity-50"
+              >
+                <Plus className="w-4 h-4" /> Composer à la main
+              </button>
+            )}
             <span className="text-sm text-muted">Autonomes par niveau, puis formations avec un E1/E2/E3, puis encadrés avec un N4/GP au moins.</span>
           </div>
         </section>
@@ -218,9 +294,16 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
             <h3 className="text-base font-semibold text-brand">
               {plan.palanquees.length} palanquée{plan.palanquees.length > 1 ? 's' : ''}
             </h3>
-            <ActionButton onClick={copy} icon={copied ? <Check className="w-4 h-4" /> : <ClipboardCopy className="w-4 h-4" />}>
-              {copied ? 'Copié' : 'Copier'}
-            </ActionButton>
+            <div className="flex items-center gap-2">
+              {!locked && (
+                <ActionButton onClick={() => onPlan(addPalanquee(plan, diving))} icon={<Plus className="w-4 h-4" />}>
+                  Nouvelle palanquée
+                </ActionButton>
+              )}
+              <ActionButton onClick={copy} icon={copied ? <Check className="w-4 h-4" /> : <ClipboardCopy className="w-4 h-4" />}>
+                {copied ? 'Copié' : 'Copier'}
+              </ActionButton>
+            </div>
           </div>
 
           <div className="grid md:grid-cols-2 gap-3">
@@ -234,8 +317,15 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
                 targets={targetsFor(p.id)}
                 onMove={moveTo}
                 onGuide={(d) => onPlan(assignGuide(plan, p.id, d))}
-                onKind={(k) => onPlan(setKind(plan, p.id, k))}
+                onType={(t) => onPlan(setType(plan, p.id, t))}
+                onRemoveGuide={() => onPlan(removeGuide(plan, p.id))}
+                levelSections={levelSections}
                 onDepth={(d) => onPlan(setDepth(plan, p.id, d))}
+                onDelete={() => {
+                  const people = [p.guide, p.extra, ...p.members].filter(Boolean).length;
+                  if (people && !window.confirm(`Supprimer P${i + 1} ? Ses ${people} participant${people > 1 ? 's' : ''} redeviendront disponibles.`)) return;
+                  onPlan(deletePalanquee(plan, p.id));
+                }}
               />
             ))}
           </div>
@@ -251,7 +341,11 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={onValidate}
+                onClick={() => {
+                  // On fige la composition telle qu’elle s’affiche (réglages à jour), pour la fiche de sécurité.
+                  onPlan(plan);
+                  onValidate();
+                }}
                 disabled={issues.length > 0 || plan.palanquees.length === 0}
                 className="inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-ok text-white dark:text-canvas font-semibold disabled:opacity-40"
               >
@@ -285,6 +379,14 @@ function RosterGroup({ title, count, children }: { title: string; count: number;
   );
 }
 
+/** Prérogative propre d'un plongeur dans cette palanquée (PA en autonomie, PE encadré, FN# en formation). */
+function ownPrerogative(d: Diver, p: Palanquee): { label: string; depth: number } {
+  if (p.kind === 'autonomous') return d.pa ? { label: `PA${d.pa}`, depth: d.pa } : { label: 'pas PA', depth: 0 };
+  if (p.kind === 'teaching' && d.training) return { label: `FN${d.training}`, depth: TRAINING_TARGET[d.training] };
+  if (d.pe) return { label: `PE${d.pe}`, depth: d.pe };
+  return d.beginner ? { label: 'Débutant', depth: 6 } : { label: '?', depth: 0 };
+}
+
 function PalanqueeCard({
   index,
   p,
@@ -293,8 +395,11 @@ function PalanqueeCard({
   targets,
   onMove,
   onGuide,
-  onKind,
+  onType,
+  onRemoveGuide,
+  levelSections,
   onDepth,
+  onDelete,
 }: {
   index: number;
   p: Palanquee;
@@ -303,95 +408,109 @@ function PalanqueeCard({
   targets: Target[];
   onMove: (d: Diver, target: string) => void;
   onGuide: (d: Diver) => void;
-  onKind: (k: PalanqueeKind) => void;
+  onType: (t: PalanqueeType) => void;
+  onRemoveGuide: () => void;
+  levelSections: (d: Diver) => MenuSection[];
   onDepth: (d: Depth | undefined) => void;
+  onDelete: () => void;
 }) {
   const issues = validate(p);
   const legal = depthOf(p);
   const depth = chosenDepth(p);
-  const needsGuide = p.kind !== 'autonomous';
   const eligible = instructors.filter((d) => (p.kind === 'teaching' ? d.teach > 0 : !!d.guide));
   const letter = p.kind === 'autonomous' ? 'PA' : 'PE';
+  const selectable = !locked && p.kind !== 'teaching' && legal > 0;
 
   return (
-    <article className={`rounded-2xl border-2 p-4 bg-surface ${issues.length ? 'border-danger/50' : 'border-line'}`}>
-      <header className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <h4 className="flex items-center gap-2 font-semibold text-brand min-w-0">
-          <span className="w-7 h-7 shrink-0 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">P{index}</span>
-          {locked ? (
-            <span className="text-sm">{KIND_LABEL[p.kind]}</span>
-          ) : (
-            <select value={p.kind} onChange={(e) => onKind(e.target.value as PalanqueeKind)} aria-label="Type de palanquée" className="h-8 rounded-lg border border-line bg-surface px-1.5 text-sm font-semibold text-brand">
-              {KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {KIND_LABEL[k]}
-                </option>
-              ))}
-            </select>
-          )}
-        </h4>
-        {locked || p.kind === 'teaching' || !legal ? (
-          <span className={`text-sm font-bold px-2.5 py-0.5 rounded-full tabular-nums ${depth ? 'bg-tint text-brand' : 'bg-danger-soft text-danger'}`}>{prerogativeLabel(p)}</span>
-        ) : (
-          <select
-            value={depth}
-            onChange={(e) => onDepth(Number(e.target.value) as Depth)}
-            aria-label="Prérogative de la palanquée"
-            className="h-8 rounded-full border border-brand/30 bg-tint px-2 text-sm font-bold text-brand tabular-nums"
-          >
-            {DEPTHS.filter((d) => d <= legal && (d > 6 || legal === 6)).map((d) => (
-              <option key={d} value={d}>
-                {letter}
-                {d}
-              </option>
-            ))}
-          </select>
-        )}
-      </header>
-
-      {/* Encadrant, mis en évidence */}
-      {needsGuide && (
-        <div className={`mb-3 rounded-xl px-3 py-2.5 ${p.guide ? 'bg-tint border border-brand/25' : 'border-2 border-dashed border-danger/40'}`}>
-          <div className="flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted">
-              <Star className={`w-3.5 h-3.5 ${p.guide ? 'text-brand fill-current' : 'text-danger'}`} />
-              {p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'}
+    <article className={`rounded-2xl border-2 bg-surface overflow-hidden ${issues.length ? 'border-danger/60' : 'border-line'}`}>
+      {/* En-tête coloré : numéro, type, prérogative en grand */}
+      <header className={`flex items-center justify-between gap-3 px-4 py-3 text-white ${depth && !issues.length ? 'bg-band' : 'bg-danger'}`}>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-8 h-8 shrink-0 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">P{index}</span>
+          <span className="min-w-0">
+            {locked ? (
+              <span className="block font-semibold">{TYPE_LABEL[typeOf(p)]}</span>
+            ) : (
+              <Menu
+                ariaLabel="Type de palanquée"
+                triggerClassName="h-8 inline-flex items-center gap-1.5 rounded-lg border border-white/30 bg-white/10 hover:bg-white/20 px-2.5 text-sm font-semibold text-white"
+                trigger={
+                  <>
+                    {TYPE_LABEL[typeOf(p)]}
+                    <ChevronDown className="w-4 h-4 opacity-70" />
+                  </>
+                }
+                sections={[{ selected: typeOf(p), onSelect: (v) => onType(v as PalanqueeType), options: TYPES.map((t) => ({ value: t, label: TYPE_LABEL[t] })) }]}
+              />
+            )}
+            {/* Encadrée ou autonome : découle de la présence d'un encadrant */}
+            <span className="block text-[11px] text-white/70 mt-0.5">
+              {p.kind === 'teaching' ? 'avec un enseignant' : p.guide ? 'encadrée (PE)' : 'autonome (PA)'}
             </span>
-            {p.guide && !locked && <MoveSelect targets={targets} onMove={(t) => onMove(p.guide!, t)} instructor />}
-          </div>
-          {locked || !eligible.length ? (
-            <span className="block mt-0.5 font-semibold text-ink">{p.guide ? p.guide.name : 'Aucun encadrant disponible'}</span>
-          ) : (
-            <select
-              value={p.guide?.id ?? ''}
-              onChange={(e) => {
-                const d = eligible.find((x) => x.id === e.target.value);
-                if (d) onGuide(d);
-              }}
-              aria-label={p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'}
-              className="mt-0.5 w-full bg-transparent font-semibold text-ink focus:outline-none -ml-0.5"
+          </span>
+          {!locked && (
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label={`Supprimer P${index}`}
+              title="Supprimer la palanquée (ses participants redeviennent disponibles)"
+              className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-white/15"
             >
-              {!p.guide && <option value="">Choisir l’encadrant…</option>}
-              {eligible.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} · {levelName(d)}
-                </option>
-              ))}
-            </select>
+              <Trash2 className="w-4 h-4" />
+            </button>
           )}
         </div>
-      )}
+        <div className="text-right shrink-0">
+          <span className="block text-[10px] font-bold uppercase tracking-wider text-white/70">Prérogative</span>
+          {selectable ? (
+            <Menu
+              ariaLabel="Prérogative de la palanquée"
+              triggerClassName={`h-10 inline-flex items-center gap-1 rounded-xl bg-surface text-brand font-bold tabular-nums px-3 ${prerogativeLabel(p).length > 5 ? 'text-base' : 'text-2xl'}`}
+              trigger={
+                <>
+                  {prerogativeLabel(p)}
+                  <ChevronDown className="w-4 h-4 opacity-60" />
+                </>
+              }
+              sections={[
+                {
+                  selected: String(depth),
+                  onSelect: (v) => onDepth(Number(v) as Depth),
+                  options: DEPTHS.filter((d) => d <= legal && (d > 6 || legal === 6)).map((d) => ({
+                    value: String(d),
+                    label: `${letter}${d}`,
+                    hint: d === 60 ? 'à la main' : undefined,
+                  })),
+                },
+              ]}
+            />
+          ) : (
+            <span className={`inline-block h-10 leading-10 rounded-xl px-3 font-bold tabular-nums whitespace-nowrap ${depth ? 'bg-surface text-brand' : 'bg-white/15 text-white'} ${depth && prerogativeLabel(p).length <= 5 ? 'text-2xl' : 'text-base'}`}>
+              {prerogativeLabel(p)}
+            </span>
+          )}
+        </div>
+      </header>
 
-      <ul className="space-y-1.5 text-sm">
-        {p.members.map((m) => (
-          <DiverRow key={m.id} d={m} locked={locked} targets={targets} onMove={onMove} />
-        ))}
-        {p.extra && <DiverRow d={p.extra} role="GP supplémentaire" locked={locked} targets={targets} onMove={onMove} />}
+      {/* Plongeurs, avec leur prérogative ; celui qui fixe celle de la palanquée est signalé */}
+      <ul className="px-4 pt-3 pb-3 space-y-1.5 text-sm">
+        <GuideRow p={p} eligible={eligible} locked={locked} targets={targets} onMove={onMove} onGuide={onGuide} onRemove={onRemoveGuide} />
+        {p.members.map((m) => {
+          const own = ownPrerogative(m, p);
+          // Signalé seulement s'il fait descendre la palanquée : un autre plongeur aurait pu aller plus loin.
+          const depths = p.members.map((x) => ownPrerogative(x, p).depth);
+          const floor = Math.min(...depths);
+          const limiting = own.depth === floor && depths.some((x) => x > floor);
+          return (
+            <DiverRow key={m.id} d={m} own={own.label} limiting={limiting} locked={locked} targets={targets} onMove={onMove} levelSections={levelSections} />
+          );
+        })}
+        {p.extra && <DiverRow d={p.extra} own="GP suppl." locked={locked} targets={targets} onMove={onMove} />}
         {p.members.length === 0 && <li className="text-muted font-serif italic">Aucun plongeur.</li>}
       </ul>
 
       {issues.length > 0 && (
-        <ul className="mt-3 space-y-1 text-sm text-danger">
+        <ul className="px-4 pb-3.5 space-y-1 text-sm text-danger">
           {issues.map((i) => (
             <li key={i} className="flex items-start gap-1.5">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {i}
@@ -403,14 +522,127 @@ function PalanqueeCard({
   );
 }
 
-function DiverRow({ d, role, locked, targets, onMove }: { d: Diver; role?: string; locked: boolean; targets: Target[]; onMove: (d: Diver, target: string) => void }) {
+/**
+ * L'encadrant, présenté comme un plongeur mais toujours en tête de palanquée,
+ * en gras sur fond gris clair : sa prérogative (E3, GP…), son nom, son diplôme
+ * VPDive. Cliquer sur le nom ouvre la liste des encadrants possibles. En
+ * exploration sans encadrant, la ligne propose d'en ajouter un : la palanquée
+ * passe alors d'autonome à encadrée.
+ */
+function GuideRow({
+  p,
+  eligible,
+  locked,
+  targets,
+  onMove,
+  onGuide,
+  onRemove,
+}: {
+  p: Palanquee;
+  eligible: Diver[];
+  locked: boolean;
+  targets: Target[];
+  onMove: (d: Diver, target: string) => void;
+  onGuide: (d: Diver) => void;
+  onRemove: () => void;
+}) {
+  const g = p.guide;
+  const teaching = p.kind === 'teaching';
+  const role = teaching ? 'Enseignant' : 'Encadrant';
+  const editable = !locked && eligible.length > 0;
+  if (!g && !teaching && locked) return null;
+  // Formation sans enseignant : à corriger. Exploration sans encadrant : simplement autonome.
+  const missingTone = teaching ? 'border-2 border-dashed border-danger/50 text-danger' : 'border border-dashed border-line text-muted';
+  return (
+    <li className={`-mx-2 px-2 py-1.5 rounded-lg flex items-center gap-2 ${g ? 'bg-raised border border-line' : missingTone}`}>
+      <span className={`shrink-0 min-w-16 inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-bold ${g ? 'bg-pink text-on-pink' : teaching ? 'bg-danger-soft' : 'bg-raised'}`}>
+        <Star className={`w-3 h-3 ${g ? 'fill-current' : ''}`} />
+        {g ? prerogativeCode(g) || '?' : role}
+      </span>
+      <div className="flex-1 min-w-0">
+        {editable ? (
+          <Menu
+            ariaLabel={role}
+            triggerClassName={`max-w-full inline-flex items-center gap-1 text-left ${g ? 'font-bold text-ink' : teaching ? 'font-bold text-danger' : 'font-medium text-muted'}`}
+            trigger={
+              <>
+                <span className="truncate">{g ? g.name : teaching ? 'Choisir l’enseignant…' : 'Ajouter un encadrant…'}</span>
+                <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-60" />
+              </>
+            }
+            sections={[
+              {
+                selected: g?.id ?? '',
+                onSelect: (id) => {
+                  const d = eligible.find((x) => x.id === id);
+                  if (d) onGuide(d);
+                },
+                options: eligible.map((d) => ({ value: d.id, label: d.name, hint: describe(d) })),
+              },
+            ]}
+          />
+        ) : (
+          <span className={`block truncate ${g ? 'font-bold text-ink' : ''}`}>{g ? g.name : teaching ? 'Aucun enseignant disponible' : 'Sans encadrant'}</span>
+        )}
+        <span className="block text-xs text-muted truncate">
+          {g ? role : teaching ? 'Une formation demande un enseignant (E1, E2, E3…)' : 'Plongeurs autonomes'}
+          {g && diplomas(g).length > 0 && ` · ${diplomas(g).join(' · ')}`}
+        </span>
+      </div>
+      {g && !locked && (
+        <MoveSelect targets={targets} onMove={(t) => (t === 'unassigned' ? onRemove() : onMove(g, t))} instructor unassignLabel={teaching ? 'Retirer l’enseignant' : 'Retirer l’encadrant (autonome)'} />
+      )}
+    </li>
+  );
+}
+
+function DiverRow({
+  d,
+  own,
+  limiting,
+  locked,
+  targets,
+  onMove,
+  levelSections,
+}: {
+  d: Diver;
+  own: string;
+  limiting?: boolean;
+  locked: boolean;
+  targets: Target[];
+  onMove: (d: Diver, target: string) => void;
+  levelSections?: (d: Diver) => MenuSection[];
+}) {
+  const chipCls = `shrink-0 min-w-16 inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs font-bold tabular-nums ${
+    limiting ? 'bg-warn-soft text-warn ring-1 ring-warn/40' : 'bg-raised text-ink'
+  }`;
   return (
     <li className="flex items-center gap-2">
+      {!locked && levelSections ? (
+        <Menu
+          columns
+          ariaLabel={`Prérogative et formation de ${d.name}`}
+          triggerClassName={`${chipCls} hover:ring-1 hover:ring-brand/40`}
+          trigger={
+            <>
+              {own}
+              <ChevronDown className="w-3 h-3 opacity-50" />
+            </>
+          }
+          sections={levelSections(d)}
+        />
+      ) : (
+        <span className={chipCls} title={limiting ? 'Fixe la prérogative de la palanquée' : undefined}>
+          {own}
+        </span>
+      )}
       <span className="flex-1 min-w-0">
         <span className="block truncate text-ink">{d.name}</span>
         <span className="block text-xs text-muted truncate">
-          {role ?? shownLevel(d)}
+          {d.training ? `en formation FN${d.training} · ${describe(d)}` : describe(d)}
+          {d.original && <span title="Le DP a retenu un équivalent FFESSM"> · équivalent retenu</span>}
           {d.minor ? ' · mineur' : ''}
+          {limiting ? ' · fixe la prérogative' : ''}
         </span>
       </span>
       {!locked && <MoveSelect targets={targets} onMove={(t) => onMove(d, t)} instructor={!!d.guide} />}
@@ -445,26 +677,44 @@ function FreeList({ title, items, targets, onMove, instructor }: { title: string
 type Target = { id: string; label: string; kind: PalanqueeKind };
 
 /** Déplacer vers une palanquée (comme plongeur, ou comme encadrant pour un encadrant), une nouvelle, ou retirer. */
-function MoveSelect({ targets, onMove, instructor, allowUnassign = true }: { targets: Target[]; onMove: (t: string) => void; instructor?: boolean; allowUnassign?: boolean }) {
+function MoveSelect({
+  targets,
+  onMove,
+  instructor,
+  allowUnassign = true,
+  unassignLabel = 'Retirer de la palanquée',
+}: {
+  targets: Target[];
+  onMove: (t: string) => void;
+  instructor?: boolean;
+  allowUnassign?: boolean;
+  unassignLabel?: string;
+}) {
+  // Un encadrant peut encadrer n'importe quelle palanquée : une exploration autonome devient encadrée.
+  const asGuide = instructor ? targets : [];
   return (
-    <select value="" onChange={(e) => e.target.value && onMove(e.target.value)} aria-label="Déplacer" className="h-8 shrink-0 rounded-lg border border-line bg-surface px-1.5 text-xs text-muted">
-      <option value="">Déplacer…</option>
-      {instructor &&
-        targets
-          .filter((t) => t.kind !== 'autonomous')
-          .map((t) => (
-            <option key={`g${t.id}`} value={`guide:${t.id}`}>
-              encadrant de {t.label}
-            </option>
-          ))}
-      {targets.map((t) => (
-        <option key={t.id} value={t.id}>
-          {instructor ? `plongeur dans ${t.label}` : `vers ${t.label}`}
-        </option>
-      ))}
-      <option value="new">nouvelle palanquée</option>
-      {allowUnassign && <option value="unassigned">retirer</option>}
-    </select>
+    <Menu
+      ariaLabel="Déplacer"
+      triggerClassName="h-8 shrink-0 inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 text-xs text-muted hover:border-brand/40 hover:text-brand"
+      trigger={
+        <>
+          Déplacer
+          <ChevronDown className="w-3.5 h-3.5" />
+        </>
+      }
+      sections={[
+        ...(asGuide.length ? [{ title: 'Comme encadrant', onSelect: onMove, options: asGuide.map((t) => ({ value: `guide:${t.id}`, label: `Encadrant de ${t.label}` })) }] : []),
+        {
+          title: instructor ? 'Comme plongeur' : undefined,
+          onSelect: onMove,
+          options: [
+            ...targets.map((t) => ({ value: t.id, label: instructor ? `Plongeur dans ${t.label}` : `Vers ${t.label}`, hint: t.kind === 'teaching' ? 'Formation' : t.kind === 'guided' ? 'Exploration encadrée' : 'Exploration autonome' })),
+            { value: 'new', label: 'Nouvelle palanquée' },
+            ...(allowUnassign ? [{ value: 'unassigned', label: unassignLabel }] : []),
+          ],
+        },
+      ]}
+    />
   );
 }
 

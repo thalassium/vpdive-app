@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { LogOut, ExternalLink, ShieldCheck, Users, ClipboardList } from 'lucide-react';
+import { LogOut, ExternalLink, Users, ClipboardList } from 'lucide-react';
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
@@ -7,7 +7,6 @@ import { StandardCalendar, gridRange } from './components/StandardCalendar';
 import { EventBookingModal } from './components/EventBookingModal';
 import { SeaBackdrop } from './components/SeaBackdrop';
 import { MembersPanel } from './components/MembersPanel';
-import { RolesPanel } from './components/RolesPanel';
 import { DpPanel } from './components/dp/DpPanel';
 import { vpdive, ymd, SessionExpiredError, DP_ROLE, type CalendarEvent, type MeteoSlot, type Session } from './services/vpdiveApi';
 import { appApi, type Me } from './services/appApi';
@@ -24,7 +23,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [meteo, setMeteo] = useState<Record<string, MeteoSlot[]>>({});
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
-  const [panel, setPanel] = useState<'dp' | 'members' | 'roles' | null>(null);
+  const [panel, setPanel] = useState<'dp' | 'members' | null>(null);
   const [dpEvent, setDpEvent] = useState<CalendarEvent | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [isDp, setIsDp] = useState(false);
@@ -158,11 +157,6 @@ export default function App() {
                   <Users className="w-4 h-4" />
                 </NavButton>
               )}
-              {role === 'superadmin' && (
-                <NavButton label="Rôles" title="Qui est admin dans l’appli" onClick={() => setPanel('roles')}>
-                  <ShieldCheck className="w-4 h-4" />
-                </NavButton>
-              )}
 
               <ThemeToggle />
 
@@ -230,8 +224,7 @@ export default function App() {
           onSessionLost={handleSessionLost}
         />
       )}
-      {panel === 'members' && isAdmin && <MembersPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
-      {panel === 'roles' && role === 'superadmin' && me && <RolesPanel me={me} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
+      {panel === 'members' && isAdmin && me && <MembersPanel me={me} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
 
       <footer className={`relative bg-band text-white/75 px-4 py-8 mt-16 ${printPanel}`}>
         {/* Le bandeau marine sort de l'eau par une vague, au lieu d'une coupure droite */}

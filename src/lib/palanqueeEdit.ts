@@ -3,38 +3,78 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, aptLabel, GUIDE_LABEL, KIND_LABEL, prerogativeLabel, type Depth, type Diver, type PalanqueeKind, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, aptLabel, GUIDE_LABEL, KIND_LABEL, prerogativeLabel, settleKind, type Depth, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
-/** Niveau choisi à la main par l'admin quand VPDive n'en donne pas, ou pour corriger. */
-export const LEVEL_OVERRIDES = ['Débutant', 'PE12', 'N1', 'PA20', 'N2', 'PE40', 'N3', 'GP / N4', 'E1 · Initiateur', 'E2', 'MF1', 'MF2'] as const;
-/** Formation en cours, notée FN# (FN1 = vers le N1…). */
+/**
+ * Prérogative retenue à la main par le DP. Indispensable pour un brevet d'une
+ * autre école (PADI, SSI…), qui n'en donne aucune : c'est elle qui place le
+ * plongeur dans les palanquées. Le niveau VPDive d'origine reste affiché.
+ */
+export const PREROGATIVE_OPTIONS = {
+  divers: ['Débutant', 'PE12', 'PE20', 'PA20', 'PE40', 'PE40 · PA20', 'PA40', 'PE60', 'PA60'],
+  instructors: ['GP', 'E1', 'E2', 'E3', 'E4'],
+} as const;
+
+/**
+ * Formation en cours, en plus de la prérogative : un Open Water retenu PE20 qui
+ * prépare son niveau 2 est FN2 et peut aller en palanquée de formation PE40.
+ */
 export const TRAINING_OPTIONS = ['FN1', 'FN2', 'FN3', 'FN4'] as const;
+/** « Pas en formation » choisi par le DP : l'emporte sur une prépa VPDive. */
+export const NO_TRAINING = 'none';
 
 export interface DiverSettings {
-  /** id → niveau choisi à la main (remplace ceux de VPDive) */
+  /** id → prérogative retenue à la main (remplace celle de VPDive, dont les niveaux restent affichés) */
   levels?: Record<string, string>;
-  /** id → formation en cours (FN1…FN4) */
+  /** id → formation en cours (FN1…FN4), en plus de la prérogative */
   training?: Record<string, string>;
+}
+
+/** Fixe (ou efface avec '') la prérogative retenue ou la formation d'un plongeur, sans toucher à l'autre. */
+export function setDiverChoice(settings: DiverSettings, kind: 'levels' | 'training', id: string, value: string): DiverSettings {
+  const next = { ...(settings[kind] ?? {}) };
+  if (value) next[id] = value;
+  else delete next[id];
+  return { ...settings, [kind]: next };
 }
 
 export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = {}): Diver[] {
   return roster.map((r) => {
-    const base = settings.levels?.[r.id] ? [settings.levels[r.id]!] : r.levels;
-    const fn = settings.training?.[r.id];
-    // Les « prépas » VPDive comptent aussi : « Prépa N2 » vaut FN2.
-    const labels = [...base, ...(fn ? [fn] : r.training)];
+    const forced = settings.levels?.[r.id];
+    const base = forced ? [forced] : r.levels;
+    // Les « prépas » VPDive comptent aussi (« Prépa N2 » vaut FN2), sauf si le DP
+    // a choisi « Pas en formation » pour cette sortie (NO_TRAINING).
+    const choice = settings.training?.[r.id];
+    const fn = choice === NO_TRAINING ? undefined : choice;
+    const labels = [...base, ...(fn ? [fn] : choice === NO_TRAINING ? [] : r.training)];
     return {
       id: r.id,
       name: r.name,
       firstname: r.firstname,
       lastname: r.lastname,
       labels: fn ? [...base, fn] : base,
+      display: r.display,
+      ...(forced ? { original: r.display } : {}),
       minor: r.age !== null && r.age < 18,
       ...aptitudesFromLabels(labels),
     };
   });
+}
+
+/**
+ * Remet à jour les plongeurs d'une composition avec leurs réglages actuels
+ * (prérogative retenue, formation…), à leur place. Sans cela, un choix fait
+ * après la génération ne se verrait qu'en refaisant les palanquées.
+ */
+export function refreshDivers(plan: Plan, divers: Diver[]): Plan {
+  const byId = new Map(divers.map((d) => [d.id, d]));
+  const fresh = <T extends Diver | null>(d: T): T => (d ? ((byId.get(d.id) ?? d) as T) : d);
+  return {
+    palanquees: plan.palanquees.map((p) => ({ ...p, guide: fresh(p.guide), extra: fresh(p.extra), members: p.members.map(fresh) })),
+    unassigned: plan.unassigned.map((u) => ({ ...u, diver: fresh(u.diver) })),
+  };
 }
 
 /** « Binôme souhaité : Jean Dupond » écrit à l'inscription (lib/gear.ts), rapproché des inscrits. */
@@ -59,8 +99,6 @@ const without = (p: Palanquee, id: string): Palanquee => ({
   members: p.members.filter((m) => m.id !== id),
 });
 
-const isEmpty = (p: Palanquee) => !p.guide && !p.extra && p.members.length === 0;
-
 let seq = 0;
 const newId = () => `m${Date.now().toString(36)}${++seq}`;
 
@@ -71,17 +109,33 @@ export function moveDiver(plan: Plan, diver: Diver, target: string | 'new' | 'un
 
   if (target === 'unassigned') unassigned.push({ diver, reason: 'Retiré à la main.' });
   else if (target === 'new') {
-    palanquees.push({
-      id: newId(),
-      kind: diver.guide ? 'guided' : 'autonomous',
-      guide: diver.guide ? diver : null,
-      extra: null,
-      members: diver.guide ? [] : [diver],
-    });
+    // Une nouvelle palanquée d'exploration : son encadrant si c'en est un, sinon un premier plongeur.
+    palanquees.push({ id: newId(), kind: 'autonomous', guide: diver.guide ? diver : null, extra: null, members: diver.guide ? [] : [diver] });
   } else {
     palanquees = palanquees.map((p) => (p.id === target ? { ...p, members: [...p.members, diver] } : p));
   }
-  return { palanquees: palanquees.filter((p) => !isEmpty(p) || p.id === target), unassigned };
+  // Une palanquée vidée reste en place : le DP la remplit ou la supprime (deletePalanquee).
+  return { palanquees: palanquees.map(settleKind), unassigned };
+}
+
+/**
+ * Nouvelle palanquée vide, à remplir à la main. Sans composition encore (rien
+ * de généré), tous ceux qui plongent partent de la liste des disponibles.
+ */
+export function addPalanquee(plan: Plan | null, available: Diver[], kind: PalanqueeKind = 'autonomous'): Plan {
+  const base: Plan = plan ?? { palanquees: [], unassigned: available.map((diver) => ({ diver, reason: 'À placer.' })) };
+  return { ...base, palanquees: [...base.palanquees, { id: newId(), kind, guide: null, extra: null, members: [] }] };
+}
+
+/** Supprime une palanquée : encadrant, plongeur supplémentaire et plongeurs redeviennent disponibles. */
+export function deletePalanquee(plan: Plan, palanqueeId: string): Plan {
+  const gone = plan.palanquees.find((p) => p.id === palanqueeId);
+  if (!gone) return plan;
+  const freed = [gone.guide, gone.extra, ...gone.members].filter((d): d is Diver => !!d);
+  return {
+    palanquees: plan.palanquees.filter((p) => p.id !== palanqueeId),
+    unassigned: [...plan.unassigned, ...freed.map((diver) => ({ diver, reason: 'Palanquée supprimée.' }))],
+  };
 }
 
 /**
@@ -94,28 +148,36 @@ export function assignGuide(plan: Plan, palanqueeId: string, diver: Diver): Plan
   if (previous?.id === diver.id) return plan;
   const palanquees = plan.palanquees
     .map((p) => without(p, diver.id))
-    .map((p) => (p.id === palanqueeId ? { ...p, kind: p.kind === 'autonomous' ? ('guided' as const) : p.kind, guide: diver } : p))
-    .filter((p) => !isEmpty(p));
+    .map((p) => (p.id === palanqueeId ? { ...p, guide: diver } : p))
+    .map(settleKind);
   const unassigned = plan.unassigned.filter((u) => u.diver.id !== diver.id);
   if (previous) unassigned.push({ diver: previous, reason: 'Remplacé comme encadrant.' });
   return { palanquees, unassigned };
 }
 
 /**
- * Change le type d'une palanquée. En autonome, l'encadrant et le plongeur
- * supplémentaire redeviennent membres ; en encadrée ou formation, le plus
- * qualifié des membres devient encadrant s'il n'y en a pas.
+ * Change le type d'une palanquée : Formation ou Exploration. En formation, il
+ * faut un enseignant : s'il n'y en a pas, le plus qualifié des membres le
+ * devient. En exploration, elle est encadrée ou autonome selon qu'elle a un
+ * encadrant (settleKind).
  */
-export function setKind(plan: Plan, palanqueeId: string, kind: PalanqueeKind): Plan {
+export function setType(plan: Plan, palanqueeId: string, type: PalanqueeType): Plan {
   return mapPal(plan, palanqueeId, (p) => {
-    if (kind === 'autonomous') {
-      return { ...p, kind, guide: null, extra: null, members: [p.guide, p.extra, ...p.members].filter((d): d is Diver => !!d) };
-    }
-    if (p.guide) return { ...p, kind };
-    const score = (d: Diver) => (kind === 'teaching' ? d.teach : d.guide ? 1 + d.pe / 100 : 0);
-    const guide = [...p.members].filter((m) => score(m) > 0).sort((a, b) => score(b) - score(a))[0] ?? null;
-    return { ...p, kind, guide, members: p.members.filter((m) => m !== guide) };
+    if (type === 'exploration') return settleKind({ ...p, kind: p.guide ? 'guided' : 'autonomous' });
+    if (p.guide) return { ...p, kind: 'teaching' };
+    const teacher = [...p.members].filter((m) => m.teach > 0).sort((a, b) => b.teach - a.teach)[0] ?? null;
+    return { ...p, kind: 'teaching', guide: teacher, members: p.members.filter((m) => m !== teacher) };
   });
+}
+
+/** Retire l'encadrant : il redevient disponible, la palanquée d'exploration devient autonome. */
+export function removeGuide(plan: Plan, palanqueeId: string): Plan {
+  const p = plan.palanquees.find((x) => x.id === palanqueeId);
+  if (!p?.guide) return plan;
+  return {
+    palanquees: plan.palanquees.map((x) => (x.id === palanqueeId ? settleKind({ ...x, guide: null }) : x)),
+    unassigned: [...plan.unassigned, { diver: p.guide, reason: 'Retiré comme encadrant.' }],
+  };
 }
 
 /** Profondeur retenue par le DP pour une palanquée (undefined : prérogative, 40 m au plus). */

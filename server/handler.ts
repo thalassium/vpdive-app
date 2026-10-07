@@ -2,15 +2,18 @@
  * API de l'appli (/api/app), au-dessus de VPDive :
  *
  *   GET  ?action=me                       qui je suis, mon rôle dans l'appli
- *   GET  ?action=users                    super-admin : personnes connues et leurs rôles
- *   POST ?action=role     {userId, admin?, superAdmin?}   super-admin : changer un rôle
+ *   GET  ?action=roles                    admin : les membres qui ont un rôle dans l'appli
+ *   POST ?action=role     {uct, admin?, superAdmin?}   super-admin : donner ou retirer un rôle
  *   GET  ?action=outing&event=<token>     admin ou DP de la sortie : plongées et fiches
  *   POST ?action=outing&event=<token>     {doc, baseRev}  enregistrer (refusé si quelqu'un a enregistré entre-temps)
  *
- * Rôles :
- *   super-admin  e-mail dans SUPER_ADMIN_EMAILS (variable Vercel, ne peut pas être retiré
- *                depuis l'appli) ou nommé par un super-admin
- *   admin        super-admin, ou admin VPDive (member_view) dont le rôle n'a pas été retiré
+ * Les rôles sont rattachés au jeton d'adhésion du membre (uct), le même que
+ * l'`id` de la liste des membres : on peut nommer admin quelqu'un qui ne s'est
+ * encore jamais connecté à l'appli.
+ *   super-admin  nommé par un super-admin, ou e-mail dans SUPER_ADMIN_EMAILS
+ *                (variable Vercel : ne peut pas être retiré depuis l'appli)
+ *   admin        nommé par un super-admin, ou admin VPDive (member_view) à qui
+ *                ce rôle n'a pas été retiré ; un super-admin est toujours admin
  *   DP           inscrit « Directeur de plongée » sur la sortie dans VPDive : accès à cette sortie seulement
  *
  * Retirer le rôle admin ici ne change rien dans VPDive : la personne garde ses
@@ -21,8 +24,8 @@ import { getStore } from './store.js';
 
 export type AppRole = 'superadmin' | 'admin' | 'member';
 
-interface KnownUser {
-  id: number;
+/** Ce que l'appli sait d'un membre qui s'est connecté (pour les admins VPDive et les super-admins par e-mail). */
+interface KnownMember {
   email: string;
   name: string;
   vpdiveAdmin: boolean;
@@ -30,12 +33,16 @@ interface KnownUser {
 }
 
 interface RolesDoc {
-  superAdmins: number[];
-  revokedAdmins: number[];
-  users: Record<string, KnownUser>;
+  version: 2;
+  superAdmins: string[];
+  /** Nommés admin dans l'appli. */
+  admins: string[];
+  /** Admins VPDive à qui le rôle admin de l'appli a été retiré. */
+  revoked: string[];
+  known: Record<string, KnownMember>;
 }
 
-const emptyRoles = (): RolesDoc => ({ superAdmins: [], revokedAdmins: [], users: {} });
+const emptyRoles = (): RolesDoc => ({ version: 2, superAdmins: [], admins: [], revoked: [], known: {} });
 const rolesKey = (c: Caller) => `club:${c.clubId}:roles`;
 const outingKey = (c: Caller, event: string) => `club:${c.clubId}:outing:${event}`;
 
@@ -45,10 +52,27 @@ const envSuperAdmins = () =>
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
 
-function roleOf(user: { id: number; email: string; vpdiveAdmin: boolean }, roles: RolesDoc): AppRole {
-  if (envSuperAdmins().includes(user.email) || roles.superAdmins.includes(user.id)) return 'superadmin';
-  if (user.vpdiveAdmin && !roles.revokedAdmins.includes(user.id)) return 'admin';
+const lockedSuper = (uct: string, roles: RolesDoc) => {
+  const email = roles.known[uct]?.email;
+  return !!email && envSuperAdmins().includes(email);
+};
+
+function roleOf(uct: string, roles: RolesDoc): AppRole {
+  if (roles.superAdmins.includes(uct) || lockedSuper(uct, roles)) return 'superadmin';
+  if (roles.admins.includes(uct) || (roles.known[uct]?.vpdiveAdmin && !roles.revoked.includes(uct))) return 'admin';
   return 'member';
+}
+
+/** Les membres qui ont un rôle (et les admins VPDive à qui on l'a retiré), pour la liste des membres. */
+function roleEntries(roles: RolesDoc) {
+  const ucts = new Set([...roles.superAdmins, ...roles.admins, ...roles.revoked, ...Object.keys(roles.known).filter((u) => roles.known[u]!.vpdiveAdmin || lockedSuper(u, roles))]);
+  return [...ucts].map((uct) => ({
+    uct,
+    role: roleOf(uct, roles),
+    vpdiveAdmin: !!roles.known[uct]?.vpdiveAdmin,
+    lockedSuperAdmin: lockedSuper(uct, roles),
+    revoked: roles.revoked.includes(uct),
+  }));
 }
 
 const json = (data: unknown, status = 200) =>
@@ -62,41 +86,54 @@ export async function handle(request: Request): Promise<Response> {
     const action = url.searchParams.get('action');
     const caller = await identify(request);
     const store = getStore();
-    const roles = (await store.get<RolesDoc>(rolesKey(caller))) ?? emptyRoles();
+    const saved = await store.get<RolesDoc | { version?: number }>(rolesKey(caller));
+    // Première version (rôles par identifiant de compte, avant octobre 2026) : on repart de zéro.
+    const roles: RolesDoc = saved && saved.version === 2 ? (saved as RolesDoc) : emptyRoles();
 
-    // Chaque passage met à jour l'annuaire des personnes connues de l'appli :
-    // c'est la liste où le super-admin choisit les rôles.
-    const known = roles.users[caller.id];
+    // Chaque passage met à jour ce que l'appli sait de la personne (admin VPDive, e-mail).
+    const known = roles.known[caller.uct];
     if (!known || known.vpdiveAdmin !== caller.vpdiveAdmin || known.email !== caller.email || Date.now() - Date.parse(known.lastSeen) > 3_600_000) {
-      roles.users[caller.id] = { id: caller.id, email: caller.email, name: caller.name, vpdiveAdmin: caller.vpdiveAdmin, lastSeen: new Date().toISOString() };
+      roles.known[caller.uct] = { email: caller.email, name: caller.name, vpdiveAdmin: caller.vpdiveAdmin, lastSeen: new Date().toISOString() };
       await store.set(rolesKey(caller), roles);
     }
-    const role = roleOf(caller, roles);
+    const role = roleOf(caller.uct, roles);
 
     if (action === 'me' && request.method === 'GET') {
-      return json({ id: caller.id, email: caller.email, name: caller.name, vpdiveAdmin: caller.vpdiveAdmin, role });
+      return json({ id: caller.id, uct: caller.uct, email: caller.email, name: caller.name, vpdiveAdmin: caller.vpdiveAdmin, role });
     }
 
-    if (action === 'users' && request.method === 'GET') {
-      if (role !== 'superadmin') throw new HttpError(403, 'Réservé aux super-admins.');
-      const env = envSuperAdmins();
-      const users = Object.values(roles.users)
-        .map((u) => ({ ...u, role: roleOf(u, roles), lockedSuperAdmin: env.includes(u.email), revoked: roles.revokedAdmins.includes(u.id) }))
-        .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
-      return json({ users });
+    if (action === 'roles' && request.method === 'GET') {
+      if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
+      return json({ roles: roleEntries(roles) });
     }
 
     if (action === 'role' && request.method === 'POST') {
       if (role !== 'superadmin') throw new HttpError(403, 'Réservé aux super-admins.');
-      const body = (await request.json().catch(() => null)) as { userId?: number; admin?: boolean; superAdmin?: boolean } | null;
-      const target = body?.userId !== undefined ? roles.users[body.userId] : undefined;
-      if (!target) throw new HttpError(404, 'Personne inconnue de l’appli (elle doit s’être connectée au moins une fois).');
-      if (target.id === caller.id && body?.superAdmin === false) throw new HttpError(400, 'Vous ne pouvez pas retirer votre propre rôle de super-admin.');
-      const toggle = (list: number[], on: boolean) => (on ? [...new Set([...list, target.id])] : list.filter((x) => x !== target.id));
-      if (typeof body?.superAdmin === 'boolean') roles.superAdmins = toggle(roles.superAdmins, body.superAdmin);
-      if (typeof body?.admin === 'boolean') roles.revokedAdmins = toggle(roles.revokedAdmins, !body.admin);
+      const body = (await request.json().catch(() => null)) as { uct?: string; admin?: boolean; superAdmin?: boolean } | null;
+      const uct = body?.uct ?? '';
+      if (!/^[\w-]{20,80}$/.test(uct)) throw new HttpError(400, 'Membre inconnu.');
+      const removing = body?.superAdmin === false || body?.admin === false;
+      if (removing && uct === caller.uct) throw new HttpError(400, 'Vous ne pouvez pas retirer vos propres rôles.');
+      if (removing && lockedSuper(uct, roles)) throw new HttpError(400, 'Super-admin défini dans les réglages Vercel (SUPER_ADMIN_EMAILS) : à retirer là-bas.');
+      const add = (list: string[]) => [...new Set([...list, uct])];
+      const drop = (list: string[]) => list.filter((x) => x !== uct);
+      if (body?.superAdmin === true) {
+        roles.superAdmins = add(roles.superAdmins);
+        roles.revoked = drop(roles.revoked);
+      }
+      if (body?.superAdmin === false) roles.superAdmins = drop(roles.superAdmins);
+      if (body?.admin === true) {
+        roles.admins = add(roles.admins);
+        roles.revoked = drop(roles.revoked);
+      }
+      if (body?.admin === false) {
+        // Plus admin du tout : ni nommé, ni super-admin, ni admin VPDive par défaut.
+        roles.admins = drop(roles.admins);
+        roles.superAdmins = drop(roles.superAdmins);
+        roles.revoked = add(roles.revoked);
+      }
       await store.set(rolesKey(caller), roles);
-      return json({ ok: true, role: roleOf(target, roles) });
+      return json({ roles: roleEntries(roles) });
     }
 
     if (action === 'outing') {
