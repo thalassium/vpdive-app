@@ -4,3 +4,9 @@ dist
 # Raw API responses contain member names and personal data
 fixtures/*
 !fixtures/.gitkeep
+
+# Local stand-in for the shared store (Upstash Redis on Vercel)
+.data
+
+.vercel
+.env*

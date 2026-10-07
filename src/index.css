@@ -17,6 +17,8 @@
  *   band                               bandeaux toujours marine (fiche sortie, pied de page)
  *   pink                               accent ; jamais en texte sur fond clair (trop pâle)
  *   ok / warn / danger                 inscrit, alerte (peu de places, vent), erreur
+ *   deep / chart / bubble              fond « carte marine » (SeaBackdrop) : eau profonde,
+ *   coast-far / coast-near / swell     traits de carte, bulles, îles, calanques, houle
  *
  * Polices : le site utilise Gill Sans Nova (payante, hébergée par le site,
  * non réutilisée ici). On prend Gill Sans si l'appareil l'a, sinon Cabin,
@@ -43,6 +45,12 @@
   --danger-soft: #fcebea;
   --shadow-near: rgb(1 35 98 / 0.06);
   --shadow-far: rgb(1 35 98 / 0.14);
+  --deep: #e2e9f3;
+  --chart: #a9b9d3;
+  --bubble: #7f98c2;
+  --coast-far: #dbe3ef;
+  --coast-near: #d0daea;
+  --swell: #c9d5e7;
 }
 
 .dark {
@@ -66,6 +74,12 @@
   --danger-soft: rgb(255 120 110 / 0.14);
   --shadow-near: rgb(0 0 0 / 0.3);
   --shadow-far: rgb(0 0 0 / 0.5);
+  --deep: #050a17;
+  --chart: #263866;
+  --bubble: #4d66a8;
+  --coast-far: #0b1530;
+  --coast-near: #0d1938;
+  --swell: #0f1c3f;
 }
 
 @theme {
@@ -80,6 +94,27 @@
   --animate-fade: fade 0.2s ease-out both;
   --animate-sheet: sheet 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-pop: pop 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-bubble: bubble 30s linear infinite;
+
+  @keyframes bubble {
+    0% {
+      transform: translate(0, 0);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.8;
+    }
+    50% {
+      transform: translate(10px, -55vh);
+    }
+    85% {
+      opacity: 0.5;
+    }
+    100% {
+      transform: translate(-6px, -110vh);
+      opacity: 0;
+    }
+  }
 
   @keyframes rise {
     from {
@@ -123,6 +158,12 @@
   --color-warn-soft: var(--warn-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+  --color-deep: var(--deep);
+  --color-chart: var(--chart);
+  --color-bubble: var(--bubble);
+  --color-coast-far: var(--coast-far);
+  --color-coast-near: var(--coast-near);
+  --color-swell: var(--swell);
 
   --shadow-card: 0 1px 2px var(--shadow-near), 0 12px 28px -16px var(--shadow-far);
   --shadow-lift: 0 2px 4px var(--shadow-near), 0 18px 36px -16px var(--shadow-far);
@@ -171,4 +212,29 @@
 ::-webkit-scrollbar-thumb {
   background: var(--line);
   border-radius: 9999px;
+}
+
+/*
+ * Impression de la fiche de sécurité : seule la fiche (#print-sheet) sort,
+ * en A4 paysage, sans l'agenda ni les fenêtres autour.
+ */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #print-sheet,
+  #print-sheet * {
+    visibility: visible;
+  }
+  #print-sheet {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    color: #000;
+    font-size: 11px;
+  }
 }
