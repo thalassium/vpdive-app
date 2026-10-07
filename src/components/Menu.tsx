@@ -24,6 +24,8 @@ interface Props {
   ariaLabel: string;
   triggerClassName?: string;
   disabled?: boolean;
+  /** Sections côte à côte plutôt qu'empilées : tout est visible sans faire défiler. */
+  columns?: boolean;
 }
 
 /**
@@ -36,7 +38,7 @@ interface Props {
  * bouton quand la page défile au lieu de se fermer, et ne se ferme qu'au
  * choix, à un clic ailleurs ou sur Échap.
  */
-export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disabled }: Props) {
+export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disabled, columns }: Props) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number; minWidth: number; up: boolean } | null>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -45,9 +47,9 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
   const place = useCallback(() => {
     const r = button.current?.getBoundingClientRect();
     if (!r) return;
-    const height = Math.min(panel.current?.offsetHeight ?? 320, 360);
+    const height = Math.min(panel.current?.offsetHeight ?? 320, 420);
     const up = window.innerHeight - r.bottom < height + 12 && r.top > height + 12;
-    const minWidth = Math.max(r.width, 200);
+    const minWidth = Math.min(Math.max(r.width, columns ? 380 : 200), window.innerWidth - 16);
     const left = Math.min(Math.max(8, r.left), window.innerWidth - minWidth - 8);
     setPos({ top: up ? r.top - 4 : r.bottom + 4, left, minWidth, up });
   }, []);
@@ -125,10 +127,12 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
               minWidth: pos?.minWidth,
               transform: pos?.up ? 'translateY(-100%)' : undefined,
             }}
-            className="z-[70] max-h-[360px] overflow-y-auto overscroll-contain rounded-xl border border-line bg-surface text-ink shadow-lift py-1 animate-fade"
+            className={`z-[70] max-h-[420px] overflow-y-auto overscroll-contain rounded-xl border border-line bg-surface text-ink shadow-lift py-1 animate-fade ${
+              columns ? 'grid grid-cols-2 divide-x divide-line' : ''
+            }`}
           >
             {sections.map((s, si) => (
-              <div key={si} className={si > 0 ? 'border-t border-line mt-1 pt-1' : ''}>
+              <div key={si} className={si > 0 && !columns ? 'border-t border-line mt-1 pt-1' : ''}>
                 {s.title && <div className="px-3 pt-1.5 pb-1 text-[11px] font-bold uppercase tracking-wider text-muted">{s.title}</div>}
                 {s.options.map((o) => {
                   const selected = s.selected === o.value;

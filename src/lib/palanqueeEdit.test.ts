@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { depthOf, proposePalanquees, validate } from './palanquees';
-import { addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setType } from './palanqueeEdit';
+import { NO_TRAINING, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setType } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
@@ -165,4 +165,21 @@ test('Exploration : encadrée dès qu’il y a un encadrant, autonome sinon', ()
   assert.equal(plan.palanquees[0]!.kind, 'teaching');
   plan = setType(plan, id, 'exploration');
   assert.equal(plan.palanquees[0]!.kind, 'guided', 'retour en exploration, toujours encadrée');
+});
+
+test('un réglage changé après la génération se voit tout de suite dans la palanquée', () => {
+  const roster = [entry('m', 'MONI M', ['E3']), entry('q', 'MARCHAIS Q', ['PADI - OWD'])];
+  let settings = setDiverChoice(setDiverChoice({}, 'levels', 'q', 'PE20'), 'training', 'q', 'FN2');
+  const plan = proposePalanquees(rosterToDivers(roster, settings));
+  assert.equal(plan.palanquees[0]!.members[0]!.training, 2);
+  settings = setDiverChoice(settings, 'training', 'q', '');
+  const shown = refreshDivers(plan, rosterToDivers(roster, settings));
+  assert.equal(shown.palanquees[0]!.members[0]!.training, 0, 'plus en formation');
+  assert.ok(validate(shown.palanquees[0]!).length === 0 || shown.palanquees[0]!.kind === 'teaching', 'même place, valeurs à jour');
+});
+
+test('« Pas en formation » l’emporte sur une prépa VPDive', () => {
+  const r = { ...entry('t', 'CHEVALIER Tom', ['P1']), training: ['Prépa N2'] };
+  assert.equal(rosterToDivers([r])[0]!.training, 2, 'prépa N2 : FN2');
+  assert.equal(rosterToDivers([r], setDiverChoice({}, 'training', 't', NO_TRAINING))[0]!.training, 0);
 });

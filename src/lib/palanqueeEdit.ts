@@ -22,6 +22,8 @@ export const PREROGATIVE_OPTIONS = {
  * prépare son niveau 2 est FN2 et peut aller en palanquée de formation PE40.
  */
 export const TRAINING_OPTIONS = ['FN1', 'FN2', 'FN3', 'FN4'] as const;
+/** « Pas en formation » choisi par le DP : l'emporte sur une prépa VPDive. */
+export const NO_TRAINING = 'none';
 
 export interface DiverSettings {
   /** id → prérogative retenue à la main (remplace celle de VPDive, dont les niveaux restent affichés) */
@@ -42,9 +44,11 @@ export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = 
   return roster.map((r) => {
     const forced = settings.levels?.[r.id];
     const base = forced ? [forced] : r.levels;
-    const fn = settings.training?.[r.id];
-    // Les « prépas » VPDive comptent aussi : « Prépa N2 » vaut FN2.
-    const labels = [...base, ...(fn ? [fn] : r.training)];
+    // Les « prépas » VPDive comptent aussi (« Prépa N2 » vaut FN2), sauf si le DP
+    // a choisi « Pas en formation » pour cette sortie (NO_TRAINING).
+    const choice = settings.training?.[r.id];
+    const fn = choice === NO_TRAINING ? undefined : choice;
+    const labels = [...base, ...(fn ? [fn] : choice === NO_TRAINING ? [] : r.training)];
     return {
       id: r.id,
       name: r.name,
@@ -57,6 +61,20 @@ export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = 
       ...aptitudesFromLabels(labels),
     };
   });
+}
+
+/**
+ * Remet à jour les plongeurs d'une composition avec leurs réglages actuels
+ * (prérogative retenue, formation…), à leur place. Sans cela, un choix fait
+ * après la génération ne se verrait qu'en refaisant les palanquées.
+ */
+export function refreshDivers(plan: Plan, divers: Diver[]): Plan {
+  const byId = new Map(divers.map((d) => [d.id, d]));
+  const fresh = <T extends Diver | null>(d: T): T => (d ? ((byId.get(d.id) ?? d) as T) : d);
+  return {
+    palanquees: plan.palanquees.map((p) => ({ ...p, guide: fresh(p.guide), extra: fresh(p.extra), members: p.members.map(fresh) })),
+    unassigned: plan.unassigned.map((u) => ({ ...u, diver: fresh(u.diver) })),
+  };
 }
 
 /** « Binôme souhaité : Jean Dupond » écrit à l'inscription (lib/gear.ts), rapproché des inscrits. */

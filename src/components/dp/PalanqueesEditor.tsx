@@ -23,12 +23,14 @@ import {
 import {
   PREROGATIVE_OPTIONS,
   TRAINING_OPTIONS,
+  NO_TRAINING,
   addPalanquee,
   assignGuide,
   deletePalanquee,
   buddyPairs,
   moveDiver,
   planToText,
+  refreshDivers,
   rosterToDivers,
   setDepth,
   setDiverChoice,
@@ -36,7 +38,7 @@ import {
   setType,
 } from '../../lib/palanqueeEdit';
 import type { Dive, OutingDoc } from '../../lib/outing';
-import { Menu } from '../Menu';
+import { Menu, type MenuSection } from '../Menu';
 
 interface Props {
   title: string;
@@ -78,8 +80,9 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
   const excluded = useMemo(() => new Set(settings.excluded), [settings.excluded]);
   const divers = useMemo(() => rosterToDivers(roster, settings), [roster, settings]);
   const diving = divers.filter((d) => !excluded.has(d.id));
-  const plan = dive.plan;
   const locked = !!dive.validated;
+  // Tant que ce n'est pas validé, chaque plongeur apparaît avec ses réglages actuels.
+  const plan = dive.plan && !locked ? refreshDivers(dive.plan, divers) : dive.plan;
 
   const generate = () => {
     const ids = new Set(diving.map((d) => d.id));
@@ -121,6 +124,50 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
   };
   const targetsFor = (exclude?: string) => (plan?.palanquees ?? []).map((p, i) => ({ id: p.id, label: `P${i + 1}`, kind: p.kind })).filter((t) => t.id !== exclude);
 
+  /**
+   * Menu d'un plongeur, depuis la liste « Qui plonge » ou depuis sa pastille
+   * dans une palanquée : sa prérogative (celle de VPDive, ou une autre retenue
+   * à la main) et, à côté, sa formation en cours. Deux choix indépendants.
+   */
+  const levelSections = (d: Diver): MenuSection[] => {
+    const r = roster.find((x) => x.id === d.id);
+    const fromVpdive = r ? prerogativeCode(aptitudesFromLabels(r.levels)) : '';
+    const forcedRaw = settings.levels?.[d.id];
+    const forced = forcedRaw ? prerogativeCode(aptitudesFromLabels([forcedRaw])) || forcedRaw : undefined;
+    const fn = settings.training?.[d.id];
+    const prepa = r ? aptitudesFromLabels(r.training).training : 0;
+    return [
+      {
+        title: 'Prérogative',
+        selected: forced ?? '',
+        onSelect: (v) => onSettings({ ...settings, ...setDiverChoice(settings, 'levels', d.id, v) }),
+        options: [
+          { value: '', label: fromVpdive || 'Aucune', hint: 'VPDive' },
+          ...PREROGATIVE_OPTIONS.divers.map((v) => ({ value: v, label: v })),
+          ...PREROGATIVE_OPTIONS.instructors.map((v) => ({ value: v, label: v, hint: v === 'GP' ? 'guide' : 'ens.' })),
+        ],
+      },
+      ...(isInstructor(d)
+        ? []
+        : [
+            {
+              title: 'Formation',
+              selected: fn ?? '',
+              onSelect: (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) }),
+              options: [
+                ...(prepa
+                  ? [
+                      { value: '', label: `FN${prepa}`, hint: 'prépa VPDive' },
+                      { value: NO_TRAINING, label: 'Pas en formation', hint: 'cette sortie' },
+                    ]
+                  : [{ value: '', label: 'Pas en formation' }]),
+                ...TRAINING_OPTIONS.filter((t) => t !== `FN${prepa}`).map((t) => ({ value: t, label: t, hint: `vers N${t.slice(2)}` })),
+              ],
+            },
+          ]),
+    ];
+  };
+
   const rosterRow = (d: Diver) => {
     const r = roster.find((x) => x.id === d.id)!;
     const out = excluded.has(d.id);
@@ -128,7 +175,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
     // Anciennes valeurs (« PE20 · N1 », « MF1 »…) : affichées sous leur prérogative.
     const forcedRaw = settings.levels?.[d.id];
     const forced = forcedRaw ? prerogativeCode(aptitudesFromLabels([forcedRaw])) || forcedRaw : undefined;
-    const fn = settings.training?.[d.id];
+    const fnChoice = settings.training?.[d.id];
+    const fn = fnChoice === NO_TRAINING ? undefined : fnChoice;
     const prerogative = forced ?? fromVpdive;
     // Brevet étranger ou niveau inconnu : sans prérogative, le plongeur ne peut pas être placé.
     const missing = !prerogative && !d.training;
@@ -146,6 +194,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
             <span className="text-xs text-muted">
               VPDive : {r.display.join(', ') || 'aucun niveau'}
               {forced && <span className="text-brand font-semibold"> → prérogative retenue : {forced}</span>}
+              {d.training > 0 && <span className="text-brand font-semibold"> · en formation FN{d.training}</span>}
               {d.minor && ' · mineur'}
               {r.roles.length > 0 && ` · ${r.roles.join(', ')}`}
               {r.waitingList && ' · liste d’attente'}
@@ -161,36 +210,13 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
             <>
               <span>
                 {prerogative || 'Prérogative ?'}
-                {fn ? ` · ${fn}` : !forced && d.training ? ` · FN${d.training}` : ''}
+                {d.training ? ` · FN${d.training}` : ''}
               </span>
               <ChevronDown className="w-4 h-4 opacity-60" />
             </>
           }
-          sections={[
-            {
-              title: 'Prérogative',
-              selected: forced ?? '',
-              onSelect: (v) => onSettings({ ...settings, ...setDiverChoice(settings, 'levels', d.id, v) }),
-              options: [
-                { value: '', label: fromVpdive ? `${fromVpdive}` : 'Aucune', hint: 'VPDive' },
-                ...PREROGATIVE_OPTIONS.divers.map((v) => ({ value: v, label: v })),
-                ...PREROGATIVE_OPTIONS.instructors.map((v) => ({ value: v, label: v, hint: v === 'GP' ? 'guide' : 'enseignant' })),
-              ],
-            },
-            ...(isInstructor(d)
-              ? []
-              : [
-                  {
-                    title: 'En formation',
-                    selected: fn ?? '',
-                    onSelect: (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) }),
-                    options: [
-                      { value: '', label: d.training && !fn ? `FN${d.training}` : 'Pas en formation', hint: d.training && !fn ? 'prépa VPDive' : undefined },
-                      ...TRAINING_OPTIONS.map((t) => ({ value: t, label: t, hint: `vers le N${t.slice(2)}` })),
-                    ],
-                  },
-                ]),
-          ]}
+          columns
+          sections={levelSections(d)}
         />
       </li>
     );
@@ -293,6 +319,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
                 onGuide={(d) => onPlan(assignGuide(plan, p.id, d))}
                 onType={(t) => onPlan(setType(plan, p.id, t))}
                 onRemoveGuide={() => onPlan(removeGuide(plan, p.id))}
+                levelSections={levelSections}
                 onDepth={(d) => onPlan(setDepth(plan, p.id, d))}
                 onDelete={() => {
                   const people = [p.guide, p.extra, ...p.members].filter(Boolean).length;
@@ -314,7 +341,11 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={onValidate}
+                onClick={() => {
+                  // On fige la composition telle qu’elle s’affiche (réglages à jour), pour la fiche de sécurité.
+                  onPlan(plan);
+                  onValidate();
+                }}
                 disabled={issues.length > 0 || plan.palanquees.length === 0}
                 className="inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-ok text-white dark:text-canvas font-semibold disabled:opacity-40"
               >
@@ -366,6 +397,7 @@ function PalanqueeCard({
   onGuide,
   onType,
   onRemoveGuide,
+  levelSections,
   onDepth,
   onDelete,
 }: {
@@ -378,6 +410,7 @@ function PalanqueeCard({
   onGuide: (d: Diver) => void;
   onType: (t: PalanqueeType) => void;
   onRemoveGuide: () => void;
+  levelSections: (d: Diver) => MenuSection[];
   onDepth: (d: Depth | undefined) => void;
   onDelete: () => void;
 }) {
@@ -468,7 +501,9 @@ function PalanqueeCard({
           const depths = p.members.map((x) => ownPrerogative(x, p).depth);
           const floor = Math.min(...depths);
           const limiting = own.depth === floor && depths.some((x) => x > floor);
-          return <DiverRow key={m.id} d={m} own={own.label} limiting={limiting} locked={locked} targets={targets} onMove={onMove} />;
+          return (
+            <DiverRow key={m.id} d={m} own={own.label} limiting={limiting} locked={locked} targets={targets} onMove={onMove} levelSections={levelSections} />
+          );
         })}
         {p.extra && <DiverRow d={p.extra} own="GP suppl." locked={locked} targets={targets} onMove={onMove} />}
         {p.members.length === 0 && <li className="text-muted font-serif italic">Aucun plongeur.</li>}
@@ -568,6 +603,7 @@ function DiverRow({
   locked,
   targets,
   onMove,
+  levelSections,
 }: {
   d: Diver;
   own: string;
@@ -575,19 +611,35 @@ function DiverRow({
   locked: boolean;
   targets: Target[];
   onMove: (d: Diver, target: string) => void;
+  levelSections?: (d: Diver) => MenuSection[];
 }) {
+  const chipCls = `shrink-0 min-w-16 inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs font-bold tabular-nums ${
+    limiting ? 'bg-warn-soft text-warn ring-1 ring-warn/40' : 'bg-raised text-ink'
+  }`;
   return (
     <li className="flex items-center gap-2">
-      <span
-        className={`shrink-0 min-w-16 text-center px-1.5 py-0.5 rounded-md text-xs font-bold tabular-nums ${limiting ? 'bg-warn-soft text-warn ring-1 ring-warn/40' : 'bg-raised text-ink'}`}
-        title={limiting ? 'Fixe la prérogative de la palanquée' : undefined}
-      >
-        {own}
-      </span>
+      {!locked && levelSections ? (
+        <Menu
+          columns
+          ariaLabel={`Prérogative et formation de ${d.name}`}
+          triggerClassName={`${chipCls} hover:ring-1 hover:ring-brand/40`}
+          trigger={
+            <>
+              {own}
+              <ChevronDown className="w-3 h-3 opacity-50" />
+            </>
+          }
+          sections={levelSections(d)}
+        />
+      ) : (
+        <span className={chipCls} title={limiting ? 'Fixe la prérogative de la palanquée' : undefined}>
+          {own}
+        </span>
+      )}
       <span className="flex-1 min-w-0">
         <span className="block truncate text-ink">{d.name}</span>
         <span className="block text-xs text-muted truncate">
-          {d.training ? `en formation · ${describe(d)}` : describe(d)}
+          {d.training ? `en formation FN${d.training} · ${describe(d)}` : describe(d)}
           {d.original && <span title="Le DP a retenu un équivalent FFESSM"> · équivalent retenu</span>}
           {d.minor ? ' · mineur' : ''}
           {limiting ? ' · fixe la prérogative' : ''}
