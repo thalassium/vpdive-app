@@ -121,6 +121,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
   const shownCount = listDays.reduce((n, d) => n + (byDay[d]?.length ?? 0), 0);
   const selectedWind = selectedDay ? daytimeWind(meteoData[selectedDay]) : null;
   const firstLoad = isLoading && events.length === 0;
+  const isCurrentMonth = inMonth(todayStr);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
@@ -143,10 +144,11 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
           </IconButton>
           <button
             onClick={() => onMonthChange(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}
+            disabled={isCurrentMonth}
             title="Revenir au mois en cours"
-            className="px-2.5 sm:px-3 h-9 text-sm font-medium text-brand rounded-full hover:bg-raised transition-colors"
+            className="px-2.5 sm:px-3 h-9 text-sm font-medium text-brand rounded-full hover:bg-raised disabled:text-muted disabled:hover:bg-transparent transition-colors"
           >
-            {MOIS_FR[new Date().getMonth()]}
+            Aujourd’hui
           </button>
           <IconButton label="Mois suivant" onClick={() => onMonthChange(new Date(year, m + 1, 1))}>
             <ChevronRight className="w-5 h-5" />
