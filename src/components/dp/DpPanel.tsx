@@ -136,36 +136,63 @@ export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }:
   );
 }
 
+const JOURS = ['Dim.', 'Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.'];
+const MOIS_COURTS = ['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+const MOIS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+/** « Sam. 14 Oct » */
+const shortDate = (d: Date) => `${JOURS[d.getDay()]} ${d.getDate()} ${MOIS_COURTS[d.getMonth()]}`;
+
+/** Sorties d'une section (à venir / passées), avec un séparateur par mois. */
 function ListGroup({ label, events, selected, onSelect }: { label: string; events: CalendarEvent[]; selected: CalendarEvent | null; onSelect: (e: CalendarEvent) => void }) {
   const today = ymd(new Date());
+  const months: { key: string; title: string; list: CalendarEvent[] }[] = [];
+  for (const e of events) {
+    const d = new Date(e.start);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    if (months.at(-1)?.key !== key) months.push({ key, title: `${MOIS[d.getMonth()]} ${d.getFullYear()}`, list: [] });
+    months.at(-1)!.list.push(e);
+  }
   return (
     <section className="py-2">
       <h3 className="px-4 pt-2 pb-1 text-xs font-bold uppercase tracking-wider text-muted">{label}</h3>
-      <ul>
-        {events.map((e) => {
-          const active = selected?.token === e.token;
-          const isToday = ymd(new Date(e.start)) === today;
-          return (
-            <li key={e.token}>
-              <button
-                onClick={() => onSelect(e)}
-                className={`w-full text-left px-4 py-2.5 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-tint border-brand' : 'border-transparent hover:bg-raised'}`}
-              >
-                <span className="flex-1 min-w-0">
-                  <span className="block text-sm font-semibold text-ink truncate">{e.title}</span>
-                  <span className="block text-xs text-muted first-letter:uppercase">
-                    {isToday && <strong className="text-pink-600 dark:text-pink">Aujourd’hui · </strong>}
-                    {new Date(e.start).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
-                    {!e.allDay && ` · ${new Date(e.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
-                    {` · ${e.registeredCount} inscrit${e.registeredCount > 1 ? 's' : ''}`}
-                  </span>
-                </span>
-                <ChevronRight className="w-4 h-4 text-muted shrink-0" />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      {months.map((m) => (
+        <div key={m.key}>
+          <div className="flex items-center gap-2 px-4 pt-3 pb-1.5" role="separator">
+            <span className="text-sm font-semibold text-brand">{m.title}</span>
+            <span className="flex-1 h-px bg-line" />
+          </div>
+          <ul>
+            {m.list.map((e) => {
+              const d = new Date(e.start);
+              const active = selected?.token === e.token;
+              const isToday = ymd(d) === today;
+              return (
+                <li key={e.token}>
+                  <button
+                    onClick={() => onSelect(e)}
+                    className={`w-full text-left pl-3 pr-4 py-2 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-tint border-brand' : 'border-transparent hover:bg-raised'}`}
+                  >
+                    <span className="w-[5.75rem] shrink-0 whitespace-nowrap">
+                      <span className={`block text-sm font-bold tabular-nums ${isToday ? 'text-pink-600 dark:text-pink' : 'text-brand'}`}>{shortDate(d)}</span>
+                      <span className="block text-xs text-muted tabular-nums">
+                        {isToday ? 'Aujourd’hui' : e.allDay ? 'Journée' : d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-semibold text-ink truncate">{e.title}</span>
+                      <span className="block text-xs text-muted">
+                        {e.registeredCount} inscrit{e.registeredCount > 1 ? 's' : ''}
+                        {isToday && !e.allDay && ` · ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
+                      </span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-muted shrink-0" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </section>
   );
 }

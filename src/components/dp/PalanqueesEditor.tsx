@@ -404,50 +404,11 @@ function PalanqueeCard({
         </div>
       </header>
 
-      {/* Encadrant : bandeau plein */}
-      {needsGuide && (
-        <div className={`mx-4 mb-3 rounded-xl px-3.5 py-3 ${p.guide ? 'bg-band text-white shadow-card' : 'border-2 border-dashed border-danger/50 text-danger'}`}>
-          <div className="flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider opacity-80">
-              <Star className="w-4 h-4 fill-current text-pink" />
-              {p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'}
-            </span>
-            {p.guide && !locked && <MoveSelect targets={targets} onMove={(t) => onMove(p.guide!, t)} instructor dark />}
-          </div>
-          {locked || !eligible.length ? (
-            <span className="mt-1 flex items-baseline gap-2">
-              <span className="text-lg font-bold">{p.guide ? p.guide.name : 'Aucun encadrant disponible'}</span>
-              {p.guide && <GuideLevel d={p.guide} />}
-            </span>
-          ) : (
-            // Le nom et « E3 · DEJEPS » s'affichent ; la liste native ne s'ouvre qu'au clic.
-            <label className="mt-1 relative flex items-center gap-2 cursor-pointer">
-              <span className={`text-lg font-bold truncate ${p.guide ? 'text-white' : 'text-danger'}`}>{p.guide ? p.guide.name : 'Choisir l’encadrant…'}</span>
-              {p.guide && <GuideLevel d={p.guide} />}
-              <ChevronDown className="w-4 h-4 shrink-0 opacity-70 ml-auto" />
-              <select
-                value={p.guide?.id ?? ''}
-                onChange={(e) => {
-                  const d = eligible.find((x) => x.id === e.target.value);
-                  if (d) onGuide(d);
-                }}
-                aria-label={p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'}
-                className="absolute inset-0 w-full opacity-0 cursor-pointer"
-              >
-                {!p.guide && <option value="">Choisir l’encadrant…</option>}
-                {eligible.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} · {describe(d)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-      )}
-
       {/* Plongeurs, avec leur prérogative ; celui qui fixe celle de la palanquée est signalé */}
       <ul className="px-4 pb-3 space-y-1.5 text-sm">
+        {needsGuide && (
+          <GuideRow p={p} eligible={eligible} locked={locked} targets={targets} onMove={onMove} onGuide={onGuide} />
+        )}
         {p.members.map((m) => {
           const own = ownPrerogative(m, p);
           // Signalé seulement s'il fait descendre la palanquée : un autre plongeur aurait pu aller plus loin.
@@ -473,13 +434,65 @@ function PalanqueeCard({
   );
 }
 
-/** Prérogative de l'encadrant en badge, son diplôme VPDive à côté (« E3 » + « DEJEPS »). */
-function GuideLevel({ d }: { d: Diver }) {
+/**
+ * L'encadrant, présenté comme un plongeur mais toujours en tête de palanquée et
+ * sur fond marine : sa prérogative (E3, GP…), son nom, son diplôme VPDive.
+ * Cliquer sur le nom ouvre la liste des encadrants possibles.
+ */
+function GuideRow({
+  p,
+  eligible,
+  locked,
+  targets,
+  onMove,
+  onGuide,
+}: {
+  p: Palanquee;
+  eligible: Diver[];
+  locked: boolean;
+  targets: Target[];
+  onMove: (d: Diver, target: string) => void;
+  onGuide: (d: Diver) => void;
+}) {
+  const g = p.guide;
+  const role = p.kind === 'teaching' ? 'Enseignant' : 'Encadrant';
+  const editable = !locked && eligible.length > 0;
   return (
-    <span className="inline-flex items-baseline gap-1.5 shrink-0">
-      <span className="px-2 py-0.5 rounded-md bg-pink text-on-pink text-sm font-bold">{prerogativeCode(d) || '?'}</span>
-      {diplomas(d).length > 0 && <span className="text-sm font-semibold text-white/85">{diplomas(d).join(' · ')}</span>}
-    </span>
+    <li className={`-mx-2 px-2 py-1.5 rounded-lg flex items-center gap-2 ${g ? 'bg-band text-white' : 'border-2 border-dashed border-danger/50 text-danger'}`}>
+      <span className={`shrink-0 min-w-16 inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-bold ${g ? 'bg-pink text-on-pink' : 'bg-danger-soft'}`}>
+        <Star className="w-3 h-3 fill-current" />
+        {g ? prerogativeCode(g) || '?' : role}
+      </span>
+      <label className={`relative flex-1 min-w-0 ${editable ? 'cursor-pointer' : ''}`}>
+        <span className="flex items-center gap-1 font-semibold truncate">
+          <span className="truncate">{g ? g.name : editable ? 'Choisir l’encadrant…' : 'Aucun encadrant disponible'}</span>
+          {editable && <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-70" />}
+        </span>
+        <span className={`block text-xs truncate ${g ? 'text-white/75' : ''}`}>
+          {role}
+          {g && diplomas(g).length > 0 && ` · ${diplomas(g).join(' · ')}`}
+        </span>
+        {editable && (
+          <select
+            value={g?.id ?? ''}
+            onChange={(e) => {
+              const d = eligible.find((x) => x.id === e.target.value);
+              if (d) onGuide(d);
+            }}
+            aria-label={role}
+            className="absolute inset-0 w-full opacity-0 cursor-pointer"
+          >
+            {!g && <option value="">Choisir l’encadrant…</option>}
+            {eligible.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name} · {describe(d)}
+              </option>
+            ))}
+          </select>
+        )}
+      </label>
+      {g && !locked && <MoveSelect targets={targets} onMove={(t) => onMove(g, t)} instructor dark />}
+    </li>
   );
 }
 
