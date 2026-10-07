@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, Check, ChevronDown, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX, X } from 'lucide-react';
 import type { RosterEntry } from '../../services/vpdiveApi';
 import { Avatar } from '../Avatar';
 import {
@@ -88,7 +88,7 @@ const RolesContext = createContext<Map<string, DiveRole[]>>(new Map());
 function RoleBadges({ id }: { id: string }) {
   const mine = useContext(RolesContext).get(id) ?? [];
   return mine.map((role) => (
-    <span key={role} className="shrink-0 px-1.5 py-0.5 rounded-md bg-tint text-brand text-xs font-bold">
+    <span key={role} className="shrink-0 px-1.5 rounded-md bg-tint text-brand text-sm font-semibold leading-6">
       {DIVE_ROLES.find((r) => r.id === role)!.short}
     </span>
   ));
@@ -181,8 +181,11 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
     // Un moniteur n'a le bouton Formation que si VPDive lui connaît une prépa (ou s'il en a déjà une) : il est alors élève ce jour-là.
     const showTraining = !instructor || prepa > 0 || !!fn;
     const setTraining = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) });
+    const notes = [d.minor && 'mineur', r.waitingList && 'liste d’attente'].filter(Boolean).join(' · ');
+    const hasRoles = (roleMap.get(d.id)?.length ?? 0) > 0;
+    // Sur téléphone il faut au moins : nom, prérogative, formation. Le reste passe sous le nom, la photo n'apparaît qu'au-delà de 640 px.
     return (
-      <li key={d.id} className={`flex items-center gap-3 px-3.5 py-2 ${out ? 'opacity-50' : ''}`}>
+      <li key={d.id} className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-3.5 py-2 ${out ? 'opacity-50' : ''}`}>
         <label className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer">
           <input
             type="checkbox"
@@ -190,23 +193,32 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             onChange={() => onSettings({ ...settings, excluded: out ? settings.excluded.filter((x) => x !== d.id) : [...settings.excluded, d.id] })}
             className="w-5 h-5 accent-[var(--fill)] shrink-0"
           />
-          <Avatar name={d.name} picture={d.picture} size="sm" />
-          <span className="font-medium text-ink truncate">{d.name}</span>
-          <RoleBadges id={d.id} />
-          {(d.minor || r.waitingList) && <span className="text-sm text-muted shrink-0">{[d.minor && 'mineur', r.waitingList && 'liste d’attente'].filter(Boolean).join(' · ')}</span>}
+          <Avatar name={d.name} picture={d.picture} size="sm" className="hidden sm:inline-flex" />
+          <span className="min-w-[5.5rem] flex-1">
+            {/* Sur téléphone le nom passe sur deux lignes plutôt que d'être coupé. */}
+            <span className="block font-medium text-ink leading-snug break-words line-clamp-2 sm:line-clamp-none sm:truncate">{d.name}</span>
+            {(hasRoles || notes) && (
+              <span className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                <RoleBadges id={d.id} />
+                {notes && <span className="text-sm text-muted">{notes}</span>}
+              </span>
+            )}
+          </span>
         </label>
         {prerogative ? (
-          <span className="shrink-0 code" title={r.display.join(', ') || undefined}>
-            {prerogative}
+          <span className="shrink-0 code text-right" title={r.display.join(', ') || undefined}>
+            <span className="sm:hidden">{prerogative.replace(' · ', '/')}</span>
+            <span className="hidden sm:inline">{prerogative}</span>
           </span>
         ) : (
           <Menu
             ariaLabel={`Prérogative de ${d.name}`}
-            triggerClassName={`btn btn-quiet h-9 text-sm ${out ? 'text-muted' : 'border-warn bg-warn-soft text-warn'}`}
+            triggerClassName={`btn btn-quiet h-9 px-2.5 text-sm ${out ? 'text-muted' : 'border-warn bg-warn-soft text-warn'}`}
             trigger={
               <>
-                Prérogative ?
-                <ChevronDown className="w-4 h-4 opacity-60" />
+                <span className="sm:hidden">Prérog. ?</span>
+                <span className="hidden sm:inline">Prérogative ?</span>
+                <ChevronDown className="hidden sm:block w-4 h-4 opacity-60" />
               </>
             }
             sections={[
@@ -218,11 +230,15 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
         {showTraining && (
           <Menu
             ariaLabel={`Formation de ${d.name}`}
-            triggerClassName={`btn btn-quiet h-9 text-sm min-w-32 justify-between ${current ? 'border-brand bg-tint' : 'text-muted'}`}
+            triggerClassName={`btn btn-quiet h-9 px-2.5 gap-1 text-sm shrink-0 sm:min-w-32 justify-between ${current ? 'border-brand bg-tint' : 'text-muted'}`}
             trigger={
               <>
-                {current ? `Formation ${trainingShort(current)}` : 'Formation ?'}
-                <ChevronDown className="w-4 h-4 opacity-60" />
+                <span>
+                  <span className="sm:hidden">Form</span>
+                  <span className="hidden sm:inline">Formation</span>
+                  {current ? ` ${trainingShort(current)}` : ' ?'}
+                </span>
+                <ChevronDown className="hidden sm:block w-4 h-4 opacity-60" />
               </>
             }
             sections={[
@@ -433,7 +449,7 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
           const ids = roles[role.id] ?? [];
           return (
             <li key={role.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
-              <span className="w-44 shrink-0 font-semibold text-ink">{role.label}</span>
+              <span className="w-full sm:w-44 shrink-0 font-semibold text-ink">{role.label}</span>
               <span className="flex-1 flex flex-wrap items-center gap-2">
                 {ids.map((id) => {
                   const person = byId.get(id);
@@ -777,10 +793,12 @@ function MoveSelect({
   return (
     <Menu
       ariaLabel="Déplacer"
-      triggerClassName="btn btn-quiet h-9 text-sm shrink-0 px-2.5"
+      triggerClassName="btn btn-quiet h-9 text-sm shrink-0 px-2 sm:px-2.5 gap-1"
       trigger={
         <>
-          Déplacer
+          {/* Sur téléphone, l'icône seule : la place va au nom. */}
+          <ArrowLeftRight className="w-4 h-4 sm:hidden" />
+          <span className="hidden sm:inline">Déplacer</span>
           <ChevronDown className="w-3.5 h-3.5" />
         </>
       }
