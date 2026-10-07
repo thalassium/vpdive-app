@@ -3,7 +3,7 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, canGuideExploration, chosenDepth, extraLabel, guideLabel, kindLabel, memberLabel, prerogativeLabel, settleKind, toTeaching, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, canGuideExploration, extraLabel, guideLabel, kindLabel, memberLabel, prerogativeLabel, settleKind, toTeaching, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -24,25 +24,25 @@ export const PREROGATIVE_OPTIONS = {
  * passe son PA20 : zone 20 m, un E2 suffit).
  */
 export const TRAINING_OPTIONS = ['FN1', 'FN2', 'FN3', 'FN4', 'FPA20', 'FPE40', 'FPA40', 'FPE60', 'FPA60'] as const;
-export const TRAINING_HINT: Record<(typeof TRAINING_OPTIONS)[number], string> = {
-  FN1: 'vers N1 · 20 m',
-  FN2: 'vers N2 · 40 m',
-  FN3: 'vers N3 · 40 m, au-delà à la main',
-  FN4: 'vers N4 · 40 m, au-delà à la main',
-  FPA20: 'autonomie 20 m (N2) · E2 suffit',
-  FPE40: 'encadré 40 m (N2)',
-  FPA40: 'autonomie 40 m (N3)',
-  FPE60: 'encadré 60 m (N3) · au-delà de 40 m à la main',
-  FPA60: 'autonomie 60 m (N3) · au-delà de 40 m à la main',
-};
+/** Le menu Formation : par niveau, le niveau entier puis ses aptitudes, dans l'ordre où elles se passent. */
+export const TRAINING_MENU: { title: string; options: { value: (typeof TRAINING_OPTIONS)[number]; label: string }[] }[] = [
+  { title: 'Niveau 1', options: [{ value: 'FN1', label: 'Niveau 1' }] },
+  { title: 'Niveau 2', options: [{ value: 'FN2', label: 'Niveau 2' }, { value: 'FPA20', label: 'PA20' }, { value: 'FPE40', label: 'PE40' }] },
+  { title: 'Niveau 3', options: [{ value: 'FN3', label: 'Niveau 3' }, { value: 'FPA40', label: 'PA40' }, { value: 'FPE60', label: 'PE60' }, { value: 'FPA60', label: 'PA60' }] },
+  { title: 'Niveau 4', options: [{ value: 'FN4', label: 'Niveau 4' }] },
+];
+/** « N2 », « PA20 » : la formation telle qu'on la lit sur le bouton. */
+export const trainingShort = (value: string): string => (value.startsWith('FN') ? `N${value.slice(2)}` : value.slice(1));
 /** « Pas en formation » choisi par le DP : l'emporte sur une prépa VPDive. */
 export const NO_TRAINING = 'none';
 
 export interface DiverSettings {
   /** id → prérogative retenue à la main (remplace celle de VPDive, dont les niveaux restent affichés) */
   levels?: Record<string, string>;
-  /** id → formation en cours (FN1…FN4), en plus de la prérogative */
+  /** id → formation en cours (FN1…FN4, FPA20…), en plus de la prérogative */
   training?: Record<string, string>;
+  /** Liste des plongeurs validée par le DP : prérogatives connues, formations indiquées. Débloque les palanquées. */
+  confirmed?: boolean;
 }
 
 /** Fixe (ou efface avec '') la prérogative retenue ou la formation d'un plongeur, sans toucher à l'autre. */
@@ -220,7 +220,7 @@ function mapPal(plan: Plan, id: string, fn: (p: Palanquee) => Palanquee): Plan {
 export function planToText(title: string, plan: Plan): string {
   const lines = [`Palanquées — ${title}`, ''];
   plan.palanquees.forEach((p, i) => {
-    lines.push(`P${i + 1} · ${kindLabel(p)} · ${prerogativeLabel(p)} · ${chosenDepth(p)} m`);
+    lines.push(`P${i + 1} · ${kindLabel(p)} · ${prerogativeLabel(p)}`);
     if (p.guide) lines.push(`  ${p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} : ${p.guide.name} (${guideLabel(p.guide, p)})`);
     for (const m of p.members) lines.push(`  - ${m.name} (${memberLabel(m, p)})`);
     if (p.extra) lines.push(`  + ${p.extra.name} (GP suppl., ${extraLabel(p)})`);

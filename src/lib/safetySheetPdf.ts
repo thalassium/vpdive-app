@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { autoTable, type CellInput, type RowInput } from 'jspdf-autotable';
-import { chosenDepth, kindLabel, prerogativeLabel } from './palanquees';
+import { kindLabel, prerogativeLabel } from './palanquees';
 import { diversInWater, emptySheet, type Dive, type OutingDoc } from './outing';
 import { HEADER_FIELDS, SHEET_FOOTNOTE, firstNameOf, headerText, lastNameOf, sheetApt, sheetRows } from './safetySheet';
 
@@ -34,9 +34,8 @@ export function safetySheetPdf(outing: OutingDoc, dive: Dive, title: string): js
   let y = PAGE.margin + 5;
   pdf.setFont('helvetica', 'bold').setFontSize(15).setTextColor(...NAVY);
   pdf.text(pdfText(`Fiche de sécurité · ${dive.label}`), PAGE.margin, y);
-  pdf.setFont('helvetica', 'normal').setFontSize(8).setTextColor(...GREY);
-  pdf.text(pdfText('Art. A322-72 du code du sport et R4461-13 du code du travail'), PAGE.w - PAGE.margin, y, { align: 'right' });
-  pdf.setFontSize(9).text(pdfText(title), PAGE.margin, y + 5);
+  pdf.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...GREY);
+  pdf.text(pdfText(title), PAGE.margin, y + 5);
   y += 9;
 
   // En-tête : trois colonnes « libellé : valeur »
@@ -134,7 +133,7 @@ export function safetySheetPdf(outing: OutingDoc, dive: Dive, title: string): js
         head: [
           [
             { content: `P${i + 1}`, styles: { fontSize: 10 } },
-            { content: pdfText(`${kindLabel(p)} · ${prerogativeLabel(p)} · ${chosenDepth(p)} m`), colSpan: 4, styles: { halign: 'right' } },
+            { content: pdfText(`${kindLabel(p)} · ${prerogativeLabel(p)}`), colSpan: 4, styles: { halign: 'right' } },
           ],
           ['', 'Nom', 'Prénom', 'Apt', 'Gaz'].map((h) => ({ content: h, styles: sub })),
         ],

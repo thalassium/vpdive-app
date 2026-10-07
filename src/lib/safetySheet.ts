@@ -20,10 +20,8 @@ export const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: str
 ];
 
 export const SHEET_FOOTNOTE =
-  'Le non-respect des paramètres prévus par le DP engage potentiellement la responsabilité de l’encadrant de palanquée ou des plongeurs ' +
-  'autonomes. Gaz : laisser vide pour une plongée à l’air. Aptitudes PE/PA pour les plongeurs, niveau pour les encadrants (GP = N4/P4, E1, E2, ' +
-  'E3, E4) : le plus haut, en exploration comme en enseignement. Un GP/N4 qui assiste une formation ou un moniteur qui plonge en exploration ' +
-  'est noté à la prérogative de la palanquée.';
+  'Le non-respect des paramètres prévus par le DP engage potentiellement la responsabilité de l’encadrant de palanquée ou des plongeurs autonomes. ' +
+  'Gaz : vide pour une plongée à l’air.';
 
 export type SheetSlot = 'guide' | 'member' | 'extra';
 
