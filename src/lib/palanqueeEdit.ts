@@ -18,10 +18,23 @@ export const PREROGATIVE_OPTIONS = {
 } as const;
 
 /**
- * Formation en cours, en plus de la prérogative : un Open Water retenu PE20 qui
- * prépare son niveau 2 est FN2 et peut aller en palanquée de formation PE40.
+ * Formation en cours, en plus de la prérogative : vers un niveau (un Open Water
+ * retenu PE20 qui prépare son niveau 2 est FN2, palanquée de formation PE40),
+ * ou vers une aptitude précise quand on la connaît (FPA20 pour un PE40 qui
+ * passe son PA20 : zone 20 m, un E2 suffit).
  */
-export const TRAINING_OPTIONS = ['FN1', 'FN2', 'FN3', 'FN4'] as const;
+export const TRAINING_OPTIONS = ['FN1', 'FN2', 'FN3', 'FN4', 'FPA20', 'FPE40', 'FPA40', 'FPE60', 'FPA60'] as const;
+export const TRAINING_HINT: Record<(typeof TRAINING_OPTIONS)[number], string> = {
+  FN1: 'vers N1 · 20 m',
+  FN2: 'vers N2 · 40 m',
+  FN3: 'vers N3 · 40 m, au-delà à la main',
+  FN4: 'vers N4 · 40 m, au-delà à la main',
+  FPA20: 'autonomie 20 m (N2) · E2 suffit',
+  FPE40: 'encadré 40 m (N2)',
+  FPA40: 'autonomie 40 m (N3)',
+  FPE60: 'encadré 60 m (N3) · au-delà de 40 m à la main',
+  FPA60: 'autonomie 60 m (N3) · au-delà de 40 m à la main',
+};
 /** « Pas en formation » choisi par le DP : l'emporte sur une prépa VPDive. */
 export const NO_TRAINING = 'none';
 

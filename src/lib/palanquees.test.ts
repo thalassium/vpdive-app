@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aptitudesFromLabels, chosenDepth, depthOf, guideLabel, lowestTeacher, memberLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
+import { aptitudesFromLabels, chosenDepth, depthOf, guideLabel, lowestTeacher, memberLabel, minTeachFor, trainingLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
 
 let n = 0;
 const diver = (name: string, ...labels: string[]): Diver => ({ id: `d${++n}`, name, labels, ...aptitudesFromLabels(labels) });
@@ -492,4 +492,27 @@ test('plongeur supplémentaire : exploration encadrée seulement ; en formation 
   assert.ok(p.members.some((m) => m.name === 'G2'), 'le GP assiste la formation comme plongeur');
   assert.deepEqual(validate(p, 20), []);
   assert.ok(validate({ ...p, extra: diver('G3', 'N4') }).some((i) => /pas de plongeur supplémentaire en formation/.test(i)));
+});
+
+test('formation vers une aptitude précise : FPA20 pour un PE40, zone 20 m, un E2 suffit', () => {
+  const fpa20 = aptitudesFromLabels(['PE40', 'FPA20']);
+  assert.deepEqual([fpa20.pe, fpa20.training, fpa20.trainingApt, trainingLabel(fpa20), minTeachFor(fpa20)], [40, 2, { kind: 'PA', depth: 20 }, 'FPA20', 2]);
+  assert.deepEqual([trainingLabel(aptitudesFromLabels(['FN2'])), minTeachFor(aptitudesFromLabels(['FN2']))], ['FN2', 3], 'sans précision, le niveau entier : 40 m, E3');
+  assert.deepEqual([aptitudesFromLabels(['FPE60']).training, minTeachFor(aptitudesFromLabels(['FPE60']))], [3, 3]);
+
+  const e2 = diver('E2', 'E2');
+  const e3 = diver('E3', 'MF1');
+  const student = diver('Paul', 'PE40', 'FPA20');
+  const plan = proposePalanquees([e2, e3, student, diver('N1', 'N1')]);
+  const p = plan.palanquees.find((x) => x.members.includes(student))!;
+  assert.equal(p.kind, 'teaching');
+  assert.equal(p.guide!.name, 'E2', 'l’E2 se positionne, l’E3 reste libre');
+  assert.equal(chosenDepth(p), 20);
+  assert.equal(memberLabel(student, p), 'FPA20');
+  assert.deepEqual(validate(p), []);
+  // Le même élève noté FN2 mobilise l’E3.
+  const vague = proposePalanquees([e2, e3, diver('Paul', 'PE40', 'FN2'), diver('N1', 'N1')]);
+  assert.equal(vague.palanquees.find((x) => x.kind === 'teaching')!.guide!.name, 'E3');
+  const bad: Palanquee = { id: 'b', kind: 'teaching', guide: e2, extra: null, members: [diver('F', 'FPE40')] };
+  assert.ok(validate(bad).some((i) => /FPE40 demande un E3/.test(i)));
 });

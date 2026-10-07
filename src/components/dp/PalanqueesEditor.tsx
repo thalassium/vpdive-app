@@ -5,7 +5,8 @@ import {
   DEPTHS,
   TYPE_LABEL,
   typeOf,
-  TRAINING_TARGET,
+  trainingLabel,
+  trainingTargetOf,
   aptitudesFromLabels,
   canGuideExploration,
   chosenDepth,
@@ -30,6 +31,7 @@ import {
 } from '../../lib/palanquees';
 import {
   PREROGATIVE_OPTIONS,
+  TRAINING_HINT,
   TRAINING_OPTIONS,
   NO_TRAINING,
   addPalanquee,
@@ -78,7 +80,7 @@ const diplomas = (d: Diver) => {
   const parts = new Set(prerogativeCode({ ...d, training: 0 }).split(' · ').map(flat));
   return (d.display ?? []).filter((x) => !parts.has(flat(x)));
 };
-const shownLevel = (d: Diver) => (d.training ? `FN${d.training} · ${describe(d)}` : describe(d));
+const shownLevel = (d: Diver) => (d.training ? `${trainingLabel(d)} · ${describe(d)}` : describe(d));
 
 /** Rôles de la sortie de chaque inscrit (DP, pilote, sécurité surface), pour les badges à côté des noms. */
 const RolesContext = createContext<Map<string, DiveRole[]>>(new Map());
@@ -189,7 +191,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
                 { value: NO_TRAINING, label: 'Pas en formation', hint: 'cette sortie' },
               ]
             : [{ value: '', label: 'Pas en formation' }]),
-          ...TRAINING_OPTIONS.filter((t) => t !== `FN${prepa}`).map((t) => ({ value: t, label: t, hint: `vers N${t.slice(2)}` })),
+          ...TRAINING_OPTIONS.filter((t) => t !== `FN${prepa}`).map((t) => ({ value: t, label: t, hint: TRAINING_HINT[t] })),
         ],
       },
     ];
@@ -240,7 +242,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             <>
               <span>
                 {prerogative || 'Prérogative ?'}
-                {d.training ? ` · FN${d.training}` : ''}
+                {d.training ? ` · ${trainingLabel(d)}` : ''}
               </span>
               <ChevronDown className="w-4 h-4 opacity-60" />
             </>
@@ -482,7 +484,7 @@ function RosterGroup({ title, count, children }: { title: string; count: number;
  * celui qui limite la palanquée.
  */
 function ownPrerogative(d: Diver, p: Palanquee): { label: string; depth: number } {
-  const depth = p.kind === 'autonomous' ? d.pa : p.kind === 'teaching' && d.training ? TRAINING_TARGET[d.training] : d.pe || (d.beginner ? 6 : 0);
+  const depth = p.kind === 'autonomous' ? d.pa : p.kind === 'teaching' && d.training ? trainingTargetOf(d) : d.pe || (d.beginner ? 6 : 0);
   return { label: memberLabel(d, p), depth };
 }
 
@@ -746,7 +748,7 @@ function DiverRow({
           <RoleBadges id={d.id} />
         </span>
         <span className="block text-sm text-muted truncate">
-          {d.training ? `en formation FN${d.training} · ${describe(d)}` : describe(d)}
+          {d.training ? `en formation ${trainingLabel(d)} · ${describe(d)}` : describe(d)}
           {d.original && <span title="Le DP a retenu un équivalent FFESSM"> · équivalent retenu</span>}
           {d.minor ? ' · mineur' : ''}
           {limiting ? ' · fixe la prérogative' : ''}

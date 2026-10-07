@@ -75,6 +75,20 @@ export const TRAINING_TARGET: Record<Exclude<TrainingLevel, 0>, Depth> = { 1: 20
  */
 export const MIN_TEACH_FOR_TRAINING: Record<Exclude<TrainingLevel, 0>, TeachLevel> = { 1: 2, 2: 3, 3: 3, 4: 3 };
 
+/**
+ * Aptitude visée par une formation, quand le DP la précise : un niveau se
+ * compose d'aptitudes (N2 = PE40 et PA20, passées séparément ; N3 = PA40,
+ * PE60, PA60, dans l'ordre). « FPA20 » plutôt que « FN2 » pour un PE40 qui
+ * passe son PA20 : la zone est 20 m, un E2 suffit au lieu de mobiliser un E3.
+ */
+export interface TrainingApt {
+  kind: 'PE' | 'PA';
+  depth: Depth;
+}
+export const TRAINING_APTS: readonly string[] = ['FPA20', 'FPE40', 'FPA40', 'FPE60', 'FPA60'];
+/** Niveau dont relève une aptitude (PE20 et PA12 : N1 ; PA20 et PE40 : N2 ; au-delà : N3). */
+const levelOfApt = (a: TrainingApt): TrainingLevel => (a.depth <= 12 || (a.kind === 'PE' && a.depth === 20) ? 1 : a.depth <= 20 || (a.kind === 'PE' && a.depth === 40) ? 2 : 3);
+
 export interface Aptitudes {
   /** Profondeur max en palanquée encadrée (0 = aucune aptitude connue). */
   pe: Depth | 0;
@@ -83,8 +97,10 @@ export interface Aptitudes {
   guide: GuideLevel | null;
   /** Prérogative d'enseignement (E1…E4), 0 si aucune. */
   teach: TeachLevel;
-  /** En formation (FN#), 0 sinon. */
+  /** En formation vers ce niveau (FN#), 0 sinon. Déduit de trainingApt quand l'aptitude est précisée. */
   training: TrainingLevel;
+  /** Aptitude précise visée par la formation (FPA20, FPE40…), si le DP l'a indiquée. */
+  trainingApt?: TrainingApt;
   /** Débutant ou baptême : 0-6 m, encadré. */
   beginner: boolean;
   /** Peut être ajouté comme plongeur supplémentaire (*) : GP/P4 au minimum. */
@@ -182,10 +198,19 @@ export function aptitudesFromLabels(labels: string[]): Aptitudes {
   let child = false;
   let teach: TeachLevel = 0;
   let training: TrainingLevel = 0;
+  let trainingApt: TrainingApt | undefined;
 
   for (const raw of labels) {
     const s = norm(raw);
     const has = (re: RegExp) => re.test(s);
+
+    // Formation vers une aptitude précise : « FPA20 », « FPE40 »… (saisie du DP).
+    const fapt = /\bf ?-?(pe|pa) ?-?(12|20|40|60)\b/.exec(s);
+    if (fapt) {
+      trainingApt = { kind: fapt[1]!.toUpperCase() as 'PE' | 'PA', depth: Number(fapt[2]) as Depth };
+      training = Math.max(training, levelOfApt(trainingApt)) as TrainingLevel;
+      continue;
+    }
 
     // Formation en cours : « FN2 », « Formation N2 », « Prépa niveau 2 »… Le
     // niveau visé n'est pas encore acquis : ce libellé ne compte que comme FN#.
@@ -297,7 +322,7 @@ export function aptitudesFromLabels(labels: string[]): Aptitudes {
   pe = maxDepth(pe, pa);
   if (pe > 0) beginner = false;
 
-  return { pe, pa, guide, teach, training, beginner, child, canBeExtra: !!guide && GUIDE_RANK[guide] >= GUIDE_RANK.GP };
+  return { pe, pa, guide, teach, training, beginner, child, canBeExtra: !!guide && GUIDE_RANK[guide] >= GUIDE_RANK.GP, ...(trainingApt ? { trainingApt } : {}) };
 }
 
 // ── Règles d'une palanquée ───────────────────────────────────────
@@ -305,8 +330,17 @@ export function aptitudesFromLabels(labels: string[]): Aptitudes {
 /** Profondeur à laquelle un plongeur peut être emmené en palanquée encadrée. */
 const guidedDepthOf = (d: Diver): Depth | 0 => (d.pe > 0 ? d.pe : d.beginner ? 6 : 0);
 
+/** Formation d'un plongeur telle qu'on l'écrit : « FPA20 » si l'aptitude est précisée, sinon « FN2 » ; vide s'il n'est pas en formation. */
+export const trainingLabel = (d: Aptitudes): string => (d.trainingApt ? `F${d.trainingApt.kind}${d.trainingApt.depth}` : d.training ? `FN${d.training}` : '');
+
+/** Profondeur visée par la formation : celle de l'aptitude si elle est précisée, sinon celle du niveau (TRAINING_TARGET). 0 hors formation. */
+export const trainingTargetOf = (d: Aptitudes): Depth | 0 => (d.trainingApt ? d.trainingApt.depth : d.training ? TRAINING_TARGET[d.training] : 0);
+
+/** Enseignant minimum pour cet élève : E2 jusqu'à 20 m, E3 au-delà (la zone fait le reste : E4 au-delà de 40 m) ; E1 pour un débutant sans FN. */
+export const minTeachFor = (d: Aptitudes): TeachLevel => (d.trainingApt ? (d.trainingApt.depth <= 20 ? 2 : 3) : d.training ? MIN_TEACH_FOR_TRAINING[d.training] : 1);
+
 /** Profondeur visée par un plongeur dans une palanquée de formation. */
-const teachingDepthOf = (d: Diver): Depth | 0 => (d.training ? TRAINING_TARGET[d.training] : guidedDepthOf(d));
+const teachingDepthOf = (d: Diver): Depth | 0 => trainingTargetOf(d) || guidedDepthOf(d);
 
 /**
  * Profondeur maximale réglementaire de la palanquée (sa prérogative), bornée
@@ -375,7 +409,7 @@ export const canGuideExploration = (d: Aptitudes): boolean => !!d.guide && GUIDE
  * couvrir (profondeur visée, plafonnée à outingMax ; 6 m sans élève).
  */
 export function teachingNeed(students: Diver[], outingMax: Depth = AUTO_MAX_DEPTH): { minTeach: TeachLevel; depth: Depth } {
-  const minTeach = Math.max(1, ...students.map((d) => (d.training ? MIN_TEACH_FOR_TRAINING[d.training] : 1))) as TeachLevel;
+  const minTeach = Math.max(1, ...students.map(minTeachFor)) as TeachLevel;
   const depth = students.length ? minDepth(outingMax, Math.min(60, ...students.map((d) => teachingDepthOf(d) || 6)) as Depth) : 6;
   return { minTeach, depth };
 }
@@ -481,7 +515,7 @@ export function guideLabel(d: Aptitudes, p: Palanquee): string {
  */
 export function memberLabel(d: Diver, p: Palanquee): string {
   if (p.kind === 'teaching') {
-    if (d.training) return `FN${d.training}`;
+    if (d.training) return trainingLabel(d);
     if (d.teach) return `E${d.teach}`;
     if (d.guide) return prerogativeLabel(p);
   } else if (isInstructor(d)) {
@@ -511,12 +545,10 @@ export function validate(p: Palanquee, outingMax: Depth = 60): string[] {
     const students = studentsOf(p);
     if (!p.guide) issues.push('Pas d’enseignant.');
     else if (!p.guide.teach) issues.push(`${p.guide.name} n’est pas enseignant (E1, E2, E3 ou E4) : un N4/GP n’encadre pas de formation.`);
-    else if (p.guide.training) issues.push(`${p.guide.name} est en formation (FN${p.guide.training}) : ne peut pas enseigner.`);
+    else if (p.guide.training) issues.push(`${p.guide.name} est en formation (${trainingLabel(p.guide)}) : ne peut pas enseigner.`);
     else {
-      const top = Math.max(0, ...students.map((s) => s.training)) as TrainingLevel;
-      if (top && p.guide.teach < MIN_TEACH_FOR_TRAINING[top]) {
-        issues.push(`FN${top} demande un E${MIN_TEACH_FOR_TRAINING[top]} au minimum (${p.guide.name} est E${p.guide.teach}).`);
-      }
+      const demanding = students.filter((s) => s.training && minTeachFor(s) > p.guide!.teach).sort((a, b) => minTeachFor(b) - minTeachFor(a))[0];
+      if (demanding) issues.push(`${trainingLabel(demanding)} demande un E${minTeachFor(demanding)} au minimum (${p.guide.name} est E${p.guide.teach}).`);
     }
     if (students.length === 0) issues.push('Aucun élève.');
     if (students.length > 4) issues.push(`${students.length} élèves : 4 au maximum.`);
@@ -527,14 +559,14 @@ export function validate(p: Palanquee, outingMax: Depth = 60): string[] {
     if (!p.guide) issues.push('Pas d’encadrant.');
     else if (!p.guide.guide) issues.push(`${p.guide.name} n’a pas de qualification d’encadrant connue.`);
     else if (!canGuideExploration(p.guide)) issues.push(`${p.guide.name} : un encadrant d’exploration est au minimum N4/GP.`);
-    else if (p.guide.training) issues.push(`${p.guide.name} est en formation (FN${p.guide.training}) : ne peut pas encadrer.`);
+    else if (p.guide.training) issues.push(`${p.guide.name} est en formation (${trainingLabel(p.guide)}) : ne peut pas encadrer.`);
     if (p.members.length === 0) issues.push('Aucun plongeur encadré.');
     if (p.members.length > 4) issues.push(`${p.members.length} plongeurs encadrés : 4 au maximum.`);
     if (p.extra && !p.extra.canBeExtra) issues.push(`${p.extra.name} doit être au moins GP/N4 pour être plongeur supplémentaire.`);
     // Avec un plongeur supplémentaire, depthOf plafonne déjà la palanquée à 40 m : rien à signaler ici.
     for (const m of p.members) {
       if (!guidedDepthOf(m)) issues.push(`${m.name} : niveau inconnu, à vérifier.`);
-      if (m.training) issues.push(`${m.name} est en formation (FN${m.training}) : palanquée de formation avec un enseignant.`);
+      if (m.training) issues.push(`${m.name} est en formation (${trainingLabel(m)}) : palanquée de formation avec un enseignant.`);
     }
   } else {
     if (p.members.length < 2) issues.push('Une palanquée autonome compte au moins 2 plongeurs.');
@@ -542,7 +574,7 @@ export function validate(p: Palanquee, outingMax: Depth = 60): string[] {
     for (const m of p.members) {
       if (!m.pa) issues.push(`${m.name} n’est pas autonome (aucune aptitude PA).`);
       if (m.minor || m.child) issues.push(`${m.name} est mineur : pas d’autonomie.`);
-      if (m.training) issues.push(`${m.name} est en formation (FN${m.training}) : palanquée de formation avec un enseignant.`);
+      if (m.training) issues.push(`${m.name} est en formation (${trainingLabel(m)}) : palanquée de formation avec un enseignant.`);
     }
   }
   return issues;
@@ -838,7 +870,7 @@ function assignTeaching(trainees: Diver[], guides: Diver[], outingMax: Depth, ou
   if (!trainees.length) return free;
   const count = free.filter((g) => g.teach > 0 && !g.training).length;
   if (!count) {
-    for (const d of trainees) unassigned.push({ diver: d, reason: `En formation (FN${d.training}) : aucun enseignant (E1, E2, E3, E4) inscrit.` });
+    for (const d of trainees) unassigned.push({ diver: d, reason: `En formation (${trainingLabel(d)}) : aucun enseignant (E1, E2, E3, E4) inscrit.` });
     return free;
   }
   for (const group of guidedGroups(trainees, count, outingMax, teachingDepthOf)) {
@@ -846,7 +878,7 @@ function assignTeaching(trainees: Diver[], guides: Diver[], outingMax: Depth, ou
     if (!teacher) {
       const need = teachingNeed(group, outingMax);
       for (const d of group) {
-        unassigned.push({ diver: d, reason: `En formation (FN${d.training}) : aucun enseignant disponible (E${need.minTeach} au minimum, zone ${need.depth} m, 4 élèves par enseignant).` });
+        unassigned.push({ diver: d, reason: `En formation (${trainingLabel(d)}) : aucun enseignant disponible (E${need.minTeach} au minimum, zone ${need.depth} m, 4 élèves par enseignant).` });
       }
       continue;
     }
