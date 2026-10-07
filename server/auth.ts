@@ -8,6 +8,12 @@ const VPDIVE_API = process.env.VPDIVE_API_BASE ?? 'https://septentrion-env.vpdiv
 
 export interface Caller {
   id: number;
+  /**
+   * Jeton d'adhésion au club (UserClubTraceability). C'est aussi l'`id` que
+   * renvoie la recherche de membres : les rôles de l'appli y sont rattachés,
+   * ce qui permet de nommer admin un membre qui ne s'est jamais connecté.
+   */
+  uct: string;
   email: string;
   name: string;
   clubId: string;
@@ -66,6 +72,7 @@ export async function identify(request: Request): Promise<Caller> {
 
   const caller: Caller = {
     id,
+    uct: traceability,
     email: String(me.email ?? '').toLowerCase(),
     name: `${me.first_name ?? ''} ${me.last_name ?? ''}`.trim(),
     clubId: String(obj(trace.club)?.id ?? obj(trace.club)?.name ?? 'club'),
