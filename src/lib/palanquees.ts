@@ -168,6 +168,14 @@ export function aptitudesFromLabels(labels: string[]): Aptitudes {
     const s = norm(raw);
     const has = (re: RegExp) => re.test(s);
 
+    // Formation en cours : « FN2 », « Formation N2 », « Prépa niveau 2 »… Le
+    // niveau visé n'est pas encore acquis : ce libellé ne compte que comme FN#.
+    const fn = /\bfn ?([1-4])\b|\b(?:formation|prepa(?:ration)?) (?:niveau |n ?|p ?)?([1-4])\b/.exec(s);
+    if (fn) {
+      training = Math.max(training, Number(fn[1] ?? fn[2])) as TrainingLevel;
+      continue;
+    }
+
     // Aptitudes explicites (PE-xx / PA-xx)
     for (const m of s.matchAll(/\b(pe|pa)(12|20|40|60)\b/g)) {
       const d = Number(m[2]) as Depth;
@@ -242,9 +250,6 @@ export function aptitudesFromLabels(labels: string[]): Aptitudes {
       }
     }
 
-    // Formation en cours : « FN2 », « Formation N2 », « Prépa niveau 2 »…
-    const fn = /\bfn ?([1-4])\b|\b(?:formation|prepa(?:ration)?) (?:niveau |n ?|p ?)?([1-4])\b/.exec(s);
-    if (fn) training = Math.max(training, Number(fn[1] ?? fn[2])) as TrainingLevel;
 
     if (has(/debutant|bapteme|pass decouverte|^p pp$|pass plongee/)) beginner = true;
     // Plongeurs enfants (Bronze, Argent, Or) : effectifs et profondeurs propres.
@@ -253,6 +258,8 @@ export function aptitudesFromLabels(labels: string[]): Aptitudes {
 
   if (p4) guide = higherGuide(guide, 'GP');
   if (initiateur) guide = higherGuide(guide, 'E1');
+  // E2 = Initiateur + N4/GP, même quand les deux sont des libellés séparés.
+  if (initiateur && p4 && teach < 2) teach = 2;
   // Tout encadrant à partir du GP est au moins N4 : autonome et encadré à 60 m.
   if (guide && GUIDE_RANK[guide] >= GUIDE_RANK.GP) {
     pe = 60;
@@ -334,13 +341,40 @@ export function chosenDepth(p: Palanquee): Depth | 0 {
   return p.depth && p.depth <= legal ? p.depth : minDepth(legal, AUTO_MAX_DEPTH);
 }
 
-/** « PE 40 », « PA 20 », « Formation E3 · 40 m » : la prérogative sous laquelle la palanquée plonge. */
+export const KIND_LABEL: Record<PalanqueeKind, string> = { teaching: 'Formation', guided: 'Encadrée', autonomous: 'Autonome' };
+
+/**
+ * Prérogative sous laquelle la palanquée plonge : PE12, PE20, PA20, PE40,
+ * PA40, PE60, PA60 (PE pour une palanquée encadrée ou de formation, PA pour une
+ * autonome), ou « Débutants 6 m ».
+ */
 export function prerogativeLabel(p: Palanquee): string {
   const d = chosenDepth(p);
   if (!d) return 'À revoir';
-  if (p.kind === 'teaching') return `Formation${p.guide?.teach ? ` E${p.guide.teach}` : ''} · ${d} m`;
-  if (p.kind === 'guided') return d === 6 && p.members.every((m) => m.beginner) ? 'Débutants · 6 m' : `PE ${d}`;
-  return `PA ${d}`;
+  if (p.kind === 'autonomous') return `PA${d}`;
+  if (d === 6 && p.members.every((m) => m.beginner && !m.pe)) return 'Débutants 6 m';
+  return `PE${d}`;
+}
+
+/**
+ * Niveau d'un plongeur tel que le club le nomme (MF2, MF1, E2, N4 / GP, E1,
+ * N3, N2, N1…), à partir de sa prérogative la plus haute. Vide si inconnu.
+ */
+export function levelName(d: Aptitudes): string {
+  if (d.teach === 4) return 'MF2';
+  if (d.teach === 3) return 'MF1';
+  if (d.teach === 2) return 'E2';
+  if (d.guide === 'GP') return 'N4 / GP';
+  if (d.teach === 1) return d.pa >= 60 ? 'E1 · N3' : d.pa >= 20 ? 'E1 · N2' : 'E1';
+  if (d.pa >= 60) return 'N3';
+  if (d.pe >= 40 && d.pa >= 20) return 'N2';
+  if (d.pa >= 40) return 'PA40';
+  if (d.pe >= 40) return 'PE40';
+  if (d.pa >= 20) return 'PA20';
+  if (d.pe >= 20) return d.pa >= 12 ? 'N1 · PA12' : 'N1';
+  if (d.pe >= 12) return 'PE12';
+  if (d.beginner) return 'Débutant';
+  return '';
 }
 
 /** Ce qui rend une palanquée non conforme. Liste vide = conforme. */
@@ -399,7 +433,6 @@ function balancedChunks<T>(items: T[], k: number): T[][] {
 }
 
 const byName = (a: Diver, b: Diver) => a.name.localeCompare(b.name, 'fr');
-const byAutonomyDesc = (a: Diver, b: Diver) => b.pa - a.pa || a.name.localeCompare(b.name, 'fr');
 
 /**
  * Ce que perd un plongeur, en part de la profondeur à laquelle il pouvait
@@ -408,7 +441,6 @@ const byAutonomyDesc = (a: Diver, b: Diver) => b.pa - a.pa || a.name.localeCompa
  * 20 m), alors qu'une plongée à 6 m n'a plus grand intérêt pour un N1.
  */
 const depthLoss = (wanted: Depth, got: Depth) => (wanted - got) / wanted;
-const UNPLACED_COST = 10;
 
 const groupDepth = (group: Diver[], outingMax: Depth): Depth =>
   minDepth(outingMax, Math.min(...group.map((d) => guidedDepthOf(d) || 6)) as Depth);
@@ -460,115 +492,125 @@ function guidedGroups(divers: Diver[], guideCount: number, outingMax: Depth, dep
 }
 
 /**
- * Propose des palanquées pour les inscrits d'une sortie.
- *
- * Principe, dans l'ordre :
- *   1. Ceux qui ne sont pas autonomes (débutants, N1, PE-xx seuls) doivent être encadrés.
- *   2. Ceux dont l'autonomie est inférieure à la profondeur prévue (un N2 sur une
- *      sortie à 40 m) sont encadrés s'il y a assez d'encadrants, autonomes sinon.
- *   3. Les plongeurs encadrés sont regroupés par aptitude (4 au plus par encadrant)
- *      et chaque groupe reçoit l'encadrant le moins qualifié qui lui permet
- *      d'atteindre sa profondeur, pour garder les plus qualifiés aux plus profonds.
- *   4. Les autres forment des palanquées autonomes de 2 ou 3, par aptitude.
- *   5. Les binômes demandés sont réunis quand un échange garde tout conforme
- *      et ne fait perdre de profondeur à personne.
+ * Propose des palanquées pour les inscrits d'une sortie, dans l'ordre que suit un DP :
+ *   1. Les autonomes qui ne sont pas encadrants (PA-xx majeurs) se regroupent par
+ *      prérogative : les PA-60 entre eux, puis les PA-40, les PA-20… par 2 ou 3.
+ *   2. Les formations (FN#) reçoivent un enseignant E1/E2/E3 dont la zone suffit.
+ *   3. Les plongeurs encadrés (PE-xx, débutants, mineurs) reçoivent un N4/GP au
+ *      moins (un E1 n'encadre que des débutants, 0-6 m). S'il manque des
+ *      encadrants, on réunit des niveaux et la palanquée prend la prérogative du
+ *      moins formé : un PE-40 plonge alors à 20 m avec des N1.
+ *   4. Les encadrants restants plongent en autonomie, avec les autonomes de leur niveau.
+ *   5. Les binômes demandés sont réunis quand un échange garde tout conforme.
  */
 export function proposePalanquees(divers: Diver[], opts: PlanOptions = {}): Plan {
-  const outingMax = opts.maxDepth ?? 40;
+  const outingMax = opts.maxDepth ?? AUTO_MAX_DEPTH;
   const unassigned: Plan['unassigned'] = [];
-
-  const allGuides = divers.filter((d) => d.guide).sort((a, b) => GUIDE_RANK[a.guide!] - GUIDE_RANK[b.guide!] || a.teach - b.teach);
-  const others = divers.filter((d) => !d.guide);
   const palanquees: Palanquee[] = [];
 
-  // 1. Formations d'abord : elles demandent un enseignant (E1…E4), plus rare
-  //    qu'un GP. Les enseignants restants encadrent ensuite les explorations.
-  const trainees = others.filter((d) => d.training && !d.child);
-  const guides = assignTeaching(trainees, allGuides, outingMax, palanquees, unassigned);
-
-  const mustGuide: Diver[] = [];
-  const optionalGuide: Diver[] = [];
-  let autonomous: Diver[] = [];
-  for (const d of others) {
-    const wanted = minDepth(outingMax, (guidedDepthOf(d) || 6) as Depth);
-    if (d.training && !d.child) continue;
-    if (d.child) {
-      unassigned.push({ diver: d, reason: 'Plongeur enfant : conditions de pratique enfants, à placer à la main.' });
-    } else if (!d.pa || d.minor) {
-      if (!guidedDepthOf(d)) unassigned.push({ diver: d, reason: 'Niveau inconnu : à placer à la main.' });
-      else mustGuide.push(d);
-    } else if (d.pa < wanted) optionalGuide.push(d);
-    else autonomous.push(d);
+  const guides = divers.filter((d) => d.guide).sort((a, b) => GUIDE_RANK[a.guide!] - GUIDE_RANK[b.guide!] || a.teach - b.teach);
+  const autonomous: Diver[] = [];
+  const trainees: Diver[] = [];
+  const guided: Diver[] = [];
+  for (const d of divers.filter((x) => !x.guide)) {
+    if (d.child) unassigned.push({ diver: d, reason: 'Plongeur enfant : conditions de pratique enfants, à placer à la main.' });
+    else if (d.training) trainees.push(d);
+    else if (d.pa && !d.minor) autonomous.push(d);
+    else if (guidedDepthOf(d)) guided.push(d);
+    else unassigned.push({ diver: d, reason: 'Niveau inconnu : à placer à la main.' });
   }
 
-  // Encadrer ou non ceux qui ont le choix (un N2 sur une sortie à 40 m) : on
-  // essaie de rendre à l'autonomie 0, 1, 2… d'entre eux, les plus autonomes
-  // d'abord, et on garde la répartition où les plongeurs perdent le moins de
-  // profondeur, en proportion de ce qu'ils pouvaient faire (cf. depthLoss).
-  // Un plongeur laissé sans palanquée coûte plus que n'importe quelle perte.
-  const wanted = (d: Diver) => minDepth(outingMax, (guidedDepthOf(d) || 6) as Depth);
-  optionalGuide.sort((a, b) => a.pa - b.pa);
-  let best: { cost: number; guided: Diver[]; back: Diver[]; groups: Diver[][] } | null = null;
-  for (let k = 0; k <= optionalGuide.length; k++) {
-    const guided = [...mustGuide, ...optionalGuide.slice(0, optionalGuide.length - k)];
-    const back = optionalGuide.slice(optionalGuide.length - k);
-    const groups = guides.length && guided.length ? guidedGroups(guided, guides.length, outingMax) : [];
-    let cost = guides.length ? 0 : guided.length * UNPLACED_COST;
-    groups.forEach((group, i) => {
-      if (i >= guides.length) cost += group.length * UNPLACED_COST;
-      else for (const d of group) cost += depthLoss(wanted(d), groupDepth(group, outingMax));
-    });
-    for (const d of back) cost += depthLoss(wanted(d), minDepth(outingMax, d.pa as Depth));
-    if (!best || cost < best.cost) best = { cost, guided, back, groups };
-  }
-  const guided = best!.guided;
-  autonomous.push(...best!.back);
+  let free = assignTeaching(trainees, guides, outingMax, palanquees, unassigned);
+  free = assignGuided(guided, free, outingMax, palanquees, unassigned);
 
-  const freeGuides = [...guides];
-
-  if (guided.length && !freeGuides.length) {
-    for (const d of guided) unassigned.push({ diver: d, reason: 'Aucun encadrant inscrit.' });
-  } else if (guided.length) {
-    const groups = best!.groups;
-    const placed = groups.slice(0, freeGuides.length);
-    for (const d of groups.slice(freeGuides.length).flat()) {
-      unassigned.push({ diver: d, reason: 'Pas assez d’encadrants (4 plongeurs encadrés au maximum par encadrant).' });
-    }
-    // Du plus profond au moins profond ; l'encadrant le moins qualifié qui suffit.
-    for (const group of placed) {
-      const need = groupDepth(group, outingMax);
-      let idx = freeGuides.findIndex((g) => GUIDE_MAX_DEPTH[g.guide!] >= need);
-      if (idx < 0) idx = freeGuides.length - 1; // le plus qualifié restant : profondeur réduite
-      const [guide] = freeGuides.splice(idx, 1);
-      palanquees.push({ id: newId(), kind: 'guided', guide: guide!, extra: null, members: group });
-    }
+  for (const g of free) {
+    if (g.pa) autonomous.push(g);
+    else unassigned.push({ diver: g, reason: 'Encadrant sans palanquée à encadrer et sans aptitude d’autonomie connue.' });
   }
-
-  // Encadrants non utilisés : ils plongent en autonomie avec les autres.
-  autonomous = [...autonomous, ...freeGuides.filter((g) => g.pa > 0)];
-  for (const g of freeGuides.filter((g) => !g.pa)) {
-    unassigned.push({ diver: g, reason: 'Encadrant sans palanquée à encadrer et sans aptitude d’autonomie connue.' });
-  }
-
-  const auto = [...autonomous].sort(byAutonomyDesc);
-  if (auto.length === 1) {
-    const lone = auto[0]!;
-    // Seul autonome : plongeur supplémentaire (*) s'il est GP/N4, sinon encadré s'il reste une place.
-    const host =
-      (lone.canBeExtra && palanquees.find((p) => p.kind === 'guided' && !p.extra && depthOf(p, outingMax) <= 40)) ||
-      palanquees.find((p) => p.kind === 'guided' && p.members.length < 4);
-    if (host && lone.canBeExtra && !host.extra && depthOf(host, outingMax) <= 40) host.extra = lone;
-    else if (host && host.members.length < 4) host.members.push(lone);
-    else unassigned.push({ diver: lone, reason: 'Seul autonome : il faut au moins 2 plongeurs pour une palanquée autonome.' });
-  } else if (auto.length > 1) {
-    for (const group of balancedChunks(auto, Math.ceil(auto.length / 3))) {
-      palanquees.push({ id: newId(), kind: 'autonomous', guide: null, extra: null, members: group });
-    }
-  }
+  groupAutonomous(autonomous, outingMax, palanquees, unassigned);
 
   for (const [a, b] of opts.buddies ?? []) joinBuddies(palanquees, a, b, outingMax);
-
   return { palanquees, unassigned };
+}
+
+/**
+ * Plongeurs encadrés : par groupes de 4 au plus, chacun avec l'encadrant le
+ * moins qualifié qui suffit (N4/GP au moins ; un E1 seulement pour des
+ * débutants). Renvoie les encadrants qui restent.
+ */
+function assignGuided(divers: Diver[], guides: Diver[], outingMax: Depth, out: Palanquee[], unassigned: Plan['unassigned']): Diver[] {
+  const free = [...guides];
+  if (!divers.length) return free;
+  const isGp = (g: Diver) => GUIDE_RANK[g.guide!] >= GUIDE_RANK.GP;
+
+  // Les E1 prennent d'abord les débutants (0-6 m), seuls, par 4.
+  let rest = [...divers];
+  const beginners = rest.filter((d) => guidedDepthOf(d) === 6).sort(byName);
+  for (const e1 of free.filter((g) => !isGp(g))) {
+    const group = beginners.splice(0, 4);
+    if (!group.length) break;
+    free.splice(free.indexOf(e1), 1);
+    rest = rest.filter((d) => !group.includes(d));
+    out.push({ id: newId(), kind: 'guided', guide: e1, extra: null, members: group });
+  }
+  if (!rest.length) return free;
+
+  // Les autres avec un N4/GP au moins.
+  const gp = free.filter(isGp);
+  if (!gp.length) {
+    for (const d of rest) unassigned.push({ diver: d, reason: 'Aucun encadrant N4/GP inscrit.' });
+    return free;
+  }
+  guidedGroups(rest, gp.length, outingMax).forEach((group) => {
+    const need = groupDepth(group, outingMax);
+    const candidates = free.filter(isGp);
+    const guide = candidates.find((g) => GUIDE_MAX_DEPTH[g.guide!] >= need) ?? candidates[candidates.length - 1];
+    if (!guide) {
+      for (const d of group) unassigned.push({ diver: d, reason: 'Pas assez d’encadrants N4/GP (4 plongeurs encadrés au maximum par encadrant).' });
+      return;
+    }
+    free.splice(free.indexOf(guide), 1);
+    out.push({ id: newId(), kind: 'guided', guide, extra: null, members: group });
+  });
+  return free;
+}
+
+/**
+ * Autonomes par prérogative (PA-60, PA-40, PA-20, PA-12, plafonnée à la
+ * profondeur automatique), 2 ou 3 par palanquée. Un plongeur seul à son niveau
+ * descend au niveau suivant : sa palanquée prend la prérogative la plus basse.
+ */
+function groupAutonomous(pool: Diver[], outingMax: Depth, out: Palanquee[], unassigned: Plan['unassigned']) {
+  const tierOf = (d: Diver) => minDepth(outingMax, d.pa as Depth);
+  let carry: Diver[] = [];
+  for (const depth of [60, 40, 20, 12] as Depth[]) {
+    const list = [...carry, ...pool.filter((d) => tierOf(d) === depth).sort(byName)];
+    carry = [];
+    if (list.length === 1) carry = list;
+    else if (list.length > 1) {
+      for (const group of balancedChunks(list, Math.ceil(list.length / 3))) {
+        out.push({ id: newId(), kind: 'autonomous', guide: null, extra: null, members: group });
+      }
+    }
+  }
+  const lone = carry[0];
+  if (!lone) return;
+  // Seul : il rejoint une palanquée autonome de 2 (de préférence sans la faire
+  // descendre), sinon plongeur supplémentaire s'il est GP, sinon encadré s'il reste une place.
+  const autos = out.filter((p) => p.kind === 'autonomous' && p.members.length < 3);
+  const host = autos.find((p) => (depthOf(p, outingMax) || 0) <= lone.pa) ?? autos[0];
+  if (host) {
+    host.members.push(lone);
+    return;
+  }
+  const extraHost = lone.canBeExtra && out.find((p) => p.kind !== 'autonomous' && !p.extra && depthOf(p, outingMax) <= 40);
+  if (extraHost) {
+    extraHost.extra = lone;
+    return;
+  }
+  const guidedHost = guidedDepthOf(lone) && out.find((p) => p.kind === 'guided' && p.members.length < 4);
+  if (guidedHost) guidedHost.members.push(lone);
+  else unassigned.push({ diver: lone, reason: 'Seul autonome : il faut au moins 2 plongeurs pour une palanquée autonome.' });
 }
 
 /**

@@ -3,7 +3,7 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, aptLabel, GUIDE_LABEL, prerogativeLabel, type Depth, type Diver, type PalanqueeKind, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, aptLabel, GUIDE_LABEL, KIND_LABEL, prerogativeLabel, type Depth, type Diver, type PalanqueeKind, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -84,14 +84,21 @@ export function moveDiver(plan: Plan, diver: Diver, target: string | 'new' | 'un
   return { palanquees: palanquees.filter((p) => !isEmpty(p) || p.id === target), unassigned };
 }
 
-/** Fait d'un membre de la palanquée son encadrant ou enseignant (l'ancien redevient membre). */
-export function setGuide(plan: Plan, palanqueeId: string, diverId: string): Plan {
-  return mapPal(plan, palanqueeId, (p) => {
-    const next = p.members.find((m) => m.id === diverId);
-    if (!next) return p;
-    const members = p.members.filter((m) => m.id !== diverId);
-    return { ...p, kind: p.kind === 'autonomous' ? 'guided' : p.kind, guide: next, members: p.guide ? [p.guide, ...members] : members };
-  });
+/**
+ * Désigne l'encadrant (ou l'enseignant) d'une palanquée, qu'il vienne d'une
+ * autre palanquée, des disponibles ou de la palanquée elle-même. L'ancien
+ * encadrant redevient disponible. Une palanquée autonome devient encadrée.
+ */
+export function assignGuide(plan: Plan, palanqueeId: string, diver: Diver): Plan {
+  const previous = plan.palanquees.find((p) => p.id === palanqueeId)?.guide;
+  if (previous?.id === diver.id) return plan;
+  const palanquees = plan.palanquees
+    .map((p) => without(p, diver.id))
+    .map((p) => (p.id === palanqueeId ? { ...p, kind: p.kind === 'autonomous' ? ('guided' as const) : p.kind, guide: diver } : p))
+    .filter((p) => !isEmpty(p));
+  const unassigned = plan.unassigned.filter((u) => u.diver.id !== diver.id);
+  if (previous) unassigned.push({ diver: previous, reason: 'Remplacé comme encadrant.' });
+  return { palanquees, unassigned };
 }
 
 /**
@@ -124,7 +131,7 @@ function mapPal(plan: Plan, id: string, fn: (p: Palanquee) => Palanquee): Plan {
 export function planToText(title: string, plan: Plan): string {
   const lines = [`Palanquées — ${title}`, ''];
   plan.palanquees.forEach((p, i) => {
-    lines.push(`P${i + 1} · ${prerogativeLabel(p)}`);
+    lines.push(`P${i + 1} · ${KIND_LABEL[p.kind]} · ${prerogativeLabel(p)}`);
     if (p.guide) lines.push(`  ${p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} : ${p.guide.name} (${p.guide.guide ? GUIDE_LABEL[p.guide.guide] : aptLabel(p.guide)})`);
     for (const m of p.members) lines.push(`  - ${m.name} (${aptLabel(m)})`);
     if (p.extra) lines.push(`  + ${p.extra.name} (GP suppl.)`);
