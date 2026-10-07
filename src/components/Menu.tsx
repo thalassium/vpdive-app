@@ -133,7 +133,7 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
           >
             {sections.map((s, si) => (
               <div key={si} className={si > 0 && !columns ? 'border-t border-line mt-1 pt-1' : ''}>
-                {s.title && <div className="px-3 pt-1.5 pb-1 text-[11px] font-bold uppercase tracking-wider text-muted">{s.title}</div>}
+                {s.title && <div className="px-3 pt-1.5 pb-1 text-xs font-bold uppercase tracking-wider text-muted">{s.title}</div>}
                 {s.options.map((o) => {
                   const selected = s.selected === o.value;
                   return (
@@ -146,11 +146,11 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
                         s.onSelect(o.value);
                         setOpen(false);
                       }}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm focus:outline-none focus:bg-raised hover:bg-raised ${selected ? 'font-semibold text-brand' : ''}`}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-base focus:outline-none focus:bg-raised hover:bg-raised ${selected ? 'font-semibold text-brand' : ''}`}
                     >
                       <span className="w-4 shrink-0">{selected && <Check className="w-4 h-4" strokeWidth={2.5} />}</span>
                       <span className="flex-1 min-w-0">{o.label}</span>
-                      {o.hint && <span className="text-xs text-muted shrink-0">{o.hint}</span>}
+                      {o.hint && <span className="text-sm text-muted shrink-0">{o.hint}</span>}
                     </button>
                   );
                 })}

@@ -52,7 +52,7 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
                     <span key={slot} className="inline-flex items-center">
                       <Menu
                         ariaLabel={`${post.label} : ${slot === 0 ? 'première' : 'seconde'} personne`}
-                        triggerClassName={`h-9 min-w-48 inline-flex items-center justify-between gap-2 rounded-lg border px-3 text-sm ${
+                        triggerClassName={`h-10 min-w-48 inline-flex items-center justify-between gap-2 rounded-lg border px-3 text-base ${
                           id ? 'border-brand/40 bg-tint text-brand font-semibold' : 'border-dashed border-line text-muted hover:border-brand/40'
                         }`}
                         trigger={
@@ -96,8 +96,8 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
 
       {recap.length > 0 && (
         <section>
-          <h4 className="text-xs font-bold uppercase tracking-wider text-muted mb-2">Qui fait quoi</h4>
-          <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+          <h4 className="text-sm font-bold uppercase tracking-wider text-muted mb-2">Qui fait quoi</h4>
+          <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-base">
             {recap.map(({ r, posts }) => (
               <li key={r.id} className="flex gap-2">
                 <span className="font-medium text-ink">{nameOf(r)}</span>

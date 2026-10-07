@@ -21,8 +21,10 @@
  *   coast-far / coast-near / swell     traits de carte, bulles, îles, calanques, houle
  *
  * Polices : le site utilise Gill Sans Nova (payante, hébergée par le site,
- * non réutilisée ici). On prend Gill Sans si l'appareil l'a, sinon Cabin,
- * police libre dessinée d'après Gill Sans. Georgia pour les textes longs.
+ * non réutilisée ici). On prend Atkinson Hyperlegible Next, police libre
+ * dessinée pour la lisibilité (lettres ambiguës bien distinctes, utile pour
+ * les noms et niveaux dans les palanquées), chargée pour tous les appareils :
+ * même rendu partout. Georgia pour les textes longs.
  */
 :root {
   color-scheme: light;
@@ -83,7 +85,7 @@
 }
 
 @theme {
-  --font-sans: 'Gill Sans Nova', 'Gill Sans', 'Gill Sans MT', 'Cabin', system-ui, sans-serif;
+  --font-sans: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
   --font-serif: Georgia, 'Noto Serif', 'Times New Roman', serif;
 
   --color-pink: #f393a8;

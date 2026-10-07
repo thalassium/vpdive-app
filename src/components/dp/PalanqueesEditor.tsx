@@ -193,7 +193,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
           />
           <span className="min-w-0">
             <span className="font-medium text-ink truncate block">{d.name}</span>
-            <span className="text-xs text-muted">
+            <span className="text-sm text-muted">
               VPDive : {r.display.join(', ') || 'aucun niveau'}
               {forced && <span className="text-brand font-semibold"> → prérogative retenue : {forced}</span>}
               {d.training > 0 && <span className="text-brand font-semibold"> · en formation FN{d.training}</span>}
@@ -359,7 +359,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
             </div>
           )}
 
-          <p className="mt-4 text-xs text-muted leading-relaxed">
+          <p className="mt-4 text-sm text-muted leading-relaxed">
             Code du sport (annexes III-14 à III-16, plongée à l’air) : formation et encadrée avec un encadrant (4 élèves ou plongeurs au plus, +1
             GP/N4 jusqu’à 40 m), autonome de 2 à 3 plongeurs majeurs autonomes. La prérogative de la palanquée est celle du moins formé. Le directeur
             de plongée reste seul juge de la composition finale.
@@ -373,7 +373,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
 function RosterGroup({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (
     <div>
-      <h4 className="text-xs font-bold uppercase tracking-wider text-muted mb-1.5">
+      <h4 className="text-sm font-bold uppercase tracking-wider text-muted mb-2">
         {title} <span className="font-normal">· {count}</span>
       </h4>
       {count ? <ul className="rounded-xl border border-line divide-y divide-line">{children}</ul> : <p className="text-sm text-muted font-serif italic">Aucun.</p>}
@@ -447,7 +447,7 @@ function PalanqueeCard({
               />
             )}
             {/* Exploration : encadrée ou autonome découle de la présence d'un encadrant */}
-            {p.kind !== 'teaching' && <span className="block text-[11px] text-white/70 mt-0.5">{p.guide ? 'Encadrée' : 'Autonome'}</span>}
+            {p.kind !== 'teaching' && <span className="block text-xs text-white/85 mt-0.5">{p.guide ? 'Encadrée' : 'Autonome'}</span>}
           </span>
           {!locked && (
             <button
@@ -455,14 +455,14 @@ function PalanqueeCard({
               onClick={onDelete}
               aria-label={`Supprimer P${index}`}
               title="Supprimer la palanquée (ses participants redeviennent disponibles)"
-              className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-white/15"
+              className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-white/85 hover:text-white hover:bg-white/15"
             >
               <Trash2 className="w-4 h-4" />
             </button>
           )}
         </div>
         <div className="text-right shrink-0">
-          <span className="block text-[10px] font-bold uppercase tracking-wider text-white/70">Prérogative</span>
+          <span className="block text-xs font-bold uppercase tracking-wider text-white/85">Prérogative</span>
           {selectable ? (
             <Menu
               ariaLabel="Prérogative de la palanquée"
@@ -494,7 +494,7 @@ function PalanqueeCard({
       </header>
 
       {/* Plongeurs, avec leur prérogative ; celui qui fixe celle de la palanquée est signalé */}
-      <ul className="px-4 pt-3 pb-3 space-y-1.5 text-sm">
+      <ul className="px-4 pt-3 pb-3 space-y-2.5 text-base">
         <GuideRow p={p} eligible={eligible} locked={locked} targets={targets} onMove={onMove} onGuide={onGuide} onRemove={onRemoveGuide} />
         {p.members.map((m) => {
           const own = ownPrerogative(m, p);
@@ -511,7 +511,7 @@ function PalanqueeCard({
       </ul>
 
       {issues.length > 0 && (
-        <ul className="px-4 pb-3.5 space-y-1 text-sm text-danger">
+        <ul className="px-4 pb-3.5 space-y-1.5 text-base text-danger">
           {issues.map((i) => (
             <li key={i} className="flex items-start gap-1.5">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {i}
@@ -556,7 +556,7 @@ function GuideRow({
   const missingTone = teaching ? 'border-2 border-dashed border-danger/50 text-danger' : 'border border-dashed border-line text-muted';
   return (
     <li className={`-mx-2 px-2 py-1.5 rounded-lg flex items-center gap-2 ${g ? 'bg-raised border border-line' : missingTone}`}>
-      <span className={`shrink-0 min-w-16 inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-bold ${g ? 'bg-pink text-on-pink' : teaching ? 'bg-danger-soft' : 'bg-raised'}`}>
+      <span className={`shrink-0 min-w-16 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-sm font-bold ${g ? 'bg-pink text-on-pink' : teaching ? 'bg-danger-soft' : 'bg-raised'}`}>
         <Star className={`w-3 h-3 ${g ? 'fill-current' : ''}`} />
         {g ? prerogativeCode(g) || '?' : role}
       </span>
@@ -585,7 +585,7 @@ function GuideRow({
         ) : (
           <span className={`block truncate ${g ? 'font-bold text-ink' : ''}`}>{g ? g.name : teaching ? 'Aucun enseignant disponible' : 'Sans encadrant'}</span>
         )}
-        <span className="block text-xs text-muted truncate">
+        <span className="block text-sm text-muted truncate">
           {g ? role : teaching ? 'Une formation demande un enseignant (E1, E2, E3…)' : 'Plongeurs autonomes'}
           {g && diplomas(g).length > 0 && ` · ${diplomas(g).join(' · ')}`}
         </span>
@@ -614,7 +614,7 @@ function DiverRow({
   onMove: (d: Diver, target: string) => void;
   levelSections?: (d: Diver) => MenuSection[];
 }) {
-  const chipCls = `shrink-0 min-w-16 inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs font-bold tabular-nums ${
+  const chipCls = `shrink-0 min-w-16 inline-flex items-center justify-center gap-0.5 px-2 py-1 rounded-md text-sm font-bold tabular-nums ${
     limiting ? 'bg-warn-soft text-warn ring-1 ring-warn/40' : 'bg-raised text-ink'
   }`;
   return (
@@ -639,7 +639,7 @@ function DiverRow({
       )}
       <span className="flex-1 min-w-0">
         <span className="block truncate text-ink">{d.name}</span>
-        <span className="block text-xs text-muted truncate">
+        <span className="block text-sm text-muted truncate">
           {d.training ? `en formation FN${d.training} · ${describe(d)}` : describe(d)}
           {d.original && <span title="Le DP a retenu un équivalent FFESSM"> · équivalent retenu</span>}
           {d.minor ? ' · mineur' : ''}
@@ -662,10 +662,10 @@ function FreeList({ title, items, targets, onMove, instructor }: { title: string
       ) : (
         <ul className="space-y-2">
           {items.map(({ diver, reason }) => (
-            <li key={diver.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <li key={diver.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base">
               <span className="font-medium text-ink">{diver.name}</span>
-              <span className="text-xs text-muted">{shownLevel(diver)}</span>
-              <span className="basis-full text-xs text-muted">{reason}</span>
+              <span className="text-sm text-muted">{shownLevel(diver)}</span>
+              <span className="basis-full text-sm text-muted">{reason}</span>
               <MoveSelect targets={targets} onMove={(t) => onMove(diver, t)} instructor={instructor} allowUnassign={false} />
             </li>
           ))}
@@ -696,7 +696,7 @@ function MoveSelect({
   return (
     <Menu
       ariaLabel="Déplacer"
-      triggerClassName="h-8 shrink-0 inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 text-xs text-muted hover:border-brand/40 hover:text-brand"
+      triggerClassName="h-9 shrink-0 inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2.5 text-sm text-muted hover:border-brand/40 hover:text-brand"
       trigger={
         <>
           Déplacer
@@ -726,7 +726,7 @@ export function Heading({ n, hint, children }: { n: number; hint?: string; child
         <span className="w-6 h-6 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">{n}</span>
         {children}
       </h3>
-      {hint && <span className="text-xs text-muted text-right">{hint}</span>}
+      {hint && <span className="text-sm text-muted text-right">{hint}</span>}
     </div>
   );
 }

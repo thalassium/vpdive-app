@@ -241,7 +241,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           <div className="relative flex items-start justify-between gap-3">
             <div className="min-w-0">
               {event.activity && (
-                <span className="text-xs font-semibold uppercase tracking-wider text-pink block mb-1">{event.activity.name}</span>
+                <span className="text-sm font-semibold uppercase tracking-wider text-pink block mb-1">{event.activity.name}</span>
               )}
               <h2 id="booking-title" className="text-xl sm:text-2xl font-semibold leading-snug">
                 {title}
@@ -251,12 +251,12 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
               onClick={onClose}
               disabled={busy}
               aria-label="Fermer"
-              className="w-10 h-10 -mr-2 -mt-1 shrink-0 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-surface/10"
+              className="w-10 h-10 -mr-2 -mt-1 shrink-0 flex items-center justify-center rounded-full text-white/85 hover:text-white hover:bg-surface/10"
             >
               <X className="w-6 h-6" />
             </button>
           </div>
-          <div className="relative mt-3 space-y-1 text-sm text-white/85">
+          <div className="relative mt-3 space-y-1 text-base text-white/85">
             <p className="flex items-start gap-2">
               <Clock className="w-4 h-4 text-pink shrink-0 mt-0.5" />
               <span className="first-letter:uppercase">{formatRange(start, end, event.allDay)}</span>
@@ -283,7 +283,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           <div className="flex-1 overflow-y-auto overscroll-contain px-5 sm:px-6 py-5 space-y-6">
             {!detail && !loadError && <p className="py-10 text-center text-muted">Chargement de la sortie depuis VPDive…</p>}
             {loadError && (
-              <div role="alert" className="p-4 rounded-xl bg-danger-soft text-danger text-sm flex items-start gap-2.5">
+              <div role="alert" className="p-4 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2.5">
                 <AlertCircle className="w-5 h-5 shrink-0" />
                 <div className="flex-1">
                   <span className="font-semibold block">Impossible de charger cette sortie</span>
@@ -339,7 +339,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                         <div role="radiogroup" aria-label="Votre rôle" className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {detail.roles.map((r) => (
                             <ChoiceCard key={r.key} role="radio" selected={roleKey === r.key} onClick={() => chooseRole(r.key)}>
-                              <span className="text-base sm:text-sm font-medium">{r.label}</span>
+                              <span className="text-base font-medium">{r.label}</span>
                             </ChoiceCard>
                           ))}
                         </div>
@@ -370,7 +370,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                                     onChange={() => setTariffToken(t.token)}
                                     className="appearance-none w-5 h-5 shrink-0 rounded-full border-2 border-muted/50 bg-surface checked:border-[6px] checked:border-fill transition-all cursor-pointer"
                                   />
-                                  <span className={`text-base sm:text-sm ${selected ? 'font-semibold text-brand' : 'text-ink'}`}>{t.label}</span>
+                                  <span className={`text-base ${selected ? 'font-semibold text-brand' : 'text-ink'}`}>{t.label}</span>
                                 </span>
                                 <span className={`text-base tabular-nums shrink-0 ${selected ? 'font-semibold text-brand' : 'text-muted'}`}>
                                   {formatEuro(prices[t.token] ?? t.price)}
@@ -402,7 +402,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                                 onClick={() => setGear((prev) => ({ ...prev, [m.id]: !prev[m.id] }))}
                                 label={`${m.name}, ${m.price > 0 ? formatEuro(m.price) : 'inclus'}`}
                               >
-                                <span className="block text-[15px] sm:text-sm font-medium leading-tight">{m.name}</span>
+                                <span className="block text-base font-medium leading-snug">{m.name}</span>
                                 <span className={`block text-sm tabular-nums mt-1 ${checked ? 'text-brand font-semibold' : 'text-muted'}`}>
                                   {m.price > 0 ? `+${formatEuro(m.price)}` : 'Inclus'}
                                   {checked && qty > 1 ? ` × ${qty}` : ''}
@@ -504,7 +504,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           {showForm && (
             <div className="shrink-0 border-t border-line bg-surface px-5 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] flex items-center gap-4">
               <div className="min-w-0">
-                <span className="text-xs text-muted block">Total estimé</span>
+                <span className="text-sm text-muted block">Total estimé</span>
                 <span className="text-2xl font-semibold text-brand tabular-nums leading-none">{formatEuro(total)}</span>
               </div>
               <button
@@ -623,7 +623,7 @@ function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDeta
   const sizeText = SIZED_KINDS.filter((k) => sizes[k]).map((k) => `${SIZED_LABEL[k].toLowerCase()} ${sizes[k]}`);
   const canEdit = detail.canModify && !detail.requiresExtraForm && !!r;
   return (
-    <div className="p-4 rounded-xl bg-ok-soft border border-green/40 text-sm space-y-3">
+    <div className="p-4 rounded-xl bg-ok-soft border border-green/40 text-base space-y-3">
       <p className="flex items-center gap-2 font-semibold text-base text-ok">
         <CheckCircle2 className="w-5 h-5" />
         Vous êtes inscrit à cette sortie
@@ -699,7 +699,7 @@ function Description({ text }: { text: string }) {
   }, [text, open]);
   return (
     <section className="rounded-xl bg-raised px-4 py-3">
-      <h3 className="text-sm font-semibold text-brand mb-1.5">Description de la sortie</h3>
+      <h3 className="text-base font-semibold text-brand mb-1.5">Description de la sortie</h3>
       <p ref={ref} className={`font-serif text-[15px] text-ink/90 whitespace-pre-line leading-relaxed ${open ? '' : 'line-clamp-3'}`}>
         {text}
       </p>
@@ -723,7 +723,7 @@ function StatusBanner({ status }: { status: Status }) {
   return (
     <div
       role={ok ? 'status' : 'alert'}
-      className={`p-3.5 rounded-xl text-sm flex items-start gap-2 ${ok ? 'bg-ok-soft text-ok' : 'bg-danger-soft text-danger'}`}
+      className={`p-3.5 rounded-xl text-base flex items-start gap-2 ${ok ? 'bg-ok-soft text-ok' : 'bg-danger-soft text-danger'}`}
     >
       {ok ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <AlertCircle className="w-5 h-5 shrink-0" />}
       <span className="font-semibold">{status.text}</span>
@@ -734,7 +734,7 @@ function StatusBanner({ status }: { status: Status }) {
 function Notice({ tone, title, children }: { tone: 'info' | 'warn'; title: string; children: ReactNode }) {
   const cls = tone === 'warn' ? 'bg-warn-soft text-warn' : 'bg-tint text-brand';
   return (
-    <div className={`p-4 rounded-xl text-sm flex items-start gap-2.5 ${cls}`}>
+    <div className={`p-4 rounded-xl text-base flex items-start gap-2.5 ${cls}`}>
       <AlertCircle className="w-5 h-5 shrink-0" />
       <div>
         <span className="font-semibold block">{title}</span>
@@ -751,7 +751,7 @@ function SectionTitle({ children, n, hint }: { children: ReactNode; n: number; h
         <span className="w-6 h-6 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">{n}</span>
         {children}
       </h3>
-      {hint && <span className="text-xs text-muted text-right">{hint}</span>}
+      {hint && <span className="text-sm text-muted text-right">{hint}</span>}
     </div>
   );
 }

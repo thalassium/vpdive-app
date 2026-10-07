@@ -226,7 +226,7 @@ export default function App() {
       )}
       {panel === 'members' && isAdmin && me && <MembersPanel me={me} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
 
-      <footer className={`relative bg-band text-white/75 px-4 py-8 mt-16 ${printPanel}`}>
+      <footer className={`relative bg-band text-white/85 px-4 py-8 mt-16 ${printPanel}`}>
         {/* Le bandeau marine sort de l'eau par une vague, au lieu d'une coupure droite */}
         <svg aria-hidden className="absolute bottom-full inset-x-0 w-full h-6 text-band" viewBox="0 0 1440 24" preserveAspectRatio="none">
           <path fill="currentColor" d="M0 14 C 180 2 360 2 540 12 S 900 24 1080 12 S 1320 4 1440 10 V24 H0 Z" />

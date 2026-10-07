@@ -106,17 +106,17 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
         <div className="bg-band text-white px-5 sm:px-6 pt-4 pb-4 shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <span className="text-xs font-semibold uppercase tracking-wider text-pink block mb-1">Admin</span>
+              <span className="text-sm font-semibold uppercase tracking-wider text-pink block mb-1">Admin</span>
               <h2 id="members-title" className="text-xl sm:text-2xl font-semibold flex items-center gap-2">
                 <Users className="w-6 h-6 text-pink" /> Membres du club
               </h2>
               {members && (
-                <p className="text-sm text-white/75 mt-0.5">
+                <p className="text-sm text-white/85 mt-0.5">
                   {members.length} membres sur VPDive · {adminCount} admin{adminCount > 1 ? 's' : ''} de l’appli
                 </p>
               )}
             </div>
-            <button onClick={onClose} aria-label="Fermer" className="w-10 h-10 -mr-2 shrink-0 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10">
+            <button onClick={onClose} aria-label="Fermer" className="w-10 h-10 -mr-2 shrink-0 flex items-center justify-center rounded-full text-white/85 hover:text-white hover:bg-white/10">
               <X className="w-6 h-6" />
             </button>
           </div>
@@ -129,11 +129,11 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
               placeholder="Rechercher un membre…"
               aria-label="Rechercher un membre"
               autoFocus
-              className="w-full bg-surface text-ink border border-line rounded-full pl-11 pr-4 h-11 text-base placeholder-muted/70 focus:outline-none focus:ring-4 focus:ring-white/20"
+              className="w-full bg-surface text-ink border border-line rounded-full pl-11 pr-4 h-11 text-base placeholder-muted focus:outline-none focus:ring-4 focus:ring-white/20"
             />
           </div>
           {canEdit && (
-            <p className="mt-3 text-xs text-white/70 leading-relaxed">
+            <p className="mt-3 text-sm text-white/85 leading-relaxed">
               Admin : accès aux écrans Membres et DP. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli
               par défaut ; le leur retirer ici ne change rien sur vpdive.com.
             </p>
@@ -141,7 +141,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
         </div>
 
         {roleError && (
-          <div role="alert" className="mx-4 mt-3 p-3 rounded-xl bg-danger-soft text-danger text-sm flex items-start gap-2">
+          <div role="alert" className="mx-4 mt-3 p-3 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {roleError}
           </div>
         )}
@@ -149,7 +149,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
         <div className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-4 py-3">
           {!members && !error && <p className="py-10 text-center text-muted">Chargement des membres depuis VPDive…</p>}
           {error && (
-            <div role="alert" className="m-2 p-4 rounded-xl bg-danger-soft text-danger text-sm flex items-start gap-2.5">
+            <div role="alert" className="m-2 p-4 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2.5">
               <AlertTriangle className="w-5 h-5 shrink-0" />
               <div className="flex-1">
                 <span className="font-semibold block">Liste des membres indisponible</span>
@@ -164,7 +164,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
           {groups.map(({ label, list }) =>
             list.length === 0 && label ? null : (
               <section key={label || 'results'}>
-                {label && <h3 className="sticky top-0 z-10 bg-surface/95 backdrop-blur px-3 pt-3 pb-1 text-xs font-bold uppercase tracking-wider text-muted">{label}</h3>}
+                {label && <h3 className="sticky top-0 z-10 bg-surface/95 backdrop-blur px-3 pt-3 pb-1 text-sm font-bold uppercase tracking-wider text-muted">{label}</h3>}
                 <ul>
                   {list.map((m) => (
                     <MemberRow
@@ -236,7 +236,7 @@ function MemberRow({
 
   return (
     <li className={busy ? 'opacity-60' : ''}>
-      <div className={`flex items-center gap-3 px-3 py-2 rounded-xl ${open ? 'bg-tint' : 'hover:bg-raised'}`}>
+      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${open ? 'bg-tint' : 'hover:bg-raised'}`}>
         <button type="button" onClick={onToggle} aria-expanded={open} className="flex-1 min-w-0 flex items-center gap-3 text-left">
           <Avatar member={member} />
           <span className="min-w-0">
@@ -244,7 +244,7 @@ function MemberRow({
               {member.name}
               {isMe && <span className="text-muted font-normal">(vous)</span>}
             </span>
-            {note && <span className="block text-xs text-muted truncate">{note}</span>}
+            {note && <span className="block text-sm text-muted truncate">{note}</span>}
           </span>
           <ChevronDown className={`w-4 h-4 text-muted shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
@@ -255,14 +255,14 @@ function MemberRow({
           </span>
         ) : (
           role !== 'member' && (
-            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tint text-brand text-xs font-semibold">
+            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tint text-brand text-sm font-semibold">
               <ShieldCheck className="w-3.5 h-3.5" /> {role === 'superadmin' ? 'Super-admin' : 'Admin'}
             </span>
           )
         )}
       </div>
       {open && (
-        <div className="ml-14 mr-3 mb-2 mt-1 text-sm space-y-1.5">
+        <div className="ml-14 mr-3 mb-2 mt-1 text-base space-y-1.5">
           {!profile && !error && <p className="text-muted">Lecture du profil VPDive…</p>}
           {error && <p className="text-danger">{error}</p>}
           {profile && (
@@ -292,7 +292,7 @@ function Switch({ label, checked, disabled, locked, onChange }: { label: string;
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink disabled:opacity-50 disabled:cursor-not-allowed"
+      className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <span className={`w-9 h-5 rounded-full relative transition-colors ${checked ? 'bg-fill' : 'bg-line'}`} aria-hidden>
         <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${checked ? 'left-[1.125rem]' : 'left-0.5'}`} />

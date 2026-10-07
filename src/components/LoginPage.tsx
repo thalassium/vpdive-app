@@ -12,7 +12,7 @@ interface LoginPageProps {
 }
 
 const inputCls =
-  'w-full bg-surface border border-line rounded-xl px-4 py-3 text-base text-ink placeholder-muted/60 focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition';
+  'w-full bg-surface border border-line rounded-xl px-4 py-3 text-base text-ink placeholder-muted focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition';
 
 export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
   const [email, setEmail] = useState('');
@@ -50,14 +50,14 @@ export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
             <p className="font-serif italic text-muted mt-1 mb-6">Connectez-vous avec votre compte VPDive</p>
 
             {notice && !error && (
-              <div className="mb-4 p-3.5 rounded-xl bg-warn-soft text-warn text-sm flex items-start gap-2">
+              <div className="mb-4 p-3.5 rounded-xl bg-warn-soft text-warn text-base flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>{notice}</span>
               </div>
             )}
 
             {error && (
-              <div role="alert" className="mb-4 p-3.5 rounded-xl bg-danger-soft text-danger text-sm flex items-start gap-2">
+              <div role="alert" className="mb-4 p-3.5 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <div>
                   <strong className="block font-semibold">Connexion impossible</strong>
@@ -98,7 +98,7 @@ export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
                   placeholder="Votre mot de passe VPDive"
                   className={inputCls}
                 />
-                <span className="text-xs text-muted block mt-1.5">Envoyé uniquement à VPDive, jamais conservé dans le navigateur.</span>
+                <span className="text-sm text-muted block mt-1.5">Envoyé uniquement à VPDive, jamais conservé dans le navigateur.</span>
               </div>
 
               <button
@@ -126,7 +126,7 @@ export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
         </div>
       </main>
 
-      <footer className="relative py-5 text-center text-xs text-muted">
+      <footer className="relative py-5 text-center text-sm text-muted">
         Septentrion Environnement · Association loi 1901 · Pointe Rouge, Marseille
       </footer>
     </div>

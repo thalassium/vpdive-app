@@ -127,7 +127,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
       {/* Month + navigation */}
       <div className="grid grid-cols-[1fr_auto] items-end gap-x-3 gap-y-2">
         <h1 className="col-span-2 sm:col-span-1 text-3xl sm:text-[2.75rem] font-semibold text-brand leading-none tracking-tight">
-          {MOIS_FR[m]} <span className="font-normal text-muted/70">{year}</span>
+          {MOIS_FR[m]} <span className="font-normal text-muted">{year}</span>
         </h1>
         <p className="row-start-2 col-start-1 text-sm text-muted min-h-5 self-center sm:self-end">
           {!firstLoad && !error && (
@@ -164,7 +164,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Rechercher une sortie, un lieu…"
             aria-label="Rechercher"
-            className="w-full bg-surface border border-line rounded-full pl-11 pr-4 h-11 text-base sm:text-sm text-ink placeholder-muted/70 focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition"
+            className="w-full bg-surface border border-line rounded-full pl-11 pr-4 h-11 text-base sm:text-sm text-ink placeholder-muted focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition"
           />
         </div>
         <div className="flex items-center gap-2 sm:ml-auto">
@@ -205,7 +205,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
       </div>
 
       {error && (
-        <div role="alert" className="mt-5 p-4 rounded-2xl bg-danger-soft text-danger text-sm flex items-start gap-3">
+        <div role="alert" className="mt-5 p-4 rounded-2xl bg-danger-soft text-danger text-base flex items-start gap-3">
           <AlertCircle className="w-5 h-5 shrink-0" />
           <div className="flex-1">
             <strong className="block font-semibold">L’agenda n’a pas pu être chargé depuis VPDive.</strong>
@@ -220,7 +220,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
       {viewMode === 'month' ? (
         <>
           <div className="mt-6 bg-surface rounded-2xl border border-line overflow-hidden shadow-card">
-            <div className="grid grid-cols-7 border-b border-line text-center text-xs font-semibold uppercase tracking-wider text-muted py-3">
+            <div className="grid grid-cols-7 border-b border-line text-center text-sm font-semibold uppercase tracking-wider text-muted py-3">
               {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map((d) => (
                 <div key={d}>
                   <span className="sm:hidden">{d.slice(0, 1)}</span>
@@ -254,7 +254,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                     <div className="flex items-center justify-between max-sm:justify-center">
                       <span
                         className={`text-sm tabular-nums w-7 h-7 flex items-center justify-center rounded-full ${
-                          isToday ? 'bg-pink text-on-pink font-bold' : day.inMonth ? 'text-ink font-medium' : 'text-muted/40'
+                          isToday ? 'bg-pink text-on-pink font-bold' : day.inMonth ? 'text-ink font-medium' : 'text-muted'
                         }`}
                       >
                         {day.day}
@@ -262,7 +262,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                       {wind && day.inMonth && (
                         <span
                           title={`Vent max en journée : ${wind.max} nd (${wind.dir}), rafales ${wind.gusts} nd`}
-                          className={`hidden sm:inline-flex items-center gap-1 text-xs tabular-nums ${wind.strong ? 'text-warn font-semibold' : 'text-muted/80'}`}
+                          className={`hidden sm:inline-flex items-center gap-1 text-xs tabular-nums ${wind.strong ? 'text-warn font-semibold' : 'text-muted'}`}
                         >
                           <Wind className="w-3.5 h-3.5" />
                           {wind.max} nd
@@ -357,9 +357,9 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
 function DayHeading({ date, wind, today }: { date: string; wind: ReturnType<typeof daytimeWind>; today?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-2 mb-3 px-1">
-      <h2 className="text-base sm:text-lg font-semibold text-brand first-letter:uppercase flex items-center gap-2">
+      <h2 className="text-lg sm:text-xl font-semibold text-brand first-letter:uppercase flex items-center gap-2">
         {dayLabel(date)}
-        {today && <span className="text-xs font-bold bg-pink text-on-pink px-2 py-0.5 rounded-full">Aujourd’hui</span>}
+        {today && <span className="text-sm font-bold bg-pink text-on-pink px-2.5 py-0.5 rounded-full">Aujourd’hui</span>}
       </h2>
       {wind && (
         <span
@@ -451,7 +451,7 @@ function EventCard({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
         )}
       </div>
 
-      <ChevronRight className="hidden sm:block w-5 h-5 text-muted/50 self-center shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:text-brand" />
+      <ChevronRight className="hidden sm:block w-5 h-5 text-muted self-center shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:text-brand" />
     </button>
   );
 }
@@ -462,7 +462,7 @@ function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
     <button
       onClick={onClick}
       data-event-chip
-      className={`relative w-full text-left pl-3 pr-2 py-1.5 rounded-lg overflow-hidden transition-colors block text-xs leading-tight ${
+      className={`relative w-full text-left pl-3 pr-2 py-1.5 rounded-lg overflow-hidden transition-colors block text-xs leading-snug ${
         ev.registered ? 'bg-ok-soft hover:brightness-95 dark:hover:brightness-125' : 'bg-raised hover:bg-tint'
       }`}
     >
@@ -470,18 +470,18 @@ function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
       <span className="flex items-center justify-between gap-1 mb-0.5">
         <span className="text-muted tabular-nums">{timeOf(ev)}</span>
         {ev.registered ? (
-          <span className="text-[11px] font-semibold text-ok inline-flex items-center gap-0.5">
+          <span className="font-semibold text-ok inline-flex items-center gap-0.5">
             <Check className="w-3 h-3" strokeWidth={3} /> Inscrit
           </span>
         ) : (
           a && (
-            <span className={`text-[11px] ${a.tone === 'warn' ? 'text-warn font-semibold' : 'text-muted'}`}>
+            <span className={`${a.tone === 'warn' ? 'text-warn font-semibold' : 'text-muted'}`}>
               {ev.availableSpots === 0 ? 'complet' : `${ev.availableSpots} pl.`}
             </span>
           )
         )}
       </span>
-      <span className={`font-semibold line-clamp-2 ${ev.registered ? 'text-ok' : 'text-brand'}`}>{ev.title}</span>
+      <span className={`lg:text-sm font-semibold line-clamp-2 ${ev.registered ? 'text-ok' : 'text-brand'}`}>{ev.title}</span>
     </button>
   );
 }

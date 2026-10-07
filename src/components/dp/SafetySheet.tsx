@@ -41,7 +41,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-lg font-semibold text-brand print:text-black">Fiche de sécurité · {dive.label}</h3>
-          <p className="text-xs text-muted">Art. A322-72 du code du sport et R4461-13 du code du travail</p>
+          <p className="text-sm print:text-xs text-muted">Art. A322-72 du code du sport et R4461-13 du code du travail</p>
         </div>
         <div className="print:hidden flex flex-wrap items-center gap-2">
           {pdfState === 'error' && <span className="text-sm text-danger">PDF indisponible, réessayez</span>}
@@ -66,7 +66,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
       <section className="grid sm:grid-cols-2 gap-x-6 gap-y-3 print:grid-cols-3 print:gap-y-1">
         {HEADER_FIELDS.map((f) => (
           <label key={f.key} className="block">
-            <span className="block text-xs font-semibold text-muted mb-1 print:mb-0">{f.label}</span>
+            <span className="block text-sm print:text-xs font-semibold text-muted mb-1 print:mb-0">{f.label}</span>
             {f.options ? (
               <Menu
                 ariaLabel={f.label}
@@ -85,7 +85,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
           </label>
         ))}
         <div>
-          <span className="block text-xs font-semibold text-muted mb-1 print:mb-0">Nb plongeurs</span>
+          <span className="block text-sm print:text-xs font-semibold text-muted mb-1 print:mb-0">Nb plongeurs</span>
           <span className="block h-10 leading-10 px-3 font-semibold tabular-nums print:h-auto print:leading-normal print:px-0">{diversInWater(dive)}</span>
         </div>
       </section>
@@ -102,7 +102,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
               </header>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-xs text-muted">
+                  <tr className="text-left text-sm print:text-xs text-muted">
                     <th className="px-3 py-1.5 font-semibold w-24" />
                     <th className="py-1.5 font-semibold">Nom</th>
                     <th className="py-1.5 font-semibold">Prénom</th>
@@ -113,7 +113,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
                 <tbody>
                   {rows.map((r) => (
                     <tr key={r.label} className="border-t border-line print:border-black/30">
-                      <th className="px-3 py-1.5 text-left text-xs font-semibold text-muted whitespace-nowrap">{r.label}</th>
+                      <th className="px-3 py-1.5 text-left text-sm print:text-xs font-semibold text-muted whitespace-nowrap">{r.label}</th>
                       <td className="py-1.5 pr-2 font-medium text-ink uppercase">{r.d ? lastNameOf(r.d) : ''}</td>
                       <td className="py-1.5 pr-2 text-ink">{r.d ? firstNameOf(r.d) : ''}</td>
                       <td className="py-1.5 pr-2 font-semibold tabular-nums">{r.d ? sheetApt(r.d, p, r.slot) : ''}</td>
@@ -134,7 +134,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
               </table>
               <table className="w-full text-sm border-t-2 border-line print:border-black">
                 <thead>
-                  <tr className="text-left text-xs text-muted">
+                  <tr className="text-left text-sm print:text-xs text-muted">
                     <th className="px-3 py-1.5 font-semibold w-24">Paramètres</th>
                     <th className="py-1.5 font-semibold">Durée (min)</th>
                     <th className="py-1.5 font-semibold">Profondeur (m)</th>
@@ -144,7 +144,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
                 <tbody>
                   {(['planned', 'actual'] as const).map((k) => (
                     <tr key={k} className="border-t border-line print:border-black/30">
-                      <th className="px-3 py-1.5 text-left text-xs font-semibold text-muted">{k === 'planned' ? 'Prévus' : 'Réalisés'}</th>
+                      <th className="px-3 py-1.5 text-left text-sm print:text-xs font-semibold text-muted">{k === 'planned' ? 'Prévus' : 'Réalisés'}</th>
                       <ParamsCells
                         value={sheet[k]}
                         depthHint={k === 'planned' ? String(chosenDepth(p) || '') : ''}
@@ -185,7 +185,7 @@ function ParamsCells({ value, depthHint, onChange }: { value: DiveParams; depthH
 }
 
 function Footnote({ children }: { children: ReactNode }) {
-  return <p className="text-xs text-muted leading-relaxed">{children}</p>;
+  return <p className="text-sm print:text-xs text-muted leading-relaxed">{children}</p>;
 }
 
 const fieldCls =

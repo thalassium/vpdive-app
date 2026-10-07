@@ -90,7 +90,7 @@ export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }:
       >
         <div className="bg-band text-white px-5 sm:px-6 py-3.5 shrink-0 flex items-center gap-3 print:hidden">
           {selected && (
-            <button onClick={() => closeRef.current().then(() => setSelected(null))} aria-label="Toutes les sorties" className="lg:hidden w-10 h-10 -ml-2 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10">
+            <button onClick={() => closeRef.current().then(() => setSelected(null))} aria-label="Toutes les sorties" className="lg:hidden w-10 h-10 -ml-2 flex items-center justify-center rounded-full text-white/85 hover:text-white hover:bg-white/10">
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
@@ -98,7 +98,7 @@ export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }:
           <h2 id="dp-title" className="text-xl font-semibold flex-1">
             Directeur de plongée
           </h2>
-          <button onClick={close} aria-label="Fermer" className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10">
+          <button onClick={close} aria-label="Fermer" className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-white/85 hover:text-white hover:bg-white/10">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -108,7 +108,7 @@ export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }:
           <aside className={`${selected ? 'hidden lg:flex' : 'flex'} flex-col w-full lg:w-80 shrink-0 border-r border-line overflow-y-auto print:hidden`}>
             {!events && !listError && <p className="p-6 text-muted">Chargement des sorties…</p>}
             {listError && (
-              <div role="alert" className="m-4 p-4 rounded-xl bg-danger-soft text-danger text-sm">
+              <div role="alert" className="m-4 p-4 rounded-xl bg-danger-soft text-danger text-base">
                 {listError}{' '}
                 <button onClick={loadList} className="font-semibold underline">
                   Réessayer
@@ -156,7 +156,7 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
   }
   return (
     <section className="py-2">
-      <h3 className="px-4 pt-2 pb-1 text-xs font-bold uppercase tracking-wider text-muted">{label}</h3>
+      <h3 className="px-4 pt-2 pb-1 text-sm font-bold uppercase tracking-wider text-muted">{label}</h3>
       {months.map((m) => (
         <div key={m.key}>
           <div className="flex items-center gap-2 px-4 pt-3 pb-1.5" role="separator">
@@ -172,17 +172,17 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
                 <li key={e.token}>
                   <button
                     onClick={() => onSelect(e)}
-                    className={`w-full text-left pl-3 pr-4 py-2 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-tint border-brand' : 'border-transparent hover:bg-raised'}`}
+                    className={`w-full text-left pl-3 pr-4 py-2.5 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-tint border-brand' : 'border-transparent hover:bg-raised'}`}
                   >
                     <span className="w-[5.75rem] shrink-0 whitespace-nowrap">
                       <span className={`block text-sm font-bold tabular-nums ${isToday ? 'text-pink-600 dark:text-pink' : 'text-brand'}`}>{shortDate(d)}</span>
-                      <span className="block text-xs text-muted tabular-nums">
+                      <span className="block text-sm text-muted tabular-nums">
                         {isToday ? 'Aujourd’hui' : e.allDay ? 'Journée' : d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </span>
                     <span className="flex-1 min-w-0">
-                      <span className="block text-sm font-semibold text-ink truncate">{e.title}</span>
-                      <span className="block text-xs text-muted">
+                      <span className="block text-base font-semibold text-ink truncate">{e.title}</span>
+                      <span className="block text-sm text-muted">
                         {e.registeredCount} inscrit{e.registeredCount > 1 ? 's' : ''}
                         {isToday && !e.allDay && ` · ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
                       </span>
@@ -308,7 +308,7 @@ function OutingWorkspace({
 
   if (loadError) {
     return (
-      <div role="alert" className="m-5 p-4 rounded-xl bg-danger-soft text-danger text-sm flex items-start gap-2.5">
+      <div role="alert" className="m-5 p-4 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2.5">
         <AlertTriangle className="w-5 h-5 shrink-0" />
         <div className="flex-1">
           <span className="font-semibold block">Sortie indisponible</span>
@@ -338,7 +338,7 @@ function OutingWorkspace({
       </header>
 
       {saveState === 'conflict' && (
-        <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-sm flex flex-wrap items-center gap-3 print:hidden">
+        <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">
             {conflict?.updatedBy ?? 'Quelqu’un'} a enregistré cette sortie pendant que vous la modifiiez. Vos derniers changements ne sont pas enregistrés.
