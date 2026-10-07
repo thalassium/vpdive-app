@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Wind, Search, RefreshCw, AlertCircle, Check, MapPin } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Wind, RefreshCw, AlertCircle, Check, MapPin } from 'lucide-react';
 import { ymd, type CalendarEvent, type MeteoSlot } from '../services/vpdiveApi';
 
 const MOIS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
@@ -38,8 +38,16 @@ function daytimeWind(slots: MeteoSlot[] | undefined) {
   const day = slots?.filter((s) => s.hour >= 7 && s.hour <= 19) ?? [];
   if (!day.length) return null;
   const top = day.reduce((a, b) => (b.windSpeed_kt > a.windSpeed_kt ? b : a));
-  return { max: top.windSpeed_kt, gusts: top.windGusts_kt, dir: top.windDir, strong: top.windSpeed_kt >= 20 };
+  // Above 16 knots the outing may be cancelled.
+  return { max: top.windSpeed_kt, gusts: top.windGusts_kt, dir: top.windDir, strong: top.windSpeed_kt > 16 };
 }
+
+/** Warning mark next to a strong wind; the reason stays in the tooltip. */
+const WindWarning = () => (
+  <span role="img" aria-label="Sortie menacée par le vent">
+    ⚠️
+  </span>
+);
 
 // Phones open on the list: a 7-column grid of event titles is unreadable at 375 px.
 const isPhone = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
@@ -69,7 +77,6 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
   };
   /** Month cell showing all its outings instead of the first three. */
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
   const [onlyMine, setOnlyMine] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
@@ -78,17 +85,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
   const todayStr = ymd(new Date());
   const inMonth = (d: string) => Number(d.slice(5, 7)) - 1 === m && Number(d.slice(0, 4)) === year;
 
-  const filtered = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    return events.filter(
-      (ev) =>
-        (!onlyMine || ev.registered) &&
-        (!q ||
-          ev.title.toLowerCase().includes(q) ||
-          ev.location.toLowerCase().includes(q) ||
-          (ev.activity?.name.toLowerCase().includes(q) ?? false)),
-    );
-  }, [events, searchQuery, onlyMine]);
+  const filtered = useMemo(() => events.filter((ev) => !onlyMine || ev.registered), [events, onlyMine]);
 
   const byDay = useMemo(() => {
     const map: Record<string, CalendarEvent[]> = {};
@@ -121,53 +118,21 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
   const shownCount = listDays.reduce((n, d) => n + (byDay[d]?.length ?? 0), 0);
   const selectedWind = selectedDay ? daytimeWind(meteoData[selectedDay]) : null;
   const firstLoad = isLoading && events.length === 0;
-  const isCurrentMonth = inMonth(todayStr);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
-      {/* Month + navigation */}
-      <div className="grid grid-cols-[1fr_auto] items-end gap-x-3 gap-y-2">
-        <h1 className="col-span-2 sm:col-span-1 text-3xl sm:text-[2.75rem] font-semibold text-brand leading-none tracking-tight">
-          {MOIS_FR[m]} <span className="font-normal text-muted">{year}</span>
-        </h1>
-        <p className="row-start-2 col-start-1 text-sm text-muted min-h-5 self-center sm:self-end">
-          {!firstLoad && !error && (
-            <>
-              {plural(monthTotal, 'sortie')}
-              {registeredCount > 0 && <span className="text-ok font-medium"> · {plural(registeredCount, 'inscription')}</span>}
-            </>
-          )}
-        </p>
-        <div className="row-start-2 col-start-2 sm:row-start-1 sm:row-span-2 flex items-center bg-surface border border-line rounded-full p-1 shadow-card">
+      {/* Month (the page title, fixed width so the arrows stay put) + filters */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+        <div className="self-start flex items-center bg-surface border border-line rounded-full p-1 shadow-card">
           <IconButton label="Mois précédent" onClick={() => onMonthChange(new Date(year, m - 1, 1))}>
             <ChevronLeft className="w-5 h-5" />
           </IconButton>
-          <button
-            onClick={() => onMonthChange(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}
-            disabled={isCurrentMonth}
-            title="Revenir au mois en cours"
-            className="px-2.5 sm:px-3 h-9 text-sm font-medium text-brand rounded-full hover:bg-raised disabled:text-muted disabled:hover:bg-transparent transition-colors"
-          >
-            Aujourd’hui
-          </button>
+          <h1 aria-live="polite" className="w-48 sm:w-56 text-center text-xl sm:text-2xl font-semibold text-brand tracking-tight">
+            {MOIS_FR[m]} <span className="font-normal text-muted">{year}</span>
+          </h1>
           <IconButton label="Mois suivant" onClick={() => onMonthChange(new Date(year, m + 1, 1))}>
             <ChevronRight className="w-5 h-5" />
           </IconButton>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="mt-5 flex flex-col sm:flex-row sm:items-center gap-2.5">
-        <div className="relative sm:w-80">
-          <Search className="w-4 h-4 text-muted absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Rechercher une sortie, un lieu…"
-            aria-label="Rechercher"
-            className="w-full bg-surface border border-line rounded-full pl-11 pr-4 h-11 text-base sm:text-sm text-ink placeholder-muted focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition"
-          />
         </div>
         <div className="flex items-center gap-2 sm:ml-auto">
           <div className="bg-raised border border-line p-1 rounded-full flex">
@@ -180,7 +145,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                   viewMode === mode ? 'bg-surface dark:bg-tint text-brand shadow-card' : 'text-muted hover:text-ink'
                 }`}
               >
-                {mode === 'month' ? 'Mois' : 'Liste'}
+                {mode === 'month' ? 'Calendrier' : 'Liste'}
               </button>
             ))}
           </div>
@@ -205,6 +170,14 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
           </button>
         </div>
       </div>
+      <p className="mt-2.5 px-1 text-sm text-muted min-h-5">
+        {!firstLoad && !error && (
+          <>
+            {plural(monthTotal, 'sortie')}
+            {registeredCount > 0 && <span className="text-ok font-medium"> · {plural(registeredCount, 'inscription')}</span>}
+          </>
+        )}
+      </p>
 
       {error && (
         <div role="alert" className="mt-5 p-4 rounded-2xl bg-danger-soft text-danger text-base flex items-start gap-3">
@@ -267,7 +240,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                           className={`hidden sm:inline-flex items-center gap-1 text-xs tabular-nums ${wind.strong ? 'text-warn font-semibold' : 'text-muted'}`}
                         >
                           <Wind className="w-3.5 h-3.5" />
-                          {wind.max} nd
+                          {wind.max} nd{wind.strong && <WindWarning />}
                         </span>
                       )}
                     </div>
@@ -325,7 +298,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
         <div className="mt-6 space-y-7">
           {firstLoad && <Skeletons />}
           {!isLoading && !error && shownCount === 0 && (
-            <p className="py-14 text-center text-muted font-serif italic">Aucune sortie ce mois-ci pour ces critères.</p>
+            <p className="py-14 text-center text-muted font-serif italic">{onlyMine ? 'Aucune inscription ce mois-ci.' : 'Aucune sortie ce mois-ci.'}</p>
           )}
           {listDays.map((date) => (
             <section key={date}>
@@ -349,7 +322,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="w-9 h-9 flex items-center justify-center rounded-full text-brand hover:bg-raised transition-colors"
+      className="w-10 h-10 flex items-center justify-center rounded-full text-brand hover:bg-raised transition-colors"
     >
       {children}
     </button>
@@ -370,7 +343,7 @@ function DayHeading({ date, wind, today }: { date: string; wind: ReturnType<type
             wind.strong ? 'bg-warn-soft text-warn font-semibold' : 'text-muted'
           }`}
         >
-          <Wind className="w-4 h-4" /> {wind.max} nd {wind.dir}
+          <Wind className="w-4 h-4" /> {wind.max} nd {wind.dir}{wind.strong && <WindWarning />}
         </span>
       )}
     </div>
