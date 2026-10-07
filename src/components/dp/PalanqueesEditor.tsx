@@ -31,7 +31,6 @@ import {
 import {
   PREROGATIVE_OPTIONS,
   TRAINING_MENU,
-  trainingShort,
   NO_TRAINING,
   addPalanquee,
   assignGuide,
@@ -78,6 +77,9 @@ const diplomas = (d: Diver) => {
 };
 const shownLevel = (d: Diver) => (d.training ? `${trainingLabel(d)} · ${describe(d)}` : describe(d));
 const byName = (a: Diver, b: Diver) => a.name.localeCompare(b.name, 'fr');
+/** Colonnes Apt. et F# de « Qui plonge ? » : même largeur pour les menus et leurs titres, tout tient sur 375 px. */
+const APT_COL = 'w-[5.5rem] sm:w-28 shrink-0 justify-between';
+const FN_COL = 'w-[4.25rem] sm:w-24 shrink-0 justify-between';
 /** Encadrants du plus haut au plus bas : E4, E3, E2, E1, puis GP. */
 const GUIDE_ORDER: Record<string, number> = { E4: 4, E3: 3, GP: 2, E1: 1 };
 const byRank = (a: Diver, b: Diver) => b.teach - a.teach || (GUIDE_ORDER[b.guide ?? ''] ?? 0) - (GUIDE_ORDER[a.guide ?? ''] ?? 0) || byName(a, b);
@@ -177,15 +179,13 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
     const fn = fnChoice === NO_TRAINING ? undefined : fnChoice;
     const prepa = aptitudesFromLabels(r.training).training;
     const current = fn ?? (prepa && fnChoice !== NO_TRAINING ? `FN${prepa}` : '');
-    const instructor = isInstructor(d);
-    // Un moniteur n'a le bouton Formation que si VPDive lui connaît une prépa (ou s'il en a déjà une) : il est alors élève ce jour-là.
-    const showTraining = !instructor || prepa > 0 || !!fn;
+    const setLevel = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'levels', d.id, v) });
     const setTraining = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) });
-    const notes = [d.minor && 'mineur', r.waitingList && 'liste d’attente'].filter(Boolean).join(' · ');
+    // Sous le nom : mineur, liste d'attente, et le niveau tel que VPDive l'écrit (P2, PADI - AOW…).
+    const below = [d.minor && 'mineur', r.waitingList && 'liste d’attente', r.display.join(', ')].filter(Boolean).join(' · ');
     const hasRoles = (roleMap.get(d.id)?.length ?? 0) > 0;
-    // Sur téléphone il faut au moins : nom, prérogative, formation. Le reste passe sous le nom, la photo n'apparaît qu'au-delà de 640 px.
     return (
-      <li key={d.id} className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-3.5 py-2 ${out ? 'opacity-50' : ''}`}>
+      <li key={d.id} className={`flex items-center gap-1.5 px-3 sm:px-3.5 py-2 ${out ? 'opacity-50' : ''}`}>
         <label className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer">
           <input
             type="checkbox"
@@ -193,69 +193,59 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             onChange={() => onSettings({ ...settings, excluded: out ? settings.excluded.filter((x) => x !== d.id) : [...settings.excluded, d.id] })}
             className="w-5 h-5 accent-[var(--fill)] shrink-0"
           />
-          <Avatar name={d.name} picture={d.picture} size="sm" className="hidden sm:inline-flex" />
-          <span className="min-w-[5.5rem] flex-1">
-            {/* Sur téléphone le nom passe sur deux lignes plutôt que d'être coupé. */}
+          <Avatar name={d.name} picture={d.picture} size="sm" initials={false} className="hidden sm:block" />
+          <span className="min-w-0 flex-1">
             <span className="block font-medium text-ink leading-snug break-words line-clamp-2 sm:line-clamp-none sm:truncate">{d.name}</span>
-            {(hasRoles || notes) && (
-              <span className="flex flex-wrap items-center gap-1.5 mt-0.5">
+            {(hasRoles || below) && (
+              <span className="flex items-start gap-1.5 mt-0.5">
                 <RoleBadges id={d.id} />
-                {notes && <span className="text-sm text-muted">{notes}</span>}
+                {below && <span className="min-w-0 text-sm text-muted leading-snug line-clamp-2 sm:truncate">{below}</span>}
               </span>
             )}
           </span>
         </label>
-        {prerogative ? (
-          <span className="shrink-0 code text-right" title={r.display.join(', ') || undefined}>
-            <span className="sm:hidden">{prerogative.replace(' · ', '/')}</span>
-            <span className="hidden sm:inline">{prerogative}</span>
-          </span>
-        ) : (
-          <Menu
-            ariaLabel={`Prérogative de ${d.name}`}
-            triggerClassName={`btn btn-quiet h-9 px-2.5 text-sm ${out ? 'text-muted' : 'border-warn bg-warn-soft text-warn'}`}
-            trigger={
-              <>
-                <span className="sm:hidden">Prérog. ?</span>
-                <span className="hidden sm:inline">Prérogative ?</span>
-                <ChevronDown className="hidden sm:block w-4 h-4 opacity-60" />
-              </>
-            }
-            sections={[
-              { title: 'Plongeur', onSelect: (v) => onSettings({ ...settings, ...setDiverChoice(settings, 'levels', d.id, v) }), options: PREROGATIVE_OPTIONS.divers.map((v) => ({ value: v, label: v })) },
-              { title: 'Encadrant', onSelect: (v) => onSettings({ ...settings, ...setDiverChoice(settings, 'levels', d.id, v) }), options: PREROGATIVE_OPTIONS.instructors.map((v) => ({ value: v, label: v })) },
-            ]}
-          />
-        )}
-        {showTraining && (
-          <Menu
-            ariaLabel={`Formation de ${d.name}`}
-            triggerClassName={`btn btn-quiet h-9 px-2.5 gap-1 text-sm shrink-0 sm:min-w-32 justify-between ${current ? 'border-brand bg-tint' : 'text-muted'}`}
-            trigger={
-              <>
-                <span>
-                  <span className="sm:hidden">Form</span>
-                  <span className="hidden sm:inline">Formation</span>
-                  {current ? ` ${trainingShort(current)}` : ' ?'}
-                </span>
-                <ChevronDown className="hidden sm:block w-4 h-4 opacity-60" />
-              </>
-            }
-            sections={[
-              {
-                selected: current ? undefined : fnChoice === NO_TRAINING ? NO_TRAINING : '',
-                onSelect: setTraining,
-                options: prepa ? [{ value: NO_TRAINING, label: 'Pas en formation' }, { value: '', label: `Prépa N${prepa}`, hint: 'VPDive' }] : [{ value: '', label: 'Pas en formation' }],
-              },
-              ...TRAINING_MENU.map((group) => ({
-                title: group.title,
-                selected: current,
-                onSelect: setTraining,
-                options: group.options.filter((o) => o.value !== `FN${prepa}`).map((o) => ({ value: o.value, label: o.label })),
-              })),
-            ]}
-          />
-        )}
+        {/* Apt. : la prérogative VPDive, ou celle retenue par le DP (brevet étranger, N1 porté à PE40…). */}
+        <Menu
+          ariaLabel={`Aptitude de ${d.name}`}
+          triggerClassName={`btn h-9 px-1.5 gap-0.5 text-sm ${APT_COL} ${
+            !prerogative ? (out ? 'btn-quiet text-muted' : 'border border-warn bg-warn-soft text-warn') : forced ? 'border border-brand bg-tint text-brand' : 'btn-quiet'
+          }`}
+          trigger={
+            <>
+              <span className={`truncate ${prerogative ? 'font-bold tabular-nums' : ''}`}>{prerogative ? prerogative.replace(' · ', '/') : 'Apt. ?'}</span>
+              <ChevronDown className="hidden sm:block w-3.5 h-3.5 shrink-0 opacity-60" />
+            </>
+          }
+          sections={[
+            { selected: forcedRaw ? undefined : '', onSelect: setLevel, options: [{ value: '', label: fromVpdive || 'Aucune', hint: 'VPDive' }] },
+            { title: 'Plongeur', selected: forcedRaw, onSelect: setLevel, options: PREROGATIVE_OPTIONS.divers.map((v) => ({ value: v, label: v })) },
+            { title: 'Encadrant', selected: forcedRaw, onSelect: setLevel, options: PREROGATIVE_OPTIONS.instructors.map((v) => ({ value: v, label: v })) },
+          ]}
+        />
+        {/* F# : formation du jour, vers un niveau (FN2) ou une aptitude (FPA20). Un moniteur aussi peut être élève ce jour-là. */}
+        <Menu
+          ariaLabel={`Formation de ${d.name}`}
+          triggerClassName={`btn h-9 px-1.5 gap-0.5 text-sm ${FN_COL} ${current ? 'border border-brand bg-tint text-brand' : 'btn-quiet text-muted'}`}
+          trigger={
+            <>
+              <span className={`truncate ${current ? 'font-bold tabular-nums' : ''}`}>{current || '—'}</span>
+              <ChevronDown className="hidden sm:block w-3.5 h-3.5 shrink-0 opacity-60" />
+            </>
+          }
+          sections={[
+            {
+              selected: current ? undefined : fnChoice === NO_TRAINING ? NO_TRAINING : '',
+              onSelect: setTraining,
+              options: prepa ? [{ value: NO_TRAINING, label: 'Pas en formation' }, { value: '', label: `Prépa N${prepa}`, hint: 'VPDive' }] : [{ value: '', label: 'Pas en formation' }],
+            },
+            ...TRAINING_MENU.map((group) => ({
+              title: group.title,
+              selected: current,
+              onSelect: setTraining,
+              options: group.options.filter((o) => o.value !== `FN${prepa}`).map((o) => ({ value: o.value, label: o.label })),
+            })),
+          ]}
+        />
       </li>
     );
   };
@@ -456,7 +446,7 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
                   const name = person?.name ?? 'Inscrit retiré';
                   return (
                     <span key={id} className="inline-flex items-center gap-2 h-9 pl-1 pr-1 rounded-lg border border-field-border bg-tint text-brand font-semibold">
-                      <Avatar name={name} picture={person?.picture} size="sm" />
+                      <Avatar name={name} picture={person?.picture} size="sm" initials={false} />
                       {name}
                       <button
                         type="button"
@@ -499,9 +489,18 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
 function RosterGroup({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (
     <div>
-      <h4 className="label mb-2">
-        {title} <span className="font-normal">· {count}</span>
-      </h4>
+      {/* Titres de colonne alignés sur les menus (même largeur, même retrait que les lignes). */}
+      <div className="flex items-end gap-1.5 mb-2 pr-[calc(0.75rem+1px)] sm:pr-[calc(0.875rem+1px)]">
+        <h4 className="label flex-1">
+          {title} <span className="font-normal">· {count}</span>
+        </h4>
+        {count > 0 && (
+          <>
+            <span className={`label text-center ${APT_COL}`}>Apt.</span>
+            <span className={`label text-center ${FN_COL}`}>F#</span>
+          </>
+        )}
+      </div>
       {count ? <ul className="card divide-y divide-line">{children}</ul> : <p className="text-sm text-muted">Aucun.</p>}
     </div>
   );
@@ -658,7 +657,7 @@ function GuideRow({
         <Star className={`w-3 h-3 text-pink ${g ? 'fill-current' : ''}`} />
         {g ? guideLabel(g, p) : role}
       </span>
-      {g && <Avatar name={g.name} picture={g.picture} size="sm" />}
+      {g && <Avatar name={g.name} picture={g.picture} size="sm" initials={false} />}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
         {editable ? (
@@ -720,7 +719,7 @@ function DiverRow({
       <span className={chipCls} title={limiting ? 'Fixe la prérogative de la palanquée' : undefined}>
         {own}
       </span>
-      <Avatar name={d.name} picture={d.picture} size="sm" />
+      <Avatar name={d.name} picture={d.picture} size="sm" initials={false} />
       <span className="flex-1 min-w-0">
         <span className="flex items-center gap-1.5 min-w-0">
           <span className="truncate text-ink">{d.name}</span>
@@ -750,7 +749,7 @@ function FreeList({ title, items, targets, onMove, instructor }: { title: string
         <ul className="space-y-2">
           {items.map(({ diver, reason }) => (
             <li key={diver.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base">
-              <Avatar name={diver.name} picture={diver.picture} size="sm" />
+              <Avatar name={diver.name} picture={diver.picture} size="sm" initials={false} />
               <span className="font-medium text-ink">{diver.name}</span>
               <RoleBadges id={diver.id} />
               <span className="text-sm text-muted">{shownLevel(diver)}</span>

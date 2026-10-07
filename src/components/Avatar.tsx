@@ -11,12 +11,26 @@ const SIZES = {
  * pictureUrl dans services/vpdiveApi.ts) ; une photo qui ne charge plus
  * retombe aussi sur les initiales.
  */
-export function Avatar({ name, picture, size = 'md', className = '' }: { name: string; picture?: string; size?: keyof typeof SIZES; className?: string }) {
+export function Avatar({
+  name,
+  picture,
+  size = 'md',
+  className = '',
+  initials: showInitials = true,
+}: {
+  name: string;
+  picture?: string;
+  size?: keyof typeof SIZES;
+  className?: string;
+  /** false : sans photo, rien (les initiales n'apprennent rien quand le nom est juste à côté). */
+  initials?: boolean;
+}) {
   const [broken, setBroken] = useState(false);
   const box = `${SIZES[size]} rounded-full shrink-0 bg-tint ${className}`;
   if (picture && !broken) {
     return <img src={picture} alt="" loading="lazy" onError={() => setBroken(true)} className={`${box} object-cover`} />;
   }
+  if (!showInitials) return null;
   const initials =
     name
       .split(/\s+/)
