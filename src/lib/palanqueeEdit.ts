@@ -3,7 +3,7 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, aptLabel, GUIDE_LABEL, KIND_LABEL, prerogativeLabel, type Depth, type Diver, type PalanqueeKind, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, aptLabel, GUIDE_LABEL, KIND_LABEL, prerogativeLabel, settleKind, type Depth, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -91,25 +91,20 @@ export function moveDiver(plan: Plan, diver: Diver, target: string | 'new' | 'un
 
   if (target === 'unassigned') unassigned.push({ diver, reason: 'Retiré à la main.' });
   else if (target === 'new') {
-    palanquees.push({
-      id: newId(),
-      kind: diver.guide ? 'guided' : 'autonomous',
-      guide: diver.guide ? diver : null,
-      extra: null,
-      members: diver.guide ? [] : [diver],
-    });
+    // Une nouvelle palanquée d'exploration : son encadrant si c'en est un, sinon un premier plongeur.
+    palanquees.push({ id: newId(), kind: 'autonomous', guide: diver.guide ? diver : null, extra: null, members: diver.guide ? [] : [diver] });
   } else {
     palanquees = palanquees.map((p) => (p.id === target ? { ...p, members: [...p.members, diver] } : p));
   }
   // Une palanquée vidée reste en place : le DP la remplit ou la supprime (deletePalanquee).
-  return { palanquees, unassigned };
+  return { palanquees: palanquees.map(settleKind), unassigned };
 }
 
 /**
  * Nouvelle palanquée vide, à remplir à la main. Sans composition encore (rien
  * de généré), tous ceux qui plongent partent de la liste des disponibles.
  */
-export function addPalanquee(plan: Plan | null, available: Diver[], kind: PalanqueeKind = 'guided'): Plan {
+export function addPalanquee(plan: Plan | null, available: Diver[], kind: PalanqueeKind = 'autonomous'): Plan {
   const base: Plan = plan ?? { palanquees: [], unassigned: available.map((diver) => ({ diver, reason: 'À placer.' })) };
   return { ...base, palanquees: [...base.palanquees, { id: newId(), kind, guide: null, extra: null, members: [] }] };
 }
@@ -135,27 +130,36 @@ export function assignGuide(plan: Plan, palanqueeId: string, diver: Diver): Plan
   if (previous?.id === diver.id) return plan;
   const palanquees = plan.palanquees
     .map((p) => without(p, diver.id))
-    .map((p) => (p.id === palanqueeId ? { ...p, kind: p.kind === 'autonomous' ? ('guided' as const) : p.kind, guide: diver } : p));
+    .map((p) => (p.id === palanqueeId ? { ...p, guide: diver } : p))
+    .map(settleKind);
   const unassigned = plan.unassigned.filter((u) => u.diver.id !== diver.id);
   if (previous) unassigned.push({ diver: previous, reason: 'Remplacé comme encadrant.' });
   return { palanquees, unassigned };
 }
 
 /**
- * Change le type d'une palanquée. En autonome, l'encadrant et le plongeur
- * supplémentaire redeviennent membres ; en encadrée ou formation, le plus
- * qualifié des membres devient encadrant s'il n'y en a pas.
+ * Change le type d'une palanquée : Formation ou Exploration. En formation, il
+ * faut un enseignant : s'il n'y en a pas, le plus qualifié des membres le
+ * devient. En exploration, elle est encadrée ou autonome selon qu'elle a un
+ * encadrant (settleKind).
  */
-export function setKind(plan: Plan, palanqueeId: string, kind: PalanqueeKind): Plan {
+export function setType(plan: Plan, palanqueeId: string, type: PalanqueeType): Plan {
   return mapPal(plan, palanqueeId, (p) => {
-    if (kind === 'autonomous') {
-      return { ...p, kind, guide: null, extra: null, members: [p.guide, p.extra, ...p.members].filter((d): d is Diver => !!d) };
-    }
-    if (p.guide) return { ...p, kind };
-    const score = (d: Diver) => (kind === 'teaching' ? d.teach : d.guide ? 1 + d.pe / 100 : 0);
-    const guide = [...p.members].filter((m) => score(m) > 0).sort((a, b) => score(b) - score(a))[0] ?? null;
-    return { ...p, kind, guide, members: p.members.filter((m) => m !== guide) };
+    if (type === 'exploration') return settleKind({ ...p, kind: p.guide ? 'guided' : 'autonomous' });
+    if (p.guide) return { ...p, kind: 'teaching' };
+    const teacher = [...p.members].filter((m) => m.teach > 0).sort((a, b) => b.teach - a.teach)[0] ?? null;
+    return { ...p, kind: 'teaching', guide: teacher, members: p.members.filter((m) => m !== teacher) };
   });
+}
+
+/** Retire l'encadrant : il redevient disponible, la palanquée d'exploration devient autonome. */
+export function removeGuide(plan: Plan, palanqueeId: string): Plan {
+  const p = plan.palanquees.find((x) => x.id === palanqueeId);
+  if (!p?.guide) return plan;
+  return {
+    palanquees: plan.palanquees.map((x) => (x.id === palanqueeId ? settleKind({ ...x, guide: null }) : x)),
+    unassigned: [...plan.unassigned, { diver: p.guide, reason: 'Retiré comme encadrant.' }],
+  };
 }
 
 /** Profondeur retenue par le DP pour une palanquée (undefined : prérogative, 40 m au plus). */

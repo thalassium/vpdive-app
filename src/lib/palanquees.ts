@@ -352,7 +352,25 @@ export function chosenDepth(p: Palanquee): Depth | 0 {
   return p.depth && p.depth <= legal ? p.depth : minDepth(legal, AUTO_MAX_DEPTH);
 }
 
-export const KIND_LABEL: Record<PalanqueeKind, string> = { teaching: 'Formation', guided: 'Encadrée', autonomous: 'Autonome' };
+/**
+ * Deux types de palanquée pour le DP : Formation ou Exploration. En exploration,
+ * encadrée ou autonome n'est pas un choix : la palanquée est encadrée (PE) dès
+ * qu'elle a un encadrant, autonome (PA) sinon (cf. settleKind).
+ */
+export type PalanqueeType = 'teaching' | 'exploration';
+export const TYPE_LABEL: Record<PalanqueeType, string> = { teaching: 'Formation', exploration: 'Exploration' };
+export const typeOf = (p: Palanquee): PalanqueeType => (p.kind === 'teaching' ? 'teaching' : 'exploration');
+export const KIND_LABEL: Record<PalanqueeKind, string> = { teaching: 'Formation', guided: 'Exploration', autonomous: 'Exploration' };
+
+/**
+ * Exploration : encadrée s'il y a un encadrant, autonome sinon. Sans encadrant,
+ * un plongeur supplémentaire n'a plus lieu d'être : il redevient plongeur.
+ */
+export function settleKind(p: Palanquee): Palanquee {
+  if (p.kind === 'teaching') return p;
+  if (p.guide) return p.kind === 'guided' ? p : { ...p, kind: 'guided' };
+  return { ...p, kind: 'autonomous', extra: null, members: p.extra ? [...p.members, p.extra] : p.members };
+}
 
 /**
  * Prérogative sous laquelle la palanquée plonge : PE12, PE20, PA20, PE40,

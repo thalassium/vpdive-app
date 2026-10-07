@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { depthOf, proposePalanquees, validate } from './palanquees';
-import { addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, setDiverChoice, planToText, rosterToDivers, setDepth, setKind } from './palanqueeEdit';
+import { addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setType } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
@@ -44,16 +44,13 @@ test('déplacer, nommer encadrant, basculer en autonome', () => {
   plan = moveDiver(plan, dan, 'unassigned');
   assert.equal(plan.unassigned.at(-1)!.diver, dan);
 
-  const lone = plan.palanquees.find((p) => p.id === auto.id)!;
-  plan = setKind(plan, lone.id, 'guided');
-  assert.equal(plan.palanquees.find((p) => p.id === lone.id)!.kind, 'guided');
-
   plan = moveDiver(plan, divers[0]!, 'new');
   const gp = plan.palanquees.at(-1)!;
   assert.equal(gp.guide?.id, '1');
   const left = plan.palanquees.find((p) => p.id === guided.id)!;
   assert.equal(left.guide, null, 'la palanquée quittée perd son encadrant');
-  assert.ok(validate(left, 40).includes('Pas d’encadrant.'));
+  assert.equal(left.kind, 'autonomous', 'sans encadrant, une exploration est autonome');
+  assert.ok(validate(left, 40).some((i) => /pas autonome/.test(i)), 'des N1 ne peuvent pas être autonomes : signalé');
 });
 
 test('choisir l’encadrant : il quitte sa place, l’ancien redevient disponible', () => {
@@ -73,7 +70,7 @@ test('export texte lisible', () => {
   const plan = proposePalanquees(rosterToDivers(roster.slice(0, 5)), { maxDepth: 40 });
   const text = planToText('Épave du Liban', plan);
   assert.match(text, /^Palanquées — Épave du Liban/);
-  assert.match(text, /P1 · Encadrée · PE20/);
+  assert.match(text, /P1 · Exploration · PE20/);
   assert.match(text, /Encadrant : GUIDE Gaby \(GP \/ N4\)/);
   assert.match(text, /PA40/);
 });
@@ -93,7 +90,7 @@ test('profondeur et type changés à la main', () => {
   plan = setDepth(plan, id, 60);
   assert.equal(plan.palanquees[0]!.depth, 60);
   assert.deepEqual(validate(plan.palanquees[0]!), []);
-  plan = setKind(plan, id, 'teaching');
+  plan = setType(plan, id, 'teaching');
   assert.ok(validate(plan.palanquees[0]!).length > 0, 'pas d’enseignant parmi deux N3');
 });
 
@@ -140,4 +137,32 @@ test('supprimer une palanquée libère tout le monde ; en créer une vide, même
   const scratch = addPalanquee(null, divers, 'autonomous');
   assert.equal(scratch.palanquees.length, 1);
   assert.equal(scratch.unassigned.length, 3);
+});
+
+test('Exploration : encadrée dès qu’il y a un encadrant, autonome sinon', () => {
+  const divers = rosterToDivers([entry('g', 'GUIDE G', ['P4']), entry('a', 'AOW A', ['PADI - AOW']), entry('b', 'AOW B', ['PADI - AOW'])], {
+    levels: { a: 'PE40', b: 'PE40' },
+  });
+  let plan = addPalanquee(null, divers);
+  const id = plan.palanquees[0]!.id;
+  plan = moveDiver(plan, divers[1]!, id);
+  plan = moveDiver(plan, divers[2]!, id);
+  assert.equal(plan.palanquees[0]!.kind, 'autonomous', 'pas d’encadrant : autonome');
+  assert.ok(validate(plan.palanquees[0]!).length > 0, 'des PE40 sans PA ne peuvent pas être autonomes');
+
+  plan = assignGuide(plan, id, divers[0]!);
+  assert.equal(plan.palanquees[0]!.kind, 'guided', 'un encadrant : encadrée');
+  assert.deepEqual(validate(plan.palanquees[0]!), [], 'deux PADI AOW retenus PE40 avec un GP : exploration PE40');
+
+  plan = removeGuide(plan, id);
+  assert.equal(plan.palanquees[0]!.kind, 'autonomous');
+  assert.ok(plan.unassigned.some((u) => u.diver.id === 'g'), 'l’encadrant retiré est disponible');
+
+  // Formation : le même AOW, PE40 et FN2, avec un enseignant.
+  const teacher = rosterToDivers([entry('m', 'MONI M', ['E3'])])[0]!;
+  plan = assignGuide(plan, id, teacher);
+  plan = setType(plan, id, 'teaching');
+  assert.equal(plan.palanquees[0]!.kind, 'teaching');
+  plan = setType(plan, id, 'exploration');
+  assert.equal(plan.palanquees[0]!.kind, 'guided', 'retour en exploration, toujours encadrée');
 });
