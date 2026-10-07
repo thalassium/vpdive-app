@@ -67,6 +67,7 @@ export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = 
       name: r.name,
       firstname: r.firstname,
       lastname: r.lastname,
+      ...(r.picture ? { picture: r.picture } : {}),
       labels: fn ? [...base, fn] : base,
       display: r.display,
       ...(forced ? { original: r.display } : {}),

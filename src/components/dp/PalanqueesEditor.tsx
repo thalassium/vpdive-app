@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, Check, ChevronDown, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX, X } from 'lucide-react';
 import type { RosterEntry } from '../../services/vpdiveApi';
+import { Avatar } from '../Avatar';
 import {
   TYPE_LABEL,
   typeOf,
@@ -189,6 +190,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             onChange={() => onSettings({ ...settings, excluded: out ? settings.excluded.filter((x) => x !== d.id) : [...settings.excluded, d.id] })}
             className="w-5 h-5 accent-[var(--fill)] shrink-0"
           />
+          <Avatar name={d.name} picture={d.picture} size="sm" />
           <span className="font-medium text-ink truncate">{d.name}</span>
           <RoleBadges id={d.id} />
           {(d.minor || r.waitingList) && <span className="text-sm text-muted shrink-0">{[d.minor && 'mineur', r.waitingList && 'liste d’attente'].filter(Boolean).join(' · ')}</span>}
@@ -434,9 +436,11 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
               <span className="w-44 shrink-0 font-semibold text-ink">{role.label}</span>
               <span className="flex-1 flex flex-wrap items-center gap-2">
                 {ids.map((id) => {
-                  const name = byId.get(id)?.name ?? 'Inscrit retiré';
+                  const person = byId.get(id);
+                  const name = person?.name ?? 'Inscrit retiré';
                   return (
-                    <span key={id} className="inline-flex items-center gap-1 h-9 pl-3 pr-1 rounded-lg border border-field-border bg-tint text-brand font-semibold">
+                    <span key={id} className="inline-flex items-center gap-2 h-9 pl-1 pr-1 rounded-lg border border-field-border bg-tint text-brand font-semibold">
+                      <Avatar name={name} picture={person?.picture} size="sm" />
                       {name}
                       <button
                         type="button"
@@ -638,6 +642,7 @@ function GuideRow({
         <Star className={`w-3 h-3 text-pink ${g ? 'fill-current' : ''}`} />
         {g ? guideLabel(g, p) : role}
       </span>
+      {g && <Avatar name={g.name} picture={g.picture} size="sm" />}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
         {editable ? (
@@ -699,6 +704,7 @@ function DiverRow({
       <span className={chipCls} title={limiting ? 'Fixe la prérogative de la palanquée' : undefined}>
         {own}
       </span>
+      <Avatar name={d.name} picture={d.picture} size="sm" />
       <span className="flex-1 min-w-0">
         <span className="flex items-center gap-1.5 min-w-0">
           <span className="truncate text-ink">{d.name}</span>
@@ -728,6 +734,7 @@ function FreeList({ title, items, targets, onMove, instructor }: { title: string
         <ul className="space-y-2">
           {items.map(({ diver, reason }) => (
             <li key={diver.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base">
+              <Avatar name={diver.name} picture={diver.picture} size="sm" />
               <span className="font-medium text-ink">{diver.name}</span>
               <RoleBadges id={diver.id} />
               <span className="text-sm text-muted">{shownLevel(diver)}</span>

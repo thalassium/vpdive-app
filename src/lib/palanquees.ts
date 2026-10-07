@@ -129,6 +129,8 @@ export interface Diver extends Aptitudes {
   /** Pour la fiche de sécurité (colonnes NOM / PRÉNOM). */
   firstname?: string;
   lastname?: string;
+  /** Photo VPDive, pour la vignette à côté du nom ; absente si VPDive n'a que son avatar par défaut. */
+  picture?: string;
 }
 
 /**

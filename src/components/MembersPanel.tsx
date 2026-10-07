@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Avatar } from './Avatar';
 import { AlertTriangle, ChevronDown, Lock, RefreshCw, Search, ShieldCheck, Users, X } from 'lucide-react';
 import { vpdive, type MemberMatch, type MemberProfile } from '../services/vpdiveApi';
 import { appApi, type AppRole, type Me, type RoleEntry } from '../services/appApi';
@@ -242,7 +243,7 @@ function MemberRow({
     <li className={busy ? 'opacity-60' : ''}>
       <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${open ? 'bg-tint' : 'hover:bg-raised'}`}>
         <button type="button" onClick={onToggle} aria-expanded={open} className="flex-1 min-w-0 flex items-center gap-3 text-left">
-          <Avatar member={member} />
+          <Avatar name={member.name} picture={member.picture} />
           <span className="min-w-0">
             <span className="flex items-center gap-1.5 text-ink font-medium truncate">
               {member.name}
@@ -314,20 +315,4 @@ function Line({ label, values }: { label: string; values: string[] }) {
       {label} : <span className="text-ink">{values.join(' · ')}</span>
     </p>
   );
-}
-
-function Avatar({ member }: { member: MemberMatch }) {
-  const [broken, setBroken] = useState(false);
-  const initials =
-    member.name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0])
-      .join('')
-      .toUpperCase() || '?';
-  if (member.picture && !broken) {
-    return <img src={member.picture} alt="" loading="lazy" onError={() => setBroken(true)} className="w-9 h-9 rounded-full object-cover shrink-0 bg-tint" />;
-  }
-  return <span className="w-9 h-9 rounded-full shrink-0 bg-tint text-brand text-xs font-semibold flex items-center justify-center">{initials}</span>;
 }

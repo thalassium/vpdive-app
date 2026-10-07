@@ -139,6 +139,8 @@ export interface RosterEntry {
   waitingList: boolean;
   comment: string;
   medical: { until: string | null; valid: boolean };
+  /** Absolute URL of the member's own photo; empty when VPDive shows its default avatar. */
+  picture?: string;
 }
 
 /** VPDive outing roles that keep someone out of the water by default. */
@@ -704,6 +706,7 @@ class VpDiveClient {
           waitingList: u.waitingList === true,
           comment: str(u.comment).trim(),
           medical: { until: str(obj(med.until)?.date).slice(0, 10) || null, valid: med.status === true },
+          picture: pictureUrl(str(u.profile_picture)),
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
