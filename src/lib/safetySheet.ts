@@ -19,10 +19,6 @@ export const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: str
   { key: 'lieu', label: 'Lieu de plongée' },
 ];
 
-export const SHEET_FOOTNOTE =
-  'Le non-respect des paramètres prévus par le DP engage potentiellement la responsabilité de l’encadrant de palanquée ou des plongeurs autonomes. ' +
-  'Gaz : vide pour une plongée à l’air.';
-
 export type SheetSlot = 'guide' | 'member' | 'extra';
 
 /** Colonne APT de la fiche (note 5 du modèle) : mêmes étiquettes que l'écran et l'export (lib/palanquees). */

@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { ChevronDown, FileDown, Loader2, Printer } from 'lucide-react';
 import { Menu } from '../Menu';
 import { chosenDepth, kindLabel, prerogativeLabel } from '../../lib/palanquees';
 import { diversInWater, emptySheet, type DiveParams, type Dive, type OutingDoc, type PalanqueeSheet, type SafetyHeader } from '../../lib/outing';
-import { HEADER_FIELDS, SHEET_FOOTNOTE, firstNameOf, lastNameOf, sheetApt, sheetRows } from '../../lib/safetySheet';
+import { HEADER_FIELDS, firstNameOf, lastNameOf, sheetApt, sheetRows } from '../../lib/safetySheet';
 
 interface Props {
   /** Titre de la sortie, repris sur le PDF. */
@@ -157,8 +157,6 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
           );
         })}
       </div>
-
-      <Footnote>{SHEET_FOOTNOTE}</Footnote>
     </div>
   );
 }
@@ -181,10 +179,6 @@ function ParamsCells({ value, depthHint, onChange }: { value: DiveParams; depthH
       {cell('time', { type: 'time' })}
     </>
   );
-}
-
-function Footnote({ children }: { children: ReactNode }) {
-  return <p className="text-sm print:text-xs text-muted leading-relaxed">{children}</p>;
 }
 
 const fieldCls =

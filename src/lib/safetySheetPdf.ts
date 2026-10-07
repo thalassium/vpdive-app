@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import { autoTable, type CellInput, type RowInput } from 'jspdf-autotable';
 import { kindLabel, prerogativeLabel } from './palanquees';
 import { diversInWater, emptySheet, type Dive, type OutingDoc } from './outing';
-import { HEADER_FIELDS, SHEET_FOOTNOTE, firstNameOf, headerText, lastNameOf, sheetApt, sheetRows } from './safetySheet';
+import { HEADER_FIELDS, firstNameOf, headerText, lastNameOf, sheetApt, sheetRows } from './safetySheet';
 
 /**
  * Fiche de sécurité d'une plongée en PDF (A4 paysage, trois palanquées par
@@ -153,15 +153,7 @@ export function safetySheetPdf(outing: OutingDoc, dive: Dive, title: string): js
     y = bottom + PAGE.gap;
   }
 
-  // Note du modèle, puis pied de page sur chaque feuille
-  pdf.setFont('helvetica', 'normal').setFontSize(7).setTextColor(...GREY);
-  const note = pdf.splitTextToSize(pdfText(SHEET_FOOTNOTE), width);
-  if (y + note.length * 3 > PAGE.h - PAGE.margin - 5) {
-    pdf.addPage();
-    y = PAGE.margin;
-  }
-  pdf.text(note, PAGE.margin, y + 2);
-
+  // Pied de page sur chaque feuille
   const validated = dive.validated
     ? `Palanquées validées par ${dive.validated.by} le ${new Date(dive.validated.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`
     : '';
