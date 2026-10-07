@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { vpdive, ymd, DP_ROLE, type CalendarEvent, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import { appApi, AppApiError, type AppRole } from '../../services/appApi';
-import { newOuting, nextDive, type Dive, type OutingDoc } from '../../lib/outing';
+import { defaultVolunteers, newOuting, nextDive, type Dive, type OutingDoc } from '../../lib/outing';
 import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
+import { VolunteersPanel } from './VolunteersPanel';
 
 interface Props {
   session: Session;
@@ -17,7 +18,8 @@ interface Props {
 
 /**
  * Menu DP : les sorties (celle du jour ou la prochaine en premier), puis pour
- * la sortie choisie ses plongées, leurs palanquées et la fiche de sécurité.
+ * la sortie choisie ses plongées, leurs palanquées et la fiche de sécurité,
+ * et les bénévoles de la journée.
  * Admins : toutes les sorties. DP : celles où VPDive l'inscrit « Directeur de plongée ».
  */
 export function DpPanel({ session, role, initialEvent, onClose, onSessionLost }: Props) {
@@ -215,6 +217,8 @@ function OutingWorkspace({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [diveId, setDiveId] = useState<string | null>(null);
   const [tab, setTab] = useState<'palanquees' | 'fiche'>('palanquees');
+  /** Une plongée de la sortie, ou l'écran des bénévoles (commun à toute la journée). */
+  const [view, setView] = useState<'dive' | 'benevoles'>('dive');
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [conflict, setConflict] = useState<OutingDoc | null>(null);
 
@@ -234,6 +238,7 @@ function OutingWorkspace({
       setRoster(r);
       setDoc(d);
       setDiveId(d.dives[0]?.id ?? null);
+      setView('dive');
       setTab(d.dives[0]?.validated ? 'fiche' : 'palanquees');
     } catch (e) {
       if (onSessionLost(e)) return;
@@ -362,11 +367,12 @@ function OutingWorkspace({
             key={d.id}
             onClick={() => {
               setDiveId(d.id);
+              setView('dive');
               setTab(d.validated ? 'fiche' : 'palanquees');
             }}
-            aria-pressed={d.id === dive.id}
+            aria-pressed={view === 'dive' && d.id === dive.id}
             className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-sm font-semibold ${
-              d.id === dive.id ? 'bg-fill text-white border-fill' : 'border-line text-ink hover:border-brand/40'
+              view === 'dive' && d.id === dive.id ? 'bg-fill text-white border-fill' : 'border-line text-ink hover:border-brand/40'
             }`}
           >
             {d.validated && <Lock className="w-3.5 h-3.5" />}
@@ -378,13 +384,24 @@ function OutingWorkspace({
             const added = nextDive(doc);
             update((d) => ({ ...d, dives: [...d.dives, added] }));
             setDiveId(added.id);
+            setView('dive');
             setTab('palanquees');
           }}
           className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border border-dashed border-brand/40 text-sm font-semibold text-brand hover:bg-tint"
         >
           <Plus className="w-4 h-4" /> Plongée
         </button>
-        {doc.dives.length > 1 && (
+        <span className="w-px h-6 bg-line mx-1" aria-hidden />
+        <button
+          onClick={() => setView('benevoles')}
+          aria-pressed={view === 'benevoles'}
+          className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-sm font-semibold ${
+            view === 'benevoles' ? 'bg-fill text-white border-fill' : 'border-line text-ink hover:border-brand/40'
+          }`}
+        >
+          <HandHelping className="w-4 h-4" /> Bénévoles
+        </button>
+        {view === 'dive' && doc.dives.length > 1 && (
           <button
             onClick={() => {
               if (!window.confirm(`Supprimer « ${dive.label} » et sa fiche de sécurité ?`)) return;
@@ -401,38 +418,48 @@ function OutingWorkspace({
         )}
       </nav>
 
-      {/* Palanquées / Fiche */}
-      <div className="flex border-b border-line print:hidden" role="tablist">
-        <TabButton active={tab === 'palanquees'} onClick={() => setTab('palanquees')} icon={<Users className="w-4 h-4" />}>
-          Palanquées
-        </TabButton>
-        <TabButton active={tab === 'fiche'} disabled={!dive.validated} onClick={() => setTab('fiche')} icon={dive.validated ? <ClipboardList className="w-4 h-4" /> : <Lock className="w-4 h-4" />}>
-          Fiche de sécurité
-        </TabButton>
-      </div>
-
-      {tab === 'palanquees' || !dive.validated || !dive.plan ? (
-        <PalanqueesEditor
-          title={event.title}
+      {view === 'benevoles' ? (
+        <VolunteersPanel
           roster={roster}
-          doc={doc}
-          dive={dive}
-          onSettings={(settings) => update((d) => ({ ...d, settings }))}
-          onPlan={(plan) => updateDive((d) => ({ ...d, plan }))}
-          onValidate={() => {
-            updateDive((d) => ({ ...d, validated: { by: me, at: new Date().toISOString() } }));
-            setTab('fiche');
-          }}
-          onReopen={() => updateDive((d) => ({ ...d, validated: null }))}
+          volunteers={doc.volunteers ?? defaultVolunteers(roster)}
+          onChange={(volunteers) => update((d) => ({ ...d, volunteers }))}
         />
       ) : (
-        <SafetySheet
-          doc={doc}
-          dive={dive}
-          onHeader={(header) => update((d) => ({ ...d, header }))}
-          onSheet={(id, sheet) => updateDive((d) => ({ ...d, sheets: { ...d.sheets, [id]: sheet } }))}
-          onGas={(id, gas) => updateDive((d) => ({ ...d, gas: { ...d.gas, [id]: gas } }))}
-        />
+        <>
+        {/* Palanquées / Fiche */}
+        <div className="flex border-b border-line print:hidden" role="tablist">
+          <TabButton active={tab === 'palanquees'} onClick={() => setTab('palanquees')} icon={<Users className="w-4 h-4" />}>
+            Palanquées
+          </TabButton>
+          <TabButton active={tab === 'fiche'} disabled={!dive.validated} onClick={() => setTab('fiche')} icon={dive.validated ? <ClipboardList className="w-4 h-4" /> : <Lock className="w-4 h-4" />}>
+            Fiche de sécurité
+          </TabButton>
+        </div>
+
+        {tab === 'palanquees' || !dive.validated || !dive.plan ? (
+          <PalanqueesEditor
+            title={event.title}
+            roster={roster}
+            doc={doc}
+            dive={dive}
+            onSettings={(settings) => update((d) => ({ ...d, settings }))}
+            onPlan={(plan) => updateDive((d) => ({ ...d, plan }))}
+            onValidate={() => {
+              updateDive((d) => ({ ...d, validated: { by: me, at: new Date().toISOString() } }));
+              setTab('fiche');
+            }}
+            onReopen={() => updateDive((d) => ({ ...d, validated: null }))}
+          />
+        ) : (
+          <SafetySheet
+            doc={doc}
+            dive={dive}
+            onHeader={(header) => update((d) => ({ ...d, header }))}
+            onSheet={(id, sheet) => updateDive((d) => ({ ...d, sheets: { ...d.sheets, [id]: sheet } }))}
+            onGas={(id, gas) => updateDive((d) => ({ ...d, gas: { ...d.gas, [id]: gas } }))}
+          />
+        )}
+        </>
       )}
     </div>
   );

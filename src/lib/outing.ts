@@ -51,6 +51,60 @@ export interface OutingDoc {
   settings: DiverSettings & { excluded: string[] };
   header: SafetyHeader;
   dives: Dive[];
+  /** Bénévoles de la sortie : id de poste → inscrits (2 au plus). Absent sur les sorties enregistrées avant. */
+  volunteers?: Volunteers;
+}
+
+/** Postes tenus par des bénévoles pendant la sortie (un par ligne de l'écran Bénévoles). */
+export const VOLUNTEER_POSTS = [
+  { id: 'pilotage', label: 'Pilotage' },
+  { id: 'securite', label: 'Sécurité surface' },
+  { id: 'matelotage', label: 'Matelotage' },
+  { id: 'detendeurs', label: 'Détendeurs' },
+  { id: 'gilets', label: 'Gilets stabilisateurs' },
+  { id: 'eau', label: 'Eau / Vaisselle' },
+  { id: 'check', label: 'Check final' },
+] as const;
+export type VolunteerPost = (typeof VOLUNTEER_POSTS)[number]['id'];
+export type Volunteers = Partial<Record<VolunteerPost, string[]>>;
+/** Deux personnes au plus par poste ; une même personne peut tenir plusieurs postes. */
+export const MAX_PER_POST = 2;
+
+/** Ceux qu'on peut désigner : les inscrits de la journée, hors liste d'attente. */
+export const dayParticipants = (roster: RosterEntry[]) => roster.filter((r) => !r.waitingList);
+
+/**
+ * Bénévoles proposés au départ : le pilote et la sécurité surface que VPDive
+ * connaît déjà (rôles de la sortie). Le reste est à remplir.
+ */
+export function defaultVolunteers(roster: RosterEntry[]): Volunteers {
+  const withRole = (re: RegExp) =>
+    dayParticipants(roster)
+      .filter((r) => r.roles.some((x) => re.test(x)))
+      .map((r) => r.id)
+      .slice(0, MAX_PER_POST);
+  const out: Volunteers = {};
+  const pilots = withRole(/pilote/i);
+  const safety = withRole(/s[ée]curit[ée] surface/i);
+  if (pilots.length) out.pilotage = pilots;
+  if (safety.length) out.securite = safety;
+  return out;
+}
+
+/** Met (ou retire, avec null) une personne à une place d'un poste. Pas de doublon sur un même poste. */
+export function setVolunteer(v: Volunteers, post: VolunteerPost, slot: number, id: string | null): Volunteers {
+  const current = [...(v[post] ?? [])];
+  if (id && current.some((x, i) => x === id && i !== slot)) return v;
+  if (id) current[slot] = id;
+  else current.splice(slot, 1);
+  return { ...v, [post]: current.filter(Boolean).slice(0, MAX_PER_POST) };
+}
+
+/** Qui fait quoi : id d'inscrit → postes, pour le récapitulatif. */
+export function postsByPerson(v: Volunteers): Map<string, VolunteerPost[]> {
+  const out = new Map<string, VolunteerPost[]>();
+  for (const { id } of VOLUNTEER_POSTS) for (const person of v[id] ?? []) out.set(person, [...(out.get(person) ?? []), id]);
+  return out;
 }
 
 export const emptyParams = (): DiveParams => ({ duration: '', depth: '', time: '' });
@@ -84,6 +138,7 @@ export function newOuting(event: CalendarEvent, roster: RosterEntry[], clubName:
       lieu: event.title,
     },
     dives: [{ id: 'd1', label: 'Plongée 1', plan: null, validated: null, sheets: {}, gas: {} }],
+    volunteers: defaultVolunteers(roster),
   };
 }
 
