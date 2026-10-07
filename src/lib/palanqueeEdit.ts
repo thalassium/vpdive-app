@@ -3,7 +3,7 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, canGuideExploration, extraLabel, guideLabel, KIND_LABEL, memberLabel, prerogativeLabel, settleKind, toTeaching, type Depth, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, canGuideExploration, extraLabel, guideLabel, kindLabel, memberLabel, prerogativeLabel, settleKind, toTeaching, type Depth, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -220,7 +220,7 @@ function mapPal(plan: Plan, id: string, fn: (p: Palanquee) => Palanquee): Plan {
 export function planToText(title: string, plan: Plan): string {
   const lines = [`Palanquées — ${title}`, ''];
   plan.palanquees.forEach((p, i) => {
-    lines.push(`P${i + 1} · ${KIND_LABEL[p.kind]} · ${prerogativeLabel(p)}`);
+    lines.push(`P${i + 1} · ${kindLabel(p)} · ${prerogativeLabel(p)}`);
     if (p.guide) lines.push(`  ${p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} : ${p.guide.name} (${guideLabel(p.guide, p)})`);
     for (const m of p.members) lines.push(`  - ${m.name} (${memberLabel(m, p)})`);
     if (p.extra) lines.push(`  + ${p.extra.name} (GP suppl., ${extraLabel(p)})`);

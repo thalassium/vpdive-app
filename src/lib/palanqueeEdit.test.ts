@@ -208,6 +208,7 @@ test('export texte : mêmes étiquettes que la fiche (E2 enseignant, moniteurs �
     unassigned: [],
   };
   const text = planToText('Test', plan);
+  assert.match(text, /P1 · Formation FN1 · PE20/, 'l’objectif de la formation en tête');
   assert.match(text, /Enseignant : E2 \(E2\)/);
   assert.match(text, /- M1 \(PA20\)/);
   assert.match(text, /- N2 \(PA20\)/);

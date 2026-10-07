@@ -397,6 +397,20 @@ export const TYPE_LABEL: Record<PalanqueeType, string> = { teaching: 'Formation'
 export const typeOf = (p: Palanquee): PalanqueeType => (p.kind === 'teaching' ? 'teaching' : 'exploration');
 export const KIND_LABEL: Record<PalanqueeKind, string> = { teaching: 'Formation', guided: 'Exploration', autonomous: 'Exploration' };
 
+/**
+ * Objectif d'une formation, pour le DP et l'enseignant : ce que ses élèves
+ * préparent (« FPA20 », « FN1 / FPA20 »). La formation n'a pas d'autre portée
+ * que cet objectif ; les prérogatives de la palanquée en découlent. Vide hors
+ * formation, ou sans élève en formation (débutants).
+ */
+export function objectiveLabel(p: Palanquee): string {
+  if (p.kind !== 'teaching') return '';
+  return [...new Set(studentsOf(p).map(trainingLabel).filter(Boolean))].join(' / ');
+}
+
+/** Type de la palanquée tel qu'il s'écrit en tête : « Exploration », « Formation », « Formation FPA20 ». */
+export const kindLabel = (p: Palanquee): string => [KIND_LABEL[p.kind], objectiveLabel(p)].filter(Boolean).join(' ');
+
 /** Une palanquée qui compte un élève en formation (FN#) est forcément une palanquée de formation. */
 export const hasStudent = (p: Palanquee): boolean => p.members.some((m) => m.training > 0);
 

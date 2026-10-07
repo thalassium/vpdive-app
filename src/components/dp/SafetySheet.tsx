@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ChevronDown, FileDown, Loader2, Printer } from 'lucide-react';
 import { Menu } from '../Menu';
-import { KIND_LABEL, chosenDepth, prerogativeLabel } from '../../lib/palanquees';
+import { chosenDepth, kindLabel, prerogativeLabel } from '../../lib/palanquees';
 import { diversInWater, emptySheet, type DiveParams, type Dive, type OutingDoc, type PalanqueeSheet, type SafetyHeader } from '../../lib/outing';
 import { HEADER_FIELDS, SHEET_FOOTNOTE, firstNameOf, lastNameOf, sheetApt, sheetRows } from '../../lib/safetySheet';
 
@@ -98,7 +98,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
             <section key={p.id} className="rounded-xl border border-line overflow-hidden break-inside-avoid print:rounded-none print:border-black">
               <header className="flex items-center justify-between gap-2 px-3 py-2 bg-raised print:bg-white print:border-b print:border-black">
                 <span className="font-semibold text-brand print:text-black">P{i + 1}</span>
-                <span className="text-sm font-semibold text-muted print:text-black">{KIND_LABEL[p.kind]} · {prerogativeLabel(p)}</span>
+                <span className="text-sm font-semibold text-muted print:text-black">{kindLabel(p)} · {prerogativeLabel(p)}</span>
               </header>
               <table className="w-full text-sm">
                 <thead>

@@ -17,6 +17,7 @@ import {
   hasStudent,
   isInstructor,
   memberLabel,
+  objectiveLabel,
   prerogativeCode,
   studentsOf,
   prerogativeLabel,
@@ -549,7 +550,12 @@ function PalanqueeCard({
               />
             )}
             {/* Exploration : encadrée ou autonome découle de la présence d'un encadrant */}
-            {p.kind !== 'teaching' && <span className="block text-xs text-white/85 mt-0.5">{p.guide ? 'Encadrée' : 'Autonome'}</span>}
+            {/* Exploration : encadrée ou autonome. Formation : l'objectif (ce que les élèves préparent), s'il y en a un. */}
+            {p.kind !== 'teaching' ? (
+              <span className="block text-xs text-white/85 mt-0.5">{p.guide ? 'Encadrée' : 'Autonome'}</span>
+            ) : (
+              objectiveLabel(p) && <span className="block text-xs text-white/85 mt-0.5">Objectif {objectiveLabel(p)}</span>
+            )}
           </span>
           {!locked && (
             <button
