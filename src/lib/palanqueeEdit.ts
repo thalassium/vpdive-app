@@ -12,7 +12,21 @@ import type { RosterEntry } from '../services/vpdiveApi';
  * un équivalent FFESSM à un brevet d'une autre école (PADI, SSI…). FN1 à FN4 :
  * en formation vers ce niveau ; le niveau actuel reste celui de VPDive.
  */
-export const LEVEL_OVERRIDES = ['Débutant', 'PE12', 'N1', 'PA20', 'N2', 'PE40', 'PA40', 'N3', 'GP / N4', 'E1 · Initiateur', 'E2', 'MF1', 'MF2'] as const;
+export const LEVEL_OVERRIDES = [
+  'Débutant',
+  'PE12',
+  'PE20 · N1',
+  'PA20',
+  'PE40 · PA20 · N2',
+  'PE40',
+  'PA40',
+  'PA60 · N3',
+  'GP · N4',
+  'E1 · Initiateur',
+  'E2 · Initiateur + N4',
+  'E3 · MF1, DEJEPS…',
+  'E4 · MF2…',
+] as const;
 export const TRAINING_OPTIONS = ['FN1', 'FN2', 'FN3', 'FN4'] as const;
 
 export interface DiverSettings {
@@ -49,7 +63,8 @@ export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = 
       firstname: r.firstname,
       lastname: r.lastname,
       labels: fn ? [...base, fn] : base,
-      ...(forced ? { original: r.levels } : {}),
+      display: r.display,
+      ...(forced ? { original: r.display } : {}),
       minor: r.age !== null && r.age < 18,
       ...aptitudesFromLabels(labels),
     };

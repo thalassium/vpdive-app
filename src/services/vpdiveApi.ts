@@ -14,6 +14,8 @@
  *   - Nothing invented: no default price, location or role.
  */
 
+import { fromVpdive, type VpdiveQualif } from '../lib/vpdiveLevels';
+
 const API_BASE = '/api/vpdive'; // Vite proxy → https://septentrion-env.vpdive.com/api
 const SESSION_KEY = 'vpdive_session';
 // Older AI Studio builds stored the password in clear text under this key.
@@ -121,8 +123,14 @@ export interface RosterEntry {
   name: string;
   firstname: string;
   lastname: string;
-  /** Short codes (P1, E3, PE40…) from the level, teaching, qualification and autonomy families. */
+  /**
+   * What the palanquées engine reads: level codes (P1, PE40…) and, for
+   * teaching, the prerogative VPDive writes in the diploma's name (E3 for a
+   * DEJEPS « Enseignant 3 »). See lib/vpdiveLevels.ts.
+   */
   levels: string[];
+  /** Levels and diplomas as VPDive names them (DEJEPS, MF1, P4, PADI - AOW…), for display. */
+  display: string[];
   /** Club "prépas" the member belongs to (POLARIS, Prépa N2…). */
   training: string[];
   /** Outing roles from VPDive: "Directeur de plongée", "Enseignant/Encadrant", "Sécurité surface", "Pilote". */
@@ -610,9 +618,10 @@ class VpDiveClient {
     return Object.entries(registered)
       .map(([key, raw]) => {
         const u = obj(raw) ?? {};
-        const levels = ['level', 'teaching', 'qualification', 'autonome']
-          .flatMap((family) => values(u[family]).map((q) => str(q.abbreviation).trim() || str(q.name).trim()))
-          .filter(Boolean);
+        const qualifs: VpdiveQualif[] = (['level', 'teaching', 'qualification', 'autonome'] as const).flatMap((family) =>
+          values(u[family]).map((q) => ({ family, code: str(q.abbreviation).trim(), name: str(q.name).trim() })),
+        );
+        const { labels, display } = fromVpdive(qualifs);
         const firstname = str(u.firstname).trim();
         const lastname = str(u.lastname).trim();
         const med = obj(u.medical_examination) ?? {};
@@ -621,7 +630,8 @@ class VpDiveClient {
           name: `${lastname.toUpperCase()} ${firstname}`.trim() || str(u.name).trim() || 'Sans nom',
           firstname,
           lastname,
-          levels: [...new Set(levels)],
+          levels: labels,
+          display,
           training: values(u.prepa).map((p) => str(p.name).trim()).filter(Boolean),
           roles: values(u.roles).map((r) => str(r.role)).filter(Boolean),
           age: num(u.age),

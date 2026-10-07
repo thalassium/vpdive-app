@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, Check, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ClipboardCopy, Lock, Pencil, Plus, ShieldCheck, Sparkles, Star, Trash2, UserX } from 'lucide-react';
 import type { RosterEntry } from '../../services/vpdiveApi';
 import {
   DEPTHS,
@@ -8,7 +8,7 @@ import {
   aptitudesFromLabels,
   chosenDepth,
   depthOf,
-  levelName,
+  prerogativeCode,
   prerogativeLabel,
   proposePalanquees,
   validate,
@@ -35,7 +35,19 @@ interface Props {
 const KINDS: PalanqueeKind[] = ['teaching', 'guided', 'autonomous'];
 
 /** Niveau d'un plongeur tel qu'on le lit sur la carte : FN# pour un élève, sinon MF1, E2, N4 / GP, N2… */
-const shownLevel = (d: Diver) => (d.training ? `FN${d.training}` : levelName(d) || 'niveau ?');
+/**
+ * Comment on présente quelqu'un : sa prérogative (E3, GP, PE40 · PA20…), puis
+ * son niveau ou son diplôme tel que VPDive l'écrit (DEJEPS, MF1, P2…). Un E3
+ * peut être MF1 ou DEJEPS : on ne le devine jamais.
+ */
+const describe = (d: Diver) => [prerogativeCode({ ...d, training: 0 }) || 'niveau ?', ...diplomas(d)].join(' · ');
+/** Niveaux et diplômes VPDive, sans ceux qui répètent la prérogative (« PE-40 » à côté de « PE40 »). */
+const diplomas = (d: Diver) => {
+  const flat = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const parts = new Set(prerogativeCode({ ...d, training: 0 }).split(' · ').map(flat));
+  return (d.display ?? []).filter((x) => !parts.has(flat(x)));
+};
+const shownLevel = (d: Diver) => (d.training ? `FN${d.training} · ${describe(d)}` : describe(d));
 const isInstructor = (d: Diver) => !!d.guide;
 
 /**
@@ -97,7 +109,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
     const r = roster.find((x) => x.id === d.id)!;
     const out = excluded.has(d.id);
     const unknown = !d.pe && !d.beginner && !d.guide && !d.training;
-    const found = levelName(aptitudesFromLabels(r.levels));
+    const found = describe({ ...aptitudesFromLabels(r.levels), id: r.id, name: r.name, labels: r.levels, display: r.display });
     const choice = levelChoice(settings, d.id);
     const forced = settings.levels?.[d.id];
     return (
@@ -112,7 +124,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onPlan,
           <span className="min-w-0">
             <span className="font-medium text-ink truncate block">{d.name}</span>
             <span className="text-xs text-muted">
-              VPDive : {r.levels.join(', ') || 'aucun niveau'}
+              VPDive : {r.display.join(', ') || 'aucun niveau'}
               {forced && <span className="text-brand font-semibold"> → retenu : {forced}</span>}
               {d.minor && ' · mineur'}
               {r.roles.length > 0 && ` · ${r.roles.join(', ')}`}
@@ -405,10 +417,14 @@ function PalanqueeCard({
           {locked || !eligible.length ? (
             <span className="mt-1 flex items-baseline gap-2">
               <span className="text-lg font-bold">{p.guide ? p.guide.name : 'Aucun encadrant disponible'}</span>
-              {p.guide && <span className="px-2 py-0.5 rounded-md bg-pink text-on-pink text-sm font-bold">{levelName(p.guide)}</span>}
+              {p.guide && <GuideLevel d={p.guide} />}
             </span>
           ) : (
-            <div className="mt-1 flex items-center gap-2">
+            // Le nom et « E3 · DEJEPS » s'affichent ; la liste native ne s'ouvre qu'au clic.
+            <label className="mt-1 relative flex items-center gap-2 cursor-pointer">
+              <span className={`text-lg font-bold truncate ${p.guide ? 'text-white' : 'text-danger'}`}>{p.guide ? p.guide.name : 'Choisir l’encadrant…'}</span>
+              {p.guide && <GuideLevel d={p.guide} />}
+              <ChevronDown className="w-4 h-4 shrink-0 opacity-70 ml-auto" />
               <select
                 value={p.guide?.id ?? ''}
                 onChange={(e) => {
@@ -416,16 +432,16 @@ function PalanqueeCard({
                   if (d) onGuide(d);
                 }}
                 aria-label={p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'}
-                className={`flex-1 min-w-0 bg-transparent text-lg font-bold focus:outline-none -ml-0.5 cursor-pointer ${p.guide ? 'text-white' : 'text-danger'}`}
+                className="absolute inset-0 w-full opacity-0 cursor-pointer"
               >
                 {!p.guide && <option value="">Choisir l’encadrant…</option>}
                 {eligible.map((d) => (
-                  <option key={d.id} value={d.id} className="text-base text-ink bg-surface font-normal">
-                    {d.name} · {levelName(d)}
+                  <option key={d.id} value={d.id}>
+                    {d.name} · {describe(d)}
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
           )}
         </div>
       )}
@@ -457,6 +473,16 @@ function PalanqueeCard({
   );
 }
 
+/** Prérogative de l'encadrant en badge, son diplôme VPDive à côté (« E3 » + « DEJEPS »). */
+function GuideLevel({ d }: { d: Diver }) {
+  return (
+    <span className="inline-flex items-baseline gap-1.5 shrink-0">
+      <span className="px-2 py-0.5 rounded-md bg-pink text-on-pink text-sm font-bold">{prerogativeCode(d) || '?'}</span>
+      {diplomas(d).length > 0 && <span className="text-sm font-semibold text-white/85">{diplomas(d).join(' · ')}</span>}
+    </span>
+  );
+}
+
 function DiverRow({
   d,
   own,
@@ -483,8 +509,8 @@ function DiverRow({
       <span className="flex-1 min-w-0">
         <span className="block truncate text-ink">{d.name}</span>
         <span className="block text-xs text-muted truncate">
-          {d.training ? `en formation · ${levelName({ ...d, training: 0 }) || 'niveau ?'}` : levelName(d) || 'niveau ?'}
-          {d.original && <span title="Niveau dans VPDive"> · VPDive : {d.original.join(', ') || 'aucun'}</span>}
+          {d.training ? `en formation · ${describe(d)}` : describe(d)}
+          {d.original && <span title="Le DP a retenu un équivalent FFESSM"> · équivalent retenu</span>}
           {d.minor ? ' · mineur' : ''}
           {limiting ? ' · fixe la prérogative' : ''}
         </span>

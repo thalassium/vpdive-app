@@ -91,9 +91,11 @@ export interface Diver extends Aptitudes {
   labels: string[];
   /** Mineur, si on le sait : interdit en palanquée autonome. */
   minor?: boolean;
+  /** Niveaux et diplômes tels que VPDive les écrit (DEJEPS, MF1, P2, PADI - AOW…). */
+  display?: string[];
   /**
-   * Niveaux VPDive d'origine quand le DP a retenu un équivalent à la main
-   * (brevet PADI ou SSI ramené à une prérogative FFESSM…), pour les garder en vue.
+   * Quand le DP a retenu un équivalent à la main (brevet PADI ou SSI ramené à
+   * une prérogative FFESSM…) : les niveaux VPDive d'origine, gardés en vue.
    */
   original?: string[];
   /** Pour la fiche de sécurité (colonnes NOM / PRÉNOM). */
@@ -221,7 +223,11 @@ export function aptitudesFromLabels(labels: string[]): Aptitudes {
 
     // Encadrement (annexe III-15 b) : codes E1…E4, noms longs « Enseignant 3 - … »,
     // MF1/MF2, moniteurs associés, brevets d'État, moniteurs CMAS.
-    const level = Number(/\benseignant ([1-4])\b/.exec(s)?.[1] ?? 0);
+    // Quand VPDive écrit « Enseignant N » dans le nom, c'est la prérogative, quel
+    // que soit le diplôme (un DEJEPS est E3 ou E4 selon sa mention) : le nom du
+    // diplôme ne sert qu'à défaut. Enseignant 5 (BEES 3) est traité en E4.
+    const level = Math.min(Number(/\benseignant ([1-5])\b/.exec(s)?.[1] ?? 0), 4);
+    const byDiploma = (re: RegExp) => !level && has(re);
     const teachAt = (n: TeachLevel) => {
       if (n > teach) teach = n;
     };
@@ -229,16 +235,16 @@ export function aptitudesFromLabels(labels: string[]): Aptitudes {
       initiateur = true;
       teachAt(1);
     }
-    if (has(/\be2\b/) || level === 2) {
+    if (has(/\be2\b/) || byDiploma(/\bbpjeps\b/) || level === 2) {
       initiateur = true;
       p4 = true;
       teachAt(2);
     }
-    if (has(/\bmf1\b|\be3\b|\bmf as\b|moniteur federal (1|1er|premier)|\bbees ?1\b|\bdejeps\b|\bbpjeps\b/) || level === 3) {
+    if (has(/\bmf1\b|\be3\b|\bmf as\b|moniteur federal (1|1er|premier)/) || byDiploma(/\bbees ?1\b|\bdejeps\b/) || level === 3) {
       guide = higherGuide(guide, 'E3');
       teachAt(3);
     }
-    if (has(/\bmf2\b|\be4\b|\bffm\b|moniteur federal (2|2e|second)|\bbees ?2\b|\bdesjeps\b/) || level === 4) {
+    if (has(/\bmf2\b|\be4\b|\bffm\b|moniteur federal (2|2e|second)/) || byDiploma(/\bbees ?[23]\b|\bdesjeps\b/) || level === 4) {
       guide = higherGuide(guide, 'E4');
       teachAt(4);
     }
@@ -362,22 +368,19 @@ export function prerogativeLabel(p: Palanquee): string {
 }
 
 /**
- * Niveau d'un plongeur tel que le club le nomme (MF2, MF1, E2, N4 / GP, E1,
- * N3, N2, N1…), à partir de sa prérogative la plus haute. Vide si inconnu.
+ * Prérogative la plus haute d'un plongeur : E1…E4 pour un enseignant (zone
+ * d'enseignement 6, 20, 40, 60 m), GP pour un guide de palanquée qui
+ * n'enseigne pas, sinon ses aptitudes PE / PA. Le niveau ou le diplôme (MF1,
+ * DEJEPS, N2…) s'affiche à côté, tel que VPDive l'écrit (Diver.display) :
+ * on ne le déduit jamais de la prérogative (un E3 peut être MF1 ou DEJEPS).
+ * Vide si aucune aptitude n'est connue.
  */
-export function levelName(d: Aptitudes): string {
-  if (d.teach === 4) return 'MF2';
-  if (d.teach === 3) return 'MF1';
-  if (d.teach === 2) return 'E2';
-  if (d.guide === 'GP') return 'N4 / GP';
-  if (d.teach === 1) return d.pa >= 60 ? 'E1 · N3' : d.pa >= 20 ? 'E1 · N2' : 'E1';
-  if (d.pa >= 60) return 'N3';
-  if (d.pe >= 40 && d.pa >= 20) return 'N2';
-  if (d.pa >= 40) return 'PA40';
-  if (d.pe >= 40) return 'PE40';
-  if (d.pa >= 20) return 'PA20';
-  if (d.pe >= 20) return d.pa >= 12 ? 'N1 · PA12' : 'N1';
-  if (d.pe >= 12) return 'PE12';
+export function prerogativeCode(d: Aptitudes): string {
+  if (d.teach) return `E${d.teach}`;
+  if (d.guide === 'GP') return 'GP';
+  if (d.pa && d.pe > d.pa) return `PE${d.pe} · PA${d.pa}`;
+  if (d.pa) return `PA${d.pa}`;
+  if (d.pe) return `PE${d.pe}`;
   if (d.beginner) return 'Débutant';
   return '';
 }

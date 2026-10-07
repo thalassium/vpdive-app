@@ -5,7 +5,7 @@ import { addPalanquee, assignGuide, buddyPairs, chooseLevel, deletePalanquee, le
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
-  id, name, firstname: name.split(' ')[1] ?? '', lastname: name.split(' ')[0] ?? '', levels, training: [], roles: [],
+  id, name, firstname: name.split(' ')[1] ?? '', lastname: name.split(' ')[0] ?? '', levels, display: levels, training: [], roles: [],
   age, waitingList: false, comment, medical: { until: null, valid: true },
 });
 

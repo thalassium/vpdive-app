@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aptitudesFromLabels, aptLabel, chosenDepth, depthOf, levelName, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, aptLabel, chosenDepth, depthOf, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee } from './palanquees';
 
 let n = 0;
 const diver = (name: string, ...labels: string[]): Diver => ({ id: `d${++n}`, name, labels, ...aptitudesFromLabels(labels) });
@@ -298,19 +298,22 @@ test('profondeur par palanquée : 40 m au plus en automatique, 60 m seulement à
   assert.ok(validate({ ...n2, depth: 40 }).some((i) => /dépasse la prérogative/.test(i)));
 });
 
-test('nom du niveau trouvé, prérogative la plus haute', () => {
-  const name = (...l: string[]) => levelName(aptitudesFromLabels(l));
-  assert.equal(name('P4', 'E3'), 'MF1');
-  assert.equal(name('E2'), 'E2');
-  assert.equal(name('Initiateur', 'P4'), 'E2', 'Initiateur + N4 = E2');
-  assert.equal(name('P4-ANMP'), 'N4 / GP');
-  assert.equal(name('P5-DPE'), 'N4 / GP');
-  assert.equal(name('MF2'), 'MF2');
-  assert.equal(name('P3'), 'N3');
-  assert.equal(name('P2'), 'N2');
-  assert.equal(name('PE-40'), 'PE40');
-  assert.equal(name('P1-ANMP'), 'N1');
-  assert.equal(name('PADI - AOW'), '');
+test('prérogative la plus haute : E1…E4 pour un enseignant, GP, sinon PE / PA', () => {
+  const code = (...l: string[]) => prerogativeCode(aptitudesFromLabels(l));
+  assert.equal(code('P4', 'E3'), 'E3', 'un N4 + MF1 est E3');
+  assert.equal(code('E2'), 'E2');
+  assert.equal(code('Initiateur', 'P4'), 'E2', 'Initiateur + N4 = E2');
+  assert.equal(code('P - Enseignant 3 - Diplôme d’Etat de la Jeunesse et de l’Education Populaire - activités de plongée subaquatique'), 'E3', 'DEJEPS activité : E3');
+  assert.equal(code('P - Enseignant 4 - Diplôme d’Etat de la Jeunesse et de l’Education Populaire - plongée subaquatique'), 'E4', 'DEJEPS plongée : E4');
+  assert.equal(code('BPJEPS - avec scaphandre'), 'E2');
+  assert.equal(code('P4-ANMP'), 'GP');
+  assert.equal(code('P5-DPE'), 'GP');
+  assert.equal(code('MF2'), 'E4');
+  assert.equal(code('P3'), 'PA60');
+  assert.equal(code('P2'), 'PE40 · PA20');
+  assert.equal(code('PE-40'), 'PE40');
+  assert.equal(code('P1-ANMP'), 'PE20');
+  assert.equal(code('PADI - AOW'), '');
 });
 
 test('plusieurs encadrants : des palanquées plus petites, un encadrant chacune', () => {
