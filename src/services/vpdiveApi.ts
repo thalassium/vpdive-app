@@ -839,14 +839,18 @@ class VpDiveClient {
 
   // ── Messagerie VPDive (/messages_, voir lib/vpdiveChat.ts pour les formes) ──
 
-  /** Conversations à deux, première page (la plus récente). */
+  /**
+   * Conversations à deux, première page (la plus récente). Sans paramètres : les
+   * valeurs par défaut de VPDive ; le dernier segment est un terme de recherche
+   * (« null » y cherchait le mot « null »).
+   */
   messageList(): Promise<Json> {
-    return this.request('/messages_/messages/discussion/0/0/all/null');
+    return this.request('/messages_/messages');
   }
 
   /** Fil d'une conversation, par son jeton. */
   messageThread(conversation: string): Promise<Json> {
-    return this.request(`/messages_/detail/messages/${encodeURIComponent(conversation)}/0/null/0`);
+    return this.request(`/messages_/detail/messages/${encodeURIComponent(conversation)}`);
   }
 
   /** Compteurs de non-lus : { res: { messages, groups, … } }. */
