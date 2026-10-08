@@ -6,6 +6,7 @@ import { appApi, type AppRole, type Me, type RoleEntry } from '../services/appAp
 import { normalizeName, rankByName } from '../lib/fuzzy';
 import { findDuplicates, type DuplicateGroup } from '../lib/duplicates';
 import { ThemeToggle } from './ThemeToggle';
+import { useDialog } from '../hooks/useDialog';
 
 interface Props {
   me: Me;
@@ -15,7 +16,7 @@ interface Props {
 
 const VPDIVE_MEMBERS_URL = 'https://septentrion-env.vpdive.com/app/members';
 const ROLES_HELP =
-  'Admin : accès aux écrans Membres et DP. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli par défaut ; le leur retirer ici ne change rien sur vpdive.com.';
+  'Admin : menus Gestion sortie et Admin. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli par défaut ; le leur retirer ici ne change rien sur vpdive.com.';
 const roleRank: Record<AppRole, number> = { superadmin: 0, admin: 1, member: 2 };
 const byName = (a: MemberMatch, b: MemberMatch) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
 
@@ -55,16 +56,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
     load();
   }, [load]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
+  const { ref: dialogRef } = useDialog({ onClose, label: 'members' });
 
   const roleOf = useCallback((m: MemberMatch): AppRole => roles.get(m.id)?.role ?? 'member', [roles]);
 
@@ -151,7 +143,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-labelledby="members-title" className="relative bg-surface w-full sm:max-w-3xl h-dvh sm:h-[90vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="members-title" className="relative bg-surface w-full sm:max-w-3xl h-dvh sm:h-[90vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop">
         <header className="relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -402,7 +394,7 @@ function MemberRow({
               <Line label="Qualifications" values={profile.qualifications} />
               {profile.medicalUntil && (
                 <p className="text-muted">
-                  Certificat médical jusqu’au <span className="text-ink">{new Date(profile.medicalUntil).toLocaleDateString('fr-FR')}</span>
+                  Certificat médical jusqu’au <span className="text-ink">{profile.medicalUntil.slice(0, 10).split('-').reverse().join('/')}</span>
                 </p>
               )}
             </>

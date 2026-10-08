@@ -6,6 +6,7 @@ import { aggregateMaterial, isUnknownSize, materialText, sortedSizes, BOTTLE_SHO
 import { Avatar } from '../Avatar';
 import { Menu } from '../Menu';
 import { ThemeToggle } from '../ThemeToggle';
+import { useDialog } from '../../hooks/useDialog';
 
 /** « sam. 11 oct. » */
 const dayLabel = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -42,16 +43,7 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
     loadList();
   }, [loadList]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
+  const { ref: dialogRef } = useDialog({ onClose, label: 'material' });
 
   // Aujourd'hui et à venir d'abord (la plus proche en tête), puis les passées, la plus récente d'abord.
   const { upcoming, past } = useMemo(() => {
@@ -76,6 +68,7 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
   return (
     <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="material-title"

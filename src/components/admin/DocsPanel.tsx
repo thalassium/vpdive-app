@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, EyeOff, FileText, Mail, MessageCircle, RefreshCw, Undo2, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
+import { useDialog } from '../../hooks/useDialog';
 import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
 import { messaging } from '../../services/messaging';
@@ -264,23 +265,15 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
     if (outings) checkStatuses(outings, ++run.current);
   };
 
-  // Escape ferme la relance si elle est ouverte, sinon le panneau.
+  // Échap et le bouton Retour ferment la relance si elle est ouverte (jamais en plein envoi), sinon le panneau.
   const reminderOpen = useRef(false);
   reminderOpen.current = reminder !== null;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (reminderOpen.current) setReminder(null);
-      else onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
+  const reminderBusy = useRef(false);
+  const { ref: dialogRef } = useDialog({
+    onClose: () => (reminderOpen.current ? setReminder(null) : onClose()),
+    canClose: () => !reminderBusy.current,
+    label: 'docs',
+  });
 
   const rows = useMemo(() => {
     const map = new Map<string, Row>();
@@ -355,7 +348,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-labelledby="docs-title" className="relative bg-surface w-full sm:max-w-5xl h-dvh sm:h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="docs-title" className="relative bg-surface w-full sm:max-w-5xl h-dvh sm:h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop">
         <header className="relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -530,7 +523,18 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
           </div>
         )}
 
-        {reminder && <ReminderSheet key={reminder.rows.map((r) => r.key).join()} {...reminder} me={me} onClose={() => setReminder(null)} onSessionLost={onSessionLost} />}
+        {reminder && (
+          <ReminderSheet
+            key={reminder.rows.map((r) => r.key).join()}
+            {...reminder}
+            me={me}
+            onClose={() => setReminder(null)}
+            onBusy={(busy) => {
+              reminderBusy.current = busy;
+            }}
+            onSessionLost={onSessionLost}
+          />
+        )}
       </div>
     </div>
   );
@@ -572,7 +576,21 @@ function MemberCard({ row, checked, onToggle, onRemind, onIgnore }: { row: Row; 
   );
 }
 
-function ReminderSheet({ rows, bulk, me, onClose, onSessionLost }: { rows: Row[]; bulk: boolean; me: Me; onClose: () => void; onSessionLost: (e: unknown) => boolean }) {
+function ReminderSheet({
+  rows,
+  bulk,
+  me,
+  onClose,
+  onBusy,
+  onSessionLost,
+}: {
+  rows: Row[];
+  bulk: boolean;
+  me: Me;
+  onClose: () => void;
+  onBusy: (busy: boolean) => void;
+  onSessionLost: (e: unknown) => boolean;
+}) {
   const first = rows[0]!;
   const next = first.concerns[0]!;
   const [text, setText] = useState(() =>
@@ -603,6 +621,7 @@ function ReminderSheet({ rows, bulk, me, onClose, onSessionLost }: { rows: Row[]
     let sent = 0;
     setResult(null);
     setSending({ done: 0, total: rows.length });
+    onBusy(true);
     for (const [i, r] of rows.entries()) {
       if (i > 0) await wait(SEND_GAP_MS);
       if (!r.uct) {
@@ -618,6 +637,7 @@ function ReminderSheet({ rows, bulk, me, onClose, onSessionLost }: { rows: Row[]
       }
       setSending({ done: i + 1, total: rows.length });
     }
+    onBusy(false);
     setSending(null);
     setResult({ sent, errors });
   };
@@ -674,8 +694,9 @@ function ReminderSheet({ rows, bulk, me, onClose, onSessionLost }: { rows: Row[]
               <Mail className="w-4 h-4" /> Envoyer par e-mail
             </button>
           )}
-          <button type="button" onClick={sendInApp} disabled={!!sending || !text.trim()} className="btn btn-primary">
-            <MessageCircle className="w-4 h-4" /> {sending ? `Envoi… ${sending.done}/${sending.total}` : 'Envoyer dans l’appli'}
+          {/* Une fois tout envoyé, le bouton ne renvoie pas une deuxième fois. */}
+          <button type="button" onClick={sendInApp} disabled={!!sending || !text.trim() || (!!result && result.errors.length === 0)} className="btn btn-primary">
+            <MessageCircle className="w-4 h-4" /> {sending ? `Envoi… ${sending.done}/${sending.total}` : result && result.errors.length === 0 ? 'Envoyé' : 'Envoyer dans l’appli'}
           </button>
         </div>
 

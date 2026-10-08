@@ -4,6 +4,7 @@ import { vpdive, ymd, type CalendarEvent } from '../../services/vpdiveApi';
 import { SPOTS, forecastAt, type Spot } from '../../services/marineWeather';
 import { SEUILS, beaufort, compass, level, metres, windColor, worstIn, type Level, type Slot } from '../../lib/marine';
 import { ThemeToggle } from '../ThemeToggle';
+import { useDialog } from '../../hooks/useDialog';
 
 const WeatherMap = lazy(() => import('./WeatherMap'));
 
@@ -215,16 +216,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
     loadEvents();
   }, [loadEvents]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
+  const { ref: dialogRef } = useDialog({ onClose, label: 'weather' });
 
   const outings = useMemo(() => {
     const first = days[0]!;
@@ -279,6 +271,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
   return (
     <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="weather-title"
