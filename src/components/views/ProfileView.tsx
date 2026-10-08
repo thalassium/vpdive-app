@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Award, ChevronDown, ExternalLink, FileText, FolderOpen, IdCard, ImageIcon, LogOut } from 'lucide-react';
-import { vpdive, ymd, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { vpdive, ymd, type EmergencyContact, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import type { Me } from '../../services/appApi';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
@@ -153,7 +153,7 @@ export function ProfileView({
 
       <div className="mt-6 space-y-3">
         {/* Mes infos : ce que VPDive sait de moi ; se modifie sur VPDive */}
-        <Box icon={<IdCard className="w-5 h-5" />} title="Mes infos" defaultOpen>
+        <Box icon={<IdCard className="w-5 h-5" />} title="Mes infos">
           {info === undefined ? (
             <Skeleton rows={2} />
           ) : info === null ? (
@@ -163,6 +163,7 @@ export function ProfileView({
           ) : (
             <InfoList info={info} />
           )}
+          <EmergencyBlock onSessionLost={onSessionLost} />
           <div className="px-4 pb-4">
             <a href={VPDIVE_URL} target="_blank" rel="noreferrer" className="btn btn-quiet">
               <ExternalLink className="w-4 h-4" />
@@ -290,7 +291,6 @@ function InfoList({ info }: { info: MemberInfo }) {
         ['Téléphone', info.phone && <a href={`tel:${info.phone.replace(/\s/g, '')}`} className="text-brand underline underline-offset-2">{info.phone}</a>],
         ['E-mail', info.email],
         ['Adresse', adresse],
-        ['Contact d’urgence', <span className="text-muted">non géré par VPDive</span>],
       ],
     },
     {
@@ -349,6 +349,129 @@ function InfoList({ info }: { info: MemberInfo }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+const NO_CONTACT: EmergencyContact = { firstName: '', lastName: '', phone: '', cellphone: '', link: '' };
+const telHref = (n: string) => `tel:${n.replace(/[^\d+]/g, '')}`;
+
+/**
+ * Personne à contacter en cas d'urgence : lue et enregistrée sur VPDive, comme
+ * sur sa page « Mon profil » (même formulaire, mêmes champs).
+ */
+function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => boolean }) {
+  /** undefined : en cours ; null : illisible. */
+  const [contact, setContact] = useState<EmergencyContact | null | undefined>(undefined);
+  const [draft, setDraft] = useState<EmergencyContact | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    vpdive.myEmergencyContact().then(
+      (c) => !cancelled && setContact(c),
+      (e) => !cancelled && !onSessionLost(e) && setContact(null),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [onSessionLost]);
+
+  const filled = !!contact && Object.values(contact).some(Boolean);
+  const save = async () => {
+    if (!draft) return;
+    if (!draft.phone.trim() && !draft.cellphone.trim()) {
+      setError('Indiquez au moins un numéro de téléphone.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await vpdive.saveEmergencyContact(draft);
+      setContact(draft);
+      setDraft(null);
+      setSaved(true);
+    } catch (e) {
+      if (!onSessionLost(e)) setError(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = (key: keyof EmergencyContact, label: string, type = 'text', placeholder = '') => (
+    <label className="block">
+      <span className="label block mb-1">{label}</span>
+      <input
+        type={type}
+        value={draft?.[key] ?? ''}
+        placeholder={placeholder}
+        onChange={(e) => setDraft((d) => ({ ...(d ?? NO_CONTACT), [key]: e.target.value }))}
+        className="field w-full"
+      />
+    </label>
+  );
+
+  return (
+    <div className="px-4 pb-4">
+      <h3 className="label mb-1">Contact d’urgence</h3>
+      {draft ? (
+        <div className="space-y-3 pt-1">
+          <div className="grid sm:grid-cols-2 gap-3">
+            {field('firstName', 'Prénom')}
+            {field('lastName', 'Nom')}
+            {field('cellphone', 'Portable', 'tel', '06 12 34 56 78')}
+            {field('phone', 'Téléphone', 'tel', '01 23 45 67 89')}
+          </div>
+          {field('link', 'Lien avec vous', 'text', 'Conjoint, parent, ami…')}
+          {error && <p className="text-sm text-danger">{error}</p>}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void save()} disabled={saving} className="btn btn-primary">
+              {saving ? 'Enregistrement…' : 'Enregistrer sur VPDive'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(null);
+                setError(null);
+              }}
+              disabled={saving}
+              className="btn btn-quiet"
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-start justify-between gap-3 py-2">
+          <div className="min-w-0">
+            {contact === undefined ? (
+              <span className="text-muted">Chargement…</span>
+            ) : filled ? (
+              <>
+                <p className="text-ink">
+                  {[contact!.firstName, contact!.lastName].filter(Boolean).join(' ') || 'Contact'}
+                  {contact!.link && <span className="text-muted"> · {contact!.link}</span>}
+                </p>
+                <p className="text-sm space-x-3">
+                  {[contact!.cellphone, contact!.phone].filter(Boolean).map((n) => (
+                    <a key={n} href={telHref(n)} className="text-brand underline underline-offset-2">
+                      {n}
+                    </a>
+                  ))}
+                </p>
+              </>
+            ) : (
+              <span className="text-muted">Non renseigné.</span>
+            )}
+            {saved && <p className="text-sm text-ok mt-1">Enregistré sur VPDive.</p>}
+          </div>
+          <button type="button" onClick={() => setDraft(contact ?? NO_CONTACT)} className="btn btn-quiet h-9 text-sm">
+            {filled ? 'Modifier' : 'Ajouter'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -138,6 +138,16 @@ export interface MemberInfo {
   shows: { phone: boolean; birthday: boolean };
 }
 
+/** Personne à contacter en cas d'urgence, comme la page « Mon profil » de VPDive la saisit. */
+export interface EmergencyContact {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  cellphone: string;
+  /** Lien avec le membre : « conjoint », « mère »… */
+  link: string;
+}
+
 /** Un document déposé par le membre sur VPDive (certificat, licence, adhésion, qualification…). */
 export interface MemberDocument {
   /** Ce que c'est : « Certificat médical », « Licence », le type de document du club… */
@@ -798,6 +808,33 @@ class VpDiveClient {
    */
   async memberProfile(memberToken: string): Promise<MemberProfile> {
     return profileOf(await this.request(`/user?uct_token=${encodeURIComponent(memberToken)}`));
+  }
+
+  /**
+   * Mon contact d'urgence, lu sur le profil complet (GET /user, celui de la
+   * page « Mon profil »). Champs vides si VPDive ne les renvoie pas.
+   */
+  async myEmergencyContact(): Promise<EmergencyContact> {
+    const res = await this.request('/user');
+    const u = obj(res.data) ?? res;
+    return {
+      firstName: str(u.first_name_emergency).trim(),
+      lastName: str(u.last_name_emergency).trim(),
+      phone: str(u.phone_emergency).trim(),
+      cellphone: str(u.cellphone_emergency).trim(),
+      link: str(u.link_emergency).trim(),
+    };
+  }
+
+  /** Enregistre mon contact d'urgence sur VPDive, exactement comme sa page « Mon profil » (POST /user). */
+  async saveEmergencyContact(c: EmergencyContact): Promise<void> {
+    const form = new FormData();
+    form.append('mobile_urgency_form[first_name_emergency]', c.firstName.trim());
+    form.append('mobile_urgency_form[last_name_emergency]', c.lastName.trim());
+    form.append('mobile_urgency_form[phone_emergency]', c.phone.trim());
+    form.append('mobile_urgency_form[cellphone_emergency]', c.cellphone.trim());
+    form.append('mobile_urgency_form[link_emergency]', c.link.trim());
+    await this.request('/user', { method: 'POST', body: form });
   }
 
   /**
