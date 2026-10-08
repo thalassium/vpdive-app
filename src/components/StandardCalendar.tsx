@@ -360,23 +360,21 @@ export function AgendaList({
           <section
             key={date}
             aria-label={dayLabel(date)}
-            className="grid grid-cols-[3.25rem_1fr] sm:grid-cols-[4rem_1fr]"
+            className="grid grid-cols-[3.25rem_1fr] sm:grid-cols-[10.25rem_1fr]"
           >
-            <div className="flex flex-col items-center gap-1 pt-2.5 pb-2 border-r border-line bg-raised/60">
-              <span className="text-sm text-muted leading-none">{d.toLocaleDateString('fr-FR', { weekday: 'short' })}</span>
-              <span
-                className={`w-8 h-8 inline-flex items-center justify-center rounded-full text-xl font-semibold tabular-nums leading-none ${
-                  today ? 'bg-pink text-on-pink' : 'text-brand'
-                }`}
-              >
-                {d.getDate()}
-              </span>
-              {wind?.strong && (
-                <span title={`Vent max en journée : ${wind.max} nd (${wind.dir}), rafales ${wind.gusts} nd`} className="text-sm font-semibold text-warn tabular-nums inline-flex items-center gap-0.5">
-                  <WindWarning />
-                  {wind.max}
+            {/* Gouttière du jour : la date, et le vent de la journée à côté (en dessous sur téléphone, faute de place). */}
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-1 sm:gap-3 pt-2.5 pb-2 sm:pl-3 sm:pr-2 border-r border-line bg-raised/60">
+              <div className="flex flex-col items-center gap-1 shrink-0">
+                <span className="text-sm text-muted leading-none">{d.toLocaleDateString('fr-FR', { weekday: 'short' })}</span>
+                <span
+                  className={`w-8 h-8 inline-flex items-center justify-center rounded-full text-xl font-semibold tabular-nums leading-none ${
+                    today ? 'bg-pink text-on-pink' : 'text-brand'
+                  }`}
+                >
+                  {d.getDate()}
                 </span>
-              )}
+              </div>
+              {wind && <DayWind wind={wind} />}
             </div>
             <div className="min-w-0 divide-y divide-line/60">
               {(byDay[date] ?? []).map((ev) => (
@@ -387,6 +385,34 @@ export function AgendaList({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Le vent de la journée (7 h – 19 h), pour information : vitesse, direction,
+ * rafales. Au-delà du seuil de vigilance (écran Météo), en orange avec ⚠️.
+ * Ordinateur : deux lignes à côté de la date. Téléphone : « 18/25 » sous la
+ * date, sans la direction (dans l'infobulle et l'écran Météo).
+ */
+function DayWind({ wind }: { wind: NonNullable<ReturnType<typeof daytimeWind>> }) {
+  const tone = wind.strong ? 'text-warn font-semibold' : 'text-muted';
+  return (
+    <span
+      title={`Vent max en journée : ${wind.max} nd (${wind.dir}), rafales ${wind.gusts} nd${wind.strong ? ' : sortie menacée' : ''}`}
+      className={`text-sm tabular-nums leading-tight ${tone}`}
+    >
+      <span className="sm:hidden inline-flex items-center gap-0.5 text-xs">
+        {wind.strong && <WindWarning />}
+        {wind.max}/{wind.gusts}
+      </span>
+      <span className="hidden sm:flex flex-col gap-0.5 pt-0.5">
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+          {wind.strong ? <WindWarning /> : <Wind className="w-3.5 h-3.5 shrink-0" aria-hidden />}
+          {wind.max} nd {wind.dir}
+        </span>
+        <span className="whitespace-nowrap">raf. {wind.gusts} nd</span>
+      </span>
+    </span>
   );
 }
 
@@ -403,7 +429,7 @@ function DayHeading({ date, wind, today }: { date: string; wind: ReturnType<type
           title={`Vent max en journée, rafales ${wind.gusts} nd`}
           className={`inline-flex items-center gap-1.5 text-sm tabular-nums px-2.5 py-1 rounded-md ${wind.strong ? 'bg-warn-soft text-warn font-semibold' : 'text-muted'}`}
         >
-          <Wind className="w-4 h-4" /> {wind.max} nd {wind.dir}
+          <Wind className="w-4 h-4" /> {wind.max} nd {wind.dir} · raf. {wind.gusts}
           {wind.strong && <WindWarning />}
         </span>
       )}
@@ -416,7 +442,7 @@ function Skeletons() {
   return (
     <div className="card divide-y divide-line overflow-hidden animate-pulse" aria-hidden>
       {[0, 1, 2].map((i) => (
-        <div key={i} className="grid grid-cols-[3.25rem_1fr] sm:grid-cols-[4rem_1fr] h-24">
+        <div key={i} className="grid grid-cols-[3.25rem_1fr] sm:grid-cols-[10.25rem_1fr] h-24">
           <div className="border-r border-line bg-raised/60" />
           <div className="p-3 space-y-3">
             <div className="h-4 w-3/4 rounded-md bg-tint" />
