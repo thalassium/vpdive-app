@@ -197,15 +197,17 @@ test('corrections rapides : saison, licence (date ou ajout), assurance, brevets 
   const member = { id: 'u1', name: 'MARTIN Léa', picture: '' };
   const sure = { status: 'sure' as const, member, why: 'même date de naissance', candidates: [] };
   const rec: VpRecord = { email: '', birthday: '', seasons: ['2026'], licences: [{ number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2026-12-31', id: 7, verified: true }], insurance: '', insuranceYear: null, member: true, levels: [] };
-  const fixes = quickFixes(lea!, sure, rec, 2027, ['Niveau 2']);
-  assert.deepEqual(fixes.map((f) => [f.kind, f.after]), [['season', '+ 2026/2027'], ['licence', 'jusqu’au 31/12/2027'], ['insurance', 'Assurance Loisir 2 (2027)'], ['brevets', '+ Niveau 2']]);
+  const fixes = quickFixes(lea!, sure, rec, 2027, ['Niveau 2'], '2026-10-09');
+  assert.deepEqual(fixes.map((f) => [f.kind, f.after]), [['season', '+ 2026/2027'], ['licence', 'jusqu’au 31/12/2027'], ['insurance', 'Assurance Loisir 2 (2026)'], ['brevets', '+ Niveau 2']]);
   assert.equal(fixes[1]!.refresh, true);
   assert.equal(fixes[2]!.insurance, 'Assurance Loisir 2');
   // Assurance : l'année seule ancienne suffit ; « Autre » texte libre FFESSM remplacé ; DAN et autres gardées.
-  const ins = (insurance: string, insuranceYear: number | null) => quickFixes(lea!, sure, { ...rec, insurance, insuranceYear }, 2027).find((f) => f.kind === 'insurance')?.before ?? null;
-  assert.equal(ins('Assurance Loisir 2', 2026), 'Assurance Loisir 2 (2026)');
-  assert.equal(ins('Assurance Loisir 2', 2027), null);
-  assert.equal(ins('Loisir 1 base', 2027), 'Loisir 1 base (2027)');
+  // Année : l'année civile, sans dépasser la saison (VPDive refuse une année future).
+  const ins = (insurance: string, insuranceYear: number | null, today = '2026-10-09') => quickFixes(lea!, sure, { ...rec, insurance, insuranceYear }, 2027, [], today).find((f) => f.kind === 'insurance')?.before ?? null;
+  assert.equal(ins('Assurance Loisir 2', 2025), 'Assurance Loisir 2 (2025)');
+  assert.equal(ins('Assurance Loisir 2', 2026), null);
+  assert.equal(ins('Assurance Loisir 2', 2026, '2027-01-15'), 'Assurance Loisir 2 (2026)');
+  assert.equal(ins('Loisir 1 base', 2026), 'Loisir 1 base (2026)');
   assert.equal(ins('DAN SILVER', 2025), null);
   // Licence non vérifiée : c'est quand même une correction rapide, la date se saisit.
   const manual = { ...rec, licences: [{ ...rec.licences[0]!, verified: false }] };

@@ -672,12 +672,20 @@ export interface Fix {
   refresh?: boolean;
   /** Brevets à ajouter (kind « brevets »). */
   brevets?: string[];
-  /** Libellé VPDive de l'assurance à écrire (kind « insurance »), avec l'année de la licence. */
+  /** Libellé VPDive de l'assurance à écrire (kind « insurance ») et son année. */
   insurance?: string;
+  insuranceYear?: number;
 }
 
+/**
+ * Année de l'assurance à noter dans VPDive : l'année civile en cours, sans
+ * dépasser la saison (VPDive refuse une année future : essayé le 9 octobre
+ * 2026). Pour 2026/2027 : 2026 jusqu'en décembre, 2027 à partir de janvier.
+ */
+export const insuranceYearFor = (season: number, today: string) => Math.min(season, Number(today.slice(0, 4)));
+
 /** Les corrections rapides d'une personne (aucune si elle n'est pas reconnue avec certitude). */
-export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: number, lacking: string[] = []): Fix[] {
+export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: number, lacking: string[] = [], today = new Date().toISOString().slice(0, 10)): Fix[] {
   if (match.status !== 'sure' || !r) return [];
   const out: Fix[] = [];
   const label = seasonLabel(season);
@@ -702,9 +710,9 @@ export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: 
   const wanted = p.ffessm ? vpdiveInsurance(p.ffessm.insurance) : null;
   // Une autre assurance (DAN…) notée dans VPDive (« Autre ») reste : on ne remplace que vide ou FFESSM.
   const replaceable = !r.insurance || /loisir|piscine/i.test(r.insurance);
-  // L'année de l'assurance est celle de la licence FFESSM (2027 pour 2026/2027).
-  if (wanted && replaceable && (r.insurance !== wanted || r.insuranceYear !== season)) {
-    out.push({ kind: 'insurance', before: r.insurance ? `${r.insurance}${r.insuranceYear ? ` (${r.insuranceYear})` : ''}` : 'aucune', after: `${wanted} (${season})`, insurance: wanted });
+  const year = insuranceYearFor(season, today);
+  if (wanted && replaceable && (r.insurance !== wanted || r.insuranceYear !== year)) {
+    out.push({ kind: 'insurance', before: r.insurance ? `${r.insurance}${r.insuranceYear ? ` (${r.insuranceYear})` : ''}` : 'aucune', after: `${wanted} (${year})`, insurance: wanted, insuranceYear: year });
   }
   if (lacking.length) out.push({ kind: 'brevets', before: r.levels.length ? `${r.levels.length} niveau${r.levels.length > 1 ? 'x' : ''}` : 'aucun niveau', after: `+ ${lacking.join(', ')}`, brevets: lacking });
   return out;

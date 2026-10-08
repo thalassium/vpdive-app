@@ -651,7 +651,12 @@ class VpDiveClient {
     if (status >= 400 || o?.success === false) {
       const base = str(o?.message) || str(o?.error) || `Erreur VPDive (HTTP ${status})`;
       // 400 responses list what is missing in `errors` (codehelp/docapi.txt).
-      const details = Array.isArray(o?.errors) ? o.errors.filter((x): x is string => typeof x === 'string') : [];
+      // Les formulaires de fiche répondent `errors: [{field, message}]`.
+      const details = Array.isArray(o?.errors)
+        ? o.errors
+            .map((x) => (typeof x === 'string' ? x : obj(x) ? [str(obj(x)!.field), str(obj(x)!.message)].filter(Boolean).join(' : ') : ''))
+            .filter(Boolean)
+        : [];
       throw new VpDiveError(details.length ? `${base} : ${details.join(', ')}` : base, status);
     }
     if (data === null) {

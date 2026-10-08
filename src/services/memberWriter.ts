@@ -22,6 +22,7 @@ export interface WriteJob {
   licence?: string;
   /** Libellé VPDive de l'assurance FFESSM. */
   insurance?: string;
+  insuranceYear?: number;
   /** Niveaux VPDive à ajouter pour les brevets. */
   levels: { id: string; name: string }[];
 }
@@ -71,10 +72,10 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
       want.licence = job.licence;
     }
     if (kinds.has('insurance')) {
-      if (!job.insurance) throw new Error('assurance inconnue');
-      blocks.push({ kind: 'insurance', entries: () => insuranceEntries(job.insurance!, season) });
+      if (!job.insurance || !job.insuranceYear) throw new Error('assurance inconnue');
+      blocks.push({ kind: 'insurance', entries: () => insuranceEntries(job.insurance!, job.insuranceYear!) });
       want.insurance = job.insurance;
-      want.insuranceYear = season;
+      want.insuranceYear = job.insuranceYear;
     }
     if (job.levels.length) {
       const ids = job.levels.map((l) => l.id);

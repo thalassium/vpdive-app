@@ -98,7 +98,7 @@ const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
   season: { title: `Saison d’adhésion à ajouter`, help: 'Adhésion payée sur HelloAsso (geste d’août compris), saison absente de la fiche VPDive.' },
   licence: { title: 'Licence FFESSM : date de fin à mettre à jour', help: 'Même numéro, date ancienne. VPDive relit la FFESSM si la licence est vérifiée, sinon la date est saisie.' },
   'licence-add': { title: 'Licence FFESSM à ajouter', help: 'Licence prise par le club (export Mon Club), absente de la fiche VPDive.' },
-  insurance: { title: 'Assurance à reporter', help: 'Assurance FFESSM (export Mon Club) et son année, écrites dans la liste VPDive. Une autre assurance (DAN…) n’est pas remplacée.' },
+  insurance: { title: 'Assurance à reporter', help: 'Assurance FFESSM (export Mon Club) écrite dans la liste VPDive, avec l’année en cours (VPDive refuse une année future). Une autre assurance (DAN…) n’est pas remplacée.' },
   brevets: { title: 'Brevets à ajouter', help: 'Brevets délivrés par la FFESSM (export des brevets), absents des niveaux de la fiche VPDive.' },
 };
 const CASE_TITLE: Record<CaseKind, string> = {
@@ -454,7 +454,10 @@ export function MembershipTab({
       let job = jobs.find((j) => j.uct === uct);
       if (!job) jobs.push((job = { uct, name: r.match.member!.name, fixes: [], levels: [], ...(r.p.ffessm ? { licence: r.p.ffessm.licence } : {}) }));
       job.fixes.push(f);
-      if (f.kind === 'insurance' && f.insurance) job.insurance = f.insurance;
+      if (f.kind === 'insurance' && f.insurance && f.insuranceYear) {
+        job.insurance = f.insurance;
+        job.insuranceYear = f.insuranceYear;
+      }
       if (f.kind === 'brevets') for (const t of targets(f)) if (t.level) job.levels.push({ id: t.level.id, name: t.level.name });
     }
     const apply = async () => {
