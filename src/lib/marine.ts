@@ -132,5 +132,39 @@ export function worstIn(slots: Slot[], start: string, end: string): Slot | null 
   });
 }
 
+/**
+ * Échelle de couleur du vent, en nœuds, comme les sites de vent (Windfinder,
+ * Windguru) : bleu au calme, vert pour un vent maniable ; le jaune arrive au
+ * seuil de vigilance (16 nd), l'orange au seuil rouge (22 nd).
+ */
+export const WIND_SCALE: [number, string][] = [
+  [0, '#a9c3f0'],
+  [6, '#5aa9e6'],
+  [10, '#3fc1c9'],
+  [13, '#4cc37a'],
+  [16, '#b5d84a'],
+  [19, '#f2d04a'],
+  [22, '#f39a3c'],
+  [28, '#e5533f'],
+  [34, '#c23a6e'],
+  [40, '#8e3fa6'],
+];
+
+/** Couleur d'un vent en nœuds, interpolée entre les paliers de WIND_SCALE. */
+export function windColor(kn: number): string {
+  const s = WIND_SCALE;
+  if (kn <= s[0]![0]) return s[0]![1];
+  for (let i = 1; i < s.length; i++) {
+    const [b, cb] = s[i]!;
+    if (kn <= b) {
+      const [a, ca] = s[i - 1]!;
+      const t = (kn - a) / (b - a);
+      const ch = (hex: string, k: number) => parseInt(hex.slice(1 + 2 * k, 3 + 2 * k), 16);
+      return '#' + [0, 1, 2].map((k) => Math.round(ch(ca, k) + (ch(cb, k) - ch(ca, k)) * t).toString(16).padStart(2, '0')).join('');
+    }
+  }
+  return s[s.length - 1]![1];
+}
+
 /** 0.64 → « 0,6 m ». */
 export const metres = (m: number | null) => (m === null ? '–' : `${m.toFixed(1).replace('.', ',')} m`);

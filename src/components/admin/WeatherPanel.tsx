@@ -1,8 +1,8 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, RefreshCw, Wind, X } from 'lucide-react';
+import { RefreshCw, Wind, X } from 'lucide-react';
 import { vpdive, ymd, type CalendarEvent } from '../../services/vpdiveApi';
 import { SPOTS, forecastAt, type Spot } from '../../services/marineWeather';
-import { SEUILS, beaufort, compass, level, metres, worstIn, type Level, type Slot } from '../../lib/marine';
+import { SEUILS, beaufort, compass, level, metres, windColor, worstIn, type Level, type Slot } from '../../lib/marine';
 import { ThemeToggle } from '../ThemeToggle';
 
 const WeatherMap = lazy(() => import('./WeatherMap'));
@@ -33,11 +33,6 @@ function fromLocal(k: string): Date {
   return new Date(y, m - 1, day, h || 0, mi || 0);
 }
 
-const fr = (n: number) => String(n).replace('.', ',');
-const LEGEND =
-  `Jaune : vent ≥ ${fr(SEUILS.jaune.vent)} nd, rafales ≥ ${fr(SEUILS.jaune.rafales)} nd ou vagues ≥ ${fr(SEUILS.jaune.vagues)} m` +
-  ` · Rouge : ${fr(SEUILS.rouge.vent)} nd, ${fr(SEUILS.rouge.rafales)} nd, ${fr(SEUILS.rouge.vagues)} m`;
-
 const DOT: Record<Level, string> = { ok: 'bg-ok', jaune: 'bg-warn', rouge: 'bg-danger' };
 const LEVEL_NAME: Record<Level, string> = { ok: 'Favorable', jaune: 'Vigilance', rouge: 'Défavorable' };
 
@@ -52,27 +47,96 @@ function Dot({ lvl }: { lvl: Level | null }) {
   );
 }
 
-/** Teinte d'une valeur selon ses seuils jaune et rouge. */
-function tone(v: number | null, jaune: number, rouge: number): string {
-  if (v === null) return '';
-  if (v >= rouge) return 'bg-danger-soft text-danger';
-  if (v >= jaune) return 'bg-warn-soft text-warn';
-  return '';
-}
-const windTone = (s: Slot) => tone(s.wind, SEUILS.jaune.vent, SEUILS.rouge.vent);
-const gustTone = (s: Slot) => tone(s.gusts, SEUILS.jaune.rafales, SEUILS.rouge.rafales);
-const waveTone = (s: Slot) => tone(s.waves, SEUILS.jaune.vagues, SEUILS.rouge.vagues);
+/** Couleur du vent mêlée au fond (plus discrète en thème sombre, voir --wind-mix). */
+const mix = (c: string, part = 'var(--wind-mix)') => `color-mix(in srgb, ${c} ${part}, transparent)`;
 
-function Arrow({ deg }: { deg: number }) {
-  return <ArrowUp aria-hidden className="w-4 h-4 shrink-0" style={{ transform: `rotate(${deg + 180}deg)` }} />;
+/** Vitesse en pastille de la couleur du vent : « 14 ». */
+function WindPill({ kn, className = '' }: { kn: number; className?: string }) {
+  return (
+    <span className={`inline-block rounded-md px-1.5 font-semibold tabular-nums text-ink ${className}`} style={{ background: mix(windColor(kn), '75%') }}>
+      {kn}
+    </span>
+  );
 }
 
-const swellText = (s: Slot) =>
-  s.swell === null
-    ? '–'
-    : [metres(s.swell), s.swellPeriod !== null ? `${Math.round(s.swellPeriod)} s` : null, s.swellDir !== null ? compass(s.swellDir) : null]
-        .filter(Boolean)
-        .join(' · ');
+/** Flèche pleine : pointe vers où va le vent (la direction donnée est celle d'où il vient). */
+function WindArrow({ deg }: { deg: number }) {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" className="w-7 h-7 shrink-0 text-ink" style={{ transform: `rotate(${deg + 180}deg)` }}>
+      <path d="M12 2 19.5 21 12 16.5 4.5 21Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** Flèche creuse pour la houle, même convention. */
+function SwellArrow({ deg }: { deg: number }) {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" className="w-6 h-6 shrink-0 text-ink" style={{ transform: `rotate(${deg + 180}deg)` }}>
+      <path d="M12 3 19 20.5 12 16.5 5 20.5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const waveTone = (m: number | null) => (m === null ? 'text-ink' : m >= SEUILS.rouge.vagues ? 'text-danger' : m >= SEUILS.jaune.vagues ? 'text-warn' : 'text-ink');
+
+/** Part d'une vitesse sur l'échelle de la barre (40 nd = pleine largeur). */
+const bar = (kn: number) => `${Math.min(kn / 40, 1) * 100}%`;
+
+/**
+ * Un créneau, à la manière des sites de vent : le fond prend la couleur du
+ * vent, la flèche montre où il va, la barre du bas sa force puis les rafales.
+ */
+function SlotRow({ s, active, onSelect }: { s: Slot; active: boolean; onSelect: () => void }) {
+  const c = windColor(s.wind);
+  const swell = [s.swell !== null ? `houle ${metres(s.swell)}` : null, s.swellPeriod !== null ? `${Math.round(s.swellPeriod)} s` : null]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={active}
+        aria-label={`${Number(s.time.slice(11, 13))} h : vent ${s.wind} nœuds de ${compass(s.windDir)}, rafales ${s.gusts}, vagues ${metres(s.waves)}`}
+        className={`relative w-full text-left grid grid-cols-[3.25rem_minmax(0,1.2fr)_minmax(0,1fr)] items-center gap-2 sm:gap-3 pl-2 pr-3 pt-2.5 pb-3.5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${
+          active ? 'shadow-[inset_4px_0_0_var(--color-brand)]' : ''
+        }`}
+        style={{ background: `linear-gradient(90deg, ${mix(c)} 0%, ${mix(c)} 30%, transparent 78%)` }}
+      >
+        <span className={`justify-self-start rounded-full px-2 py-0.5 text-sm font-semibold tabular-nums ${active ? 'bg-brand text-surface' : 'bg-surface text-ink'}`}>
+          {s.time.slice(11, 13)}h
+        </span>
+
+        <span className="flex items-center gap-2 min-w-0">
+          <WindArrow deg={s.windDir} />
+          <span className="min-w-0">
+            <span className="block text-2xl font-semibold leading-none tabular-nums text-ink">
+              {s.wind}
+              <span className="text-base font-medium"> nd</span>
+            </span>
+            <span className="block mt-1 text-sm text-ink/80 tabular-nums truncate">
+              {compass(s.windDir)} · raf. {s.gusts} · F{beaufort(s.wind)}
+            </span>
+          </span>
+        </span>
+
+        <span className="flex items-center gap-2 min-w-0">
+          {s.swellDir !== null ? <SwellArrow deg={s.swellDir} /> : <span className="w-6 shrink-0" />}
+          <span className="min-w-0">
+            <span className={`block text-xl font-semibold leading-none tabular-nums ${waveTone(s.waves)}`}>{metres(s.waves)}</span>
+            {swell && <span className="block mt-1 text-sm text-muted tabular-nums truncate">{swell}</span>}
+          </span>
+        </span>
+
+        {/* Force du vent puis rafales, sur une échelle de 0 à 40 nd */}
+        <span aria-hidden className="absolute left-0 bottom-0 h-1 w-full flex">
+          <span style={{ width: bar(s.wind), background: c }} />
+          <span style={{ width: `calc(${bar(s.gusts)} - ${bar(s.wind)})`, background: windColor(s.gusts), opacity: 0.6 }} />
+        </span>
+      </button>
+    </li>
+  );
+}
 
 function Failure({ text, onRetry }: { text: string; onRetry: () => void }) {
   return (
@@ -94,8 +158,8 @@ function outingWindow(e: CalendarEvent): [string, string] {
 }
 
 /**
- * Météo (admin) : vent, rafales et mer sur 7 jours au point choisi, niveau de
- * chaque sortie VPDive de la semaine, carte des vagues Ifremer.
+ * Météo (admin et DP) : vent, rafales et mer sur 7 jours au point choisi,
+ * niveau de chaque sortie VPDive de la semaine, carte du vent.
  */
 export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; onSessionLost: (e: unknown) => boolean }) {
   const [spotId, setSpotId] = useState<string>(SPOTS[0].id);
@@ -112,6 +176,13 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
     return out;
   }, []);
   const [day, setDay] = useState(days[0]!);
+  // Créneau affiché sur la carte : le prochain d'aujourd'hui, 9 h les autres jours.
+  const nextHour = (): string => HOURS.find((h) => Number(h) + 2 >= new Date().getHours()) ?? '21';
+  const [hour, setHour] = useState<string>(nextHour);
+  const pickDay = (d: string) => {
+    setDay(d);
+    setHour(d === days[0] ? nextHour() : '09');
+  };
 
   // Prévision au point choisi.
   const [slots, setSlots] = useState<Slot[] | null>(null);
@@ -175,12 +246,13 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
       .sort((a, b) => a.window[0].localeCompare(b.window[0]));
   }, [events, days]);
 
-  const dayLevel = useMemo(() => {
-    const out = new Map<string, Level>();
+  /** Vent le plus fort de chaque jour, de 6 h à 21 h. */
+  const dayPeak = useMemo(() => {
+    const out = new Map<string, Slot>();
     if (slots)
       days.forEach((d) => {
         const w = worstIn(slots, `${d}T06:00`, `${d}T21:00`);
-        if (w) out.set(d, level(w));
+        if (w) out.set(d, w);
       });
     return out;
   }, [slots, days]);
@@ -199,7 +271,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
   const forecastRef = useRef<HTMLElement>(null);
   const showDay = (d: string) => {
     if (!days.includes(d)) return;
-    setDay(d);
+    pickDay(d);
     forecastRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -291,10 +363,13 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                               {!slots ? (
                                 forecastError ? 'prévision indisponible' : '…'
                               ) : w ? (
-                                <>
-                                  {w.wind} nd {compass(w.windDir)} · raf. {w.gusts} · F{beaufort(w.wind)}
-                                  {w.waves !== null && <> · vagues {metres(w.waves)}</>}
-                                </>
+                                <span className="inline-flex items-center gap-1.5">
+                                  <WindPill kn={w.wind} />
+                                  <span>
+                                    nd {compass(w.windDir)} · raf. {w.gusts}
+                                    {w.waves !== null && <> · vagues {metres(w.waves)}</>}
+                                  </span>
+                                </span>
                               ) : (
                                 'prévision indisponible'
                               )}
@@ -308,107 +383,70 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
               )}
             </section>
 
-            {/* Prévision */}
-            <section ref={forecastRef} className="card p-4 sm:p-5 scroll-mt-4 space-y-3">
-              <h3 className="text-lg font-semibold text-brand">Prévision · {spot.name}</h3>
-              <div role="tablist" aria-label="Jour" className="flex gap-1 overflow-x-auto -mx-1 px-1 pb-1">
+            {/* Prévision : jours, créneaux colorés, carte du vent à l'heure choisie */}
+            <section ref={forecastRef} className="scroll-mt-4 space-y-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="text-lg font-semibold text-brand">{spot.name}</h3>
+                {water !== null && <span className="text-base text-ink tabular-nums">Eau {Math.round(water)}&nbsp;°C</span>}
+              </div>
+
+              <div role="tablist" aria-label="Jour" className="flex gap-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-1">
                 {days.map((d, i) => {
                   const date = fromLocal(d);
-                  const label = i === 0 ? 'auj.' : `${date.toLocaleDateString('fr-FR', { weekday: 'short' })} ${date.getDate()}`;
+                  const peak = dayPeak.get(d);
                   return (
                     <button
                       key={d}
                       type="button"
                       role="tab"
                       aria-selected={day === d}
-                      onClick={() => setDay(d)}
-                      className={`h-9 px-3 rounded-lg text-sm font-medium whitespace-nowrap inline-flex items-center gap-2 border transition-colors ${
-                        day === d ? 'bg-tint text-brand border-brand' : 'border-transparent text-muted hover:text-ink hover:bg-raised'
+                      onClick={() => pickDay(d)}
+                      title={peak ? `Jusqu'à ${peak.wind} nd, rafales ${peak.gusts} nd` : undefined}
+                      className={`shrink-0 w-[4.75rem] rounded-lg border py-1.5 text-center transition-colors ${
+                        day === d ? 'bg-surface border-brand shadow-lift' : 'bg-surface/60 border-line hover:bg-surface'
                       }`}
                     >
-                      <Dot lvl={dayLevel.get(d) ?? null} />
-                      {label}
+                      <span className={`block text-sm ${day === d ? 'font-semibold text-brand' : 'text-muted'}`}>
+                        {i === 0 ? 'auj.' : `${date.toLocaleDateString('fr-FR', { weekday: 'short' })} ${date.getDate()}`}
+                      </span>
+                      <span className="block mt-1 h-6">{peak && <WindPill kn={peak.wind} className="text-base" />}</span>
                     </button>
                   );
                 })}
               </div>
 
-              {forecastError ? (
-                <Failure text={forecastError} onRetry={() => setAttempt((n) => n + 1)} />
-              ) : !slots ? (
-                <p className="py-6 text-center text-muted">Chargement de la prévision…</p>
-              ) : daySlots.length === 0 ? (
-                <p className="py-6 text-center text-muted">Prévision indisponible pour ce jour.</p>
-              ) : (
-                <>
-                  {water !== null && <p className="text-base text-ink">Eau {Math.round(water)}&nbsp;°C</p>}
-
-                  {/* Téléphone : une ligne double par créneau */}
-                  <ul className="sm:hidden divide-y divide-line">
-                    {daySlots.map((s) => (
-                      <li key={s.time} className="py-2 flex items-start gap-3">
-                        <span className="w-10 shrink-0 font-semibold text-brand tabular-nums">{s.time.slice(11, 13)} h</span>
-                        <span className="flex-1 min-w-0 space-y-1 tabular-nums">
-                          <span className="flex flex-wrap items-center gap-1.5">
-                            <span className={`inline-flex items-center gap-1 rounded px-1 ${windTone(s) || 'text-ink'}`}>
-                              <Arrow deg={s.windDir} /> {s.wind} nd {compass(s.windDir)}
-                            </span>
-                            <span className="text-sm text-muted">F{beaufort(s.wind)}</span>
-                            <span className={`rounded px-1 ${gustTone(s) || 'text-ink'}`}>raf. {s.gusts}</span>
-                          </span>
-                          <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted">
-                            <span className={`rounded px-1 ${waveTone(s)}`}>vagues {metres(s.waves)}</span>
-                            <span>houle {swellText(s)}</span>
-                          </span>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  {/* Tablette et ordinateur : tableau */}
-                  <table className="hidden sm:table w-full text-base tabular-nums border-collapse">
-                    <thead>
-                      <tr className="text-left">
-                        <th className="label py-1.5 pr-3 font-semibold">Heure</th>
-                        <th className="label py-1.5 px-2 font-semibold">Vent</th>
-                        <th className="label py-1.5 px-2 font-semibold">Rafales</th>
-                        <th className="label py-1.5 px-2 font-semibold">Vagues</th>
-                        <th className="label py-1.5 px-2 font-semibold">Houle</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-line border-t border-line">
-                      {daySlots.map((s) => (
-                        <tr key={s.time}>
-                          <td className="py-2 pr-3 font-semibold text-brand">{s.time.slice(11, 13)} h</td>
-                          <td className={`py-2 px-2 ${windTone(s) || 'text-ink'}`}>
-                            <span className="inline-flex items-center gap-1.5">
-                              <Arrow deg={s.windDir} />
-                              {s.wind} nd {compass(s.windDir)}
-                              <span className="text-sm opacity-75">F{beaufort(s.wind)}</span>
-                            </span>
-                          </td>
-                          <td className={`py-2 px-2 ${gustTone(s) || 'text-ink'}`}>{s.gusts} nd</td>
-                          <td className={`py-2 px-2 ${waveTone(s) || 'text-ink'}`}>{metres(s.waves)}</td>
-                          <td className="py-2 px-2 text-ink">{swellText(s)}</td>
-                        </tr>
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+                <div className="card overflow-hidden">
+                  {forecastError ? (
+                    <div className="p-4">
+                      <Failure text={forecastError} onRetry={() => setAttempt((n) => n + 1)} />
+                    </div>
+                  ) : !slots ? (
+                    <p className="py-10 text-center text-muted">Chargement de la prévision…</p>
+                  ) : daySlots.length === 0 ? (
+                    <p className="py-10 text-center text-muted">Prévision indisponible pour ce jour.</p>
+                  ) : (
+                    <ul className="divide-y divide-line">
+                      {daySlots.map((sl) => (
+                        <SlotRow key={sl.time} s={sl} active={sl.time.slice(11, 13) === hour} onSelect={() => setHour(sl.time.slice(11, 13))} />
                       ))}
-                    </tbody>
-                  </table>
-                </>
-              )}
-              <p className="text-sm text-muted">{LEGEND}</p>
-            </section>
+                    </ul>
+                  )}
+                </div>
 
-            {/* Carte */}
-            <section className="card p-4 sm:p-5">
-              <h3 className="text-lg font-semibold text-brand mb-3">Carte</h3>
-              <Suspense fallback={<div className="h-80 sm:h-[28rem] rounded-xl bg-raised animate-pulse" />}>
-                <WeatherMap spot={spot} onPick={onPick} spots={SPOTS} />
-              </Suspense>
+                <div className="lg:sticky lg:top-0 space-y-1.5">
+                  <Suspense fallback={<div className="h-80 sm:h-[30rem] rounded-xl bg-raised animate-pulse" />}>
+                    <WeatherMap spot={spot} onPick={onPick} spots={SPOTS} time={`${day}T${hour}:00`} />
+                  </Suspense>
+                  <p className="text-sm text-muted">
+                    Vent à {Number(hour)} h, {fromLocal(day).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </p>
+                </div>
+              </div>
             </section>
 
             <p className="text-sm text-muted">
-              Sources : Météo-France (AROME) et Open-Meteo pour le vent, Open-Meteo Marine pour la mer, Ifremer (WW3 Provence 200 m) pour la carte.
+              Sources : Météo-France (AROME) et Open-Meteo pour le vent, Open-Meteo Marine pour la mer.
             </p>
           </div>
         </main>

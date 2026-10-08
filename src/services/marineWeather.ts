@@ -5,7 +5,7 @@ import { preferModels, toSlots, type Slot } from '../lib/marine';
  *  - vent et rafales : Open-Meteo, modèle Météo-France (AROME puis ARPEGE),
  *    complété par le modèle par défaut au-delà de 4 jours ;
  *  - vagues, houle, eau : Open-Meteo Marine (modèle européen 5 km sur 3 jours) ;
- *  - carte : Ifremer, modèle de vagues WW3 Provence à 200 m (WMS).
+ *  - carte : le vent sur une grille de points en mer, même source.
  */
 
 /** Points de plongée du club ; Pointe Rouge d'abord, c'est le port. */
@@ -84,46 +84,54 @@ export async function forecastAt(lat: number, lon: number): Promise<Slot[]> {
   return slots;
 }
 
-/** Ifremer, modèle de vagues WAVEWATCH III, zone Provence, grille de 200 m. */
-export const IFREMER_WMS = 'https://tds1.ifremer.fr/thredds/wms/MARC-MENOR-WW3_PROVENCE200M-FOR_FULL_TIME_SERIE';
-
-let pasIfremer: Promise<string[]> | null = null;
-
-/**
- * Pas de temps à venir du modèle Ifremer (toutes les 3 h, sur environ 5 jours).
- * Le GetCapabilities pèse 1,7 Mo : on lit plutôt la fiche JSON de la couche
- * (prochain pas, jours couverts) puis les heures du dernier jour, souvent
- * incomplet. À défaut, une grille de 3 h sur 4 jours.
- */
-export function ifremerTimes(): Promise<string[]> {
-  pasIfremer ??= (async () => {
-    const meta = (await (await fetch(`${IFREMER_WMS}?request=GetMetadata&item=layerDetails&layerName=hs`)).json()) as {
-      nearestTimeIso?: string;
-      datesWithData?: Record<string, Record<string, number[]>>;
-    };
-    const jours: string[] = [];
-    Object.entries(meta.datesWithData ?? {}).forEach(([an, mois]) =>
-      Object.entries(mois).forEach(([m, js]) =>
-        js.forEach((j) => jours.push(`${an}-${String(Number(m) + 1).padStart(2, '0')}-${String(j).padStart(2, '0')}`)),
-      ),
-    );
-    jours.sort();
-    const dernier = jours.at(-1);
-    if (!meta.nearestTimeIso || !dernier) throw new Error('fiche Ifremer incomplète');
-    const fin = (await (await fetch(`${IFREMER_WMS}?request=GetMetadata&item=timesteps&layerName=hs&day=${dernier}`)).json()) as {
-      timesteps?: string[];
-    };
-    const derniere = Date.parse(`${dernier}T${fin.timesteps?.at(-1) ?? '00:00:00.000Z'}`);
-    return pas3h(Date.parse(meta.nearestTimeIso), derniere);
-  })().catch(() => {
-    const t = Date.now();
-    return pas3h(t - (t % (3 * 3600_000)), t + 4 * 24 * 3600_000);
-  });
-  return pasIfremer;
+export interface WindPoint {
+  lat: number;
+  lon: number;
+  /** Heure locale « 2026-10-11T09:00 » → vent (nd), rafales (nd), direction d'où il vient (°). */
+  hours: Record<string, { wind: number; gusts: number; dir: number }>;
 }
 
-function pas3h(debut: number, fin: number): string[] {
-  const out: string[] = [];
-  for (let t = debut; t <= fin && out.length < 60; t += 3 * 3600_000) out.push(new Date(t).toISOString());
-  return out;
+/** Grille de la carte : de l'ouest du Planier à l'est de Cassis, points en mer seulement. */
+const GRID_LATS = [43.1, 43.16, 43.22, 43.28, 43.34];
+const GRID_LONS = [5.13, 5.21, 5.29, 5.37, 5.45, 5.53, 5.61];
+
+let grille: { at: number; points: Promise<WindPoint[]> } | null = null;
+
+/**
+ * Vent sur la grille de la carte, 7 jours, en un seul appel Open-Meteo (il
+ * accepte une liste de points). Les points à terre (altitude > 0) sont écartés.
+ */
+export function windGrid(): Promise<WindPoint[]> {
+  if (grille && Date.now() - grille.at < TTL) return grille.points;
+  const lats: number[] = [];
+  const lons: number[] = [];
+  GRID_LATS.forEach((la) =>
+    GRID_LONS.forEach((lo) => {
+      lats.push(la);
+      lons.push(lo);
+    }),
+  );
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}` +
+    '&timezone=Europe%2FParis&forecast_days=7&models=meteofrance_seamless,best_match&wind_speed_unit=kn' +
+    '&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m';
+  const points = fetch(url)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Carte du vent indisponible (HTTP ${r.status}).`))))
+    .then((body: { latitude: number; longitude: number; elevation?: number; hourly?: Record<string, unknown[]> }[]) =>
+      (Array.isArray(body) ? body : [body])
+        .map((p, i) => ({ p, lat: lats[i]!, lon: lons[i]! }))
+        .filter(({ p }) => (p.elevation ?? 0) <= 0)
+        .map(({ p, lat, lon }) => {
+          const hours: WindPoint['hours'] = {};
+          toSlots(preferModels(p.hourly ?? {}, ['meteofrance_seamless', 'best_match']), null).forEach((s) => {
+            hours[s.time] = { wind: s.wind, gusts: s.gusts, dir: s.windDir };
+          });
+          return { lat, lon, hours };
+        }),
+    );
+  grille = { at: Date.now(), points };
+  points.catch(() => {
+    grille = null;
+  });
+  return points;
 }

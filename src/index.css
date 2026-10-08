@@ -66,6 +66,8 @@
   --coast-far: #dbe3ef;
   --coast-near: #d0daea;
   --swell: #c9d5e7;
+  /* Part de la couleur du vent dans le fond d'une ligne de prévision. */
+  --wind-mix: 62%;
 }
 
 .dark {
@@ -100,6 +102,7 @@
   --coast-far: #0b1530;
   --coast-near: #0d1938;
   --swell: #0f1c3f;
+  --wind-mix: 38%;
 }
 
 @theme {

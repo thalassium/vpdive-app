@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { beaufort, compass, level, metres, preferModels, toSlots, worstIn, type Slot } from './marine';
+import { beaufort, compass, level, metres, preferModels, toSlots, windColor, worstIn, type Slot } from './marine';
 
 test('compass : rose des 16 directions en français', () => {
   assert.equal(compass(0), 'N');
@@ -78,6 +78,15 @@ test('preferModels : Météo-France d’abord, le modèle par défaut au-delà',
   );
   assert.deepEqual(h.wind_speed_10m, [10, 14]);
   assert.deepEqual(h.wind_gusts_10m, [20, null]);
+});
+
+test('windColor : paliers exacts, interpolation, bornes', () => {
+  assert.equal(windColor(-3), '#a9c3f0');
+  assert.equal(windColor(16), '#b5d84a');
+  assert.equal(windColor(22), '#f39a3c');
+  assert.equal(windColor(60), '#8e3fa6');
+  // À mi-chemin entre 16 (#b5d84a) et 19 (#f2d04a) : #d4d44a.
+  assert.equal(windColor(17.5), '#d4d44a');
 });
 
 test('metres : virgule décimale', () => {
