@@ -75,6 +75,12 @@ const hasFinePointer = () => typeof window !== 'undefined' && window.matchMedia(
 
 const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
+/** Aperçu de la liste, comme les messageries de téléphone : les trois premiers mots. */
+const preview = (text: string, words = 3): string => {
+  const all = text.split(/\s+/).filter(Boolean);
+  return all.length > words ? `${all.slice(0, words).join(' ')}…` : all.join(' ');
+};
+
 /** L'autre personne d'une conversation à deux. */
 const otherMember = (c: Pick<ChatSummary, 'members'>, me: Me): ChatMember | undefined => c.members.find((m) => m.uct !== me.uct) ?? c.members[0];
 
@@ -368,8 +374,8 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
                             </span>
                             <span className="flex-1 min-w-0">
                               <span className={`block truncate text-ink ${c.unread ? 'font-semibold' : 'font-medium'}`}>{c.title}</span>
-                              <span className="block text-sm text-muted line-clamp-1 break-all">
-                                {c.last ? `${mine ? 'Vous : ' : ''}${c.last.text}` : 'Aucun message'}
+                              <span className={`block text-sm truncate ${c.unread ? 'text-ink font-medium' : 'text-muted'}`}>
+                                {c.last ? `${mine ? 'Vous : ' : ''}${preview(c.last.text)}` : 'Aucun message'}
                               </span>
                             </span>
                             <span className="shrink-0 flex flex-col items-end gap-1.5 self-start pt-0.5">
