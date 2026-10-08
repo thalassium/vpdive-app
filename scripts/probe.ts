@@ -184,10 +184,13 @@ const firstToken = (body: unknown): string => {
 };
 const discussions = await probe('30_messages_discussions', 'GET', '/messages/messages');
 const groups = await probe('31_messages_groups', 'GET', '/messages/groups');
-const discussionToken = firstToken(discussions.body);
-if (discussionToken) await probe('32_messages_detail_discussion', 'GET', `/messages/detail/messages/${discussionToken}`);
-const groupToken = firstToken(groups.body);
-if (groupToken) await probe('33_messages_detail_group', 'GET', `/messages/detail/groups/${groupToken}`);
+// Le détail peut marquer la conversation comme lue : seulement avec PROBE_MESSAGE_DETAIL=1.
+if (process.env.PROBE_MESSAGE_DETAIL === '1') {
+  const discussionToken = firstToken(discussions.body);
+  if (discussionToken) await probe('32_messages_detail_discussion', 'GET', `/messages/detail/messages/${discussionToken}`);
+  const groupToken = firstToken(groups.body);
+  if (groupToken) await probe('33_messages_detail_group', 'GET', `/messages/detail/groups/${groupToken}`);
+}
 
 // ── 6. Done ───────────────────────────────────────────────────
 await call('GET', '/logout'); // revoke the probe's JWT

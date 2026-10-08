@@ -1,33 +1,22 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { ArrowLeft, Paperclip, SendHorizontal } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { ArrowLeft, Check, Plus, SendHorizontal, Users, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
-import { vpdive, ymd, type ChatMessage, type Conversation, type Thread } from '../../services/vpdiveApi';
+import { Cromagnon } from '../Cromagnon';
+import { appApi, type ChatMember, type ChatMessage, type ChatSummary, type ChatThread } from '../../services/appApi';
+import { vpdive, type MemberMatch } from '../../services/vpdiveApi';
+import { normalizeName, rankByName } from '../../lib/fuzzy';
 
-const VPDIVE_URL = 'https://septentrion-env.vpdive.com/';
-const THREAD_POLL_MS = 15_000;
-const LIST_POLL_MS = 30_000;
+const THREAD_POLL_MS = 10_000;
+const LIST_POLL_MS = 20_000;
 
-type Filter = 'all' | 'discussion' | 'group';
-const FILTERS: { id: Filter; label: string; empty: string }[] = [
-  { id: 'all', label: 'Tout', empty: 'Aucune conversation.' },
-  { id: 'discussion', label: 'Discussions', empty: 'Aucune discussion.' },
-  { id: 'group', label: 'Groupes', empty: 'Aucun groupe.' },
-];
+type Me = { uct: string; name: string; picture: string };
 
-const keyOf = (c: Pick<Conversation, 'kind' | 'token'>) => `${c.kind}:${c.token}`;
+const errorText = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
 // ── Dates ───────────────────────────────────────────────────────
 
-/** Lit « AAAA-MM-JJ[ HH:MM[:SS]] » en heure locale (Safari refuse l'espace), sinon laisse faire Date. */
 function parseDate(s: string): Date | null {
   if (!s) return null;
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(s)) {
-    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
-    if (m) {
-      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] ?? 0), Number(m[5] ?? 0));
-      return isNaN(d.getTime()) ? null : d;
-    }
-  }
   const t = Date.parse(s);
   return isNaN(t) ? null : new Date(t);
 }
@@ -37,11 +26,12 @@ function sameDay(a: Date, b: Date) {
 }
 
 const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 /** Date courte de la liste : « 14:05 » aujourd'hui, « hier », sinon « 3 oct. ». */
 function listDate(s: string): string {
   const d = parseDate(s);
-  if (!d) return s.trim();
+  if (!d) return '';
   const now = new Date();
   if (sameDay(d, now)) return hhmm(d);
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
@@ -54,9 +44,7 @@ function listDate(s: string): string {
 }
 
 /** Intitulé d'un jour dans le fil : « samedi 11 octobre ». */
-function dayLabel(day: string): string {
-  const d = parseDate(day);
-  if (!d) return day;
+function dayLabel(d: Date): string {
   const now = new Date();
   return d.toLocaleDateString('fr-FR', {
     weekday: 'long',
@@ -66,56 +54,64 @@ function dayLabel(day: string): string {
   });
 }
 
-function messageTime(m: ChatMessage): string {
-  if (m.time) return m.time;
-  const d = /\d{2}:\d{2}/.test(m.date) ? parseDate(m.date) : null;
-  return d ? hhmm(d) : '';
-}
+/** Un message du fil, envoyé ou encore dans la boîte d'envoi. */
+type Shown = ChatMessage & { status?: 'sending' | 'failed' };
 
-/** Messages groupés par jour, dans l'ordre du fil. */
-function byDay(messages: ChatMessage[]): { day: string; messages: ChatMessage[] }[] {
-  const out: { day: string; messages: ChatMessage[] }[] = [];
+/** Messages groupés par jour (heure locale), dans l'ordre du fil. */
+function byDay(messages: Shown[]): { key: string; date: Date | null; messages: Shown[] }[] {
+  const out: { key: string; date: Date | null; messages: Shown[] }[] = [];
   for (const m of messages) {
-    const day = /^\d{4}-\d{2}-\d{2}/.test(m.date) ? m.date.slice(0, 10) : m.date.trim();
+    const d = parseDate(m.at);
+    const key = d ? dayKey(d) : '';
     const last = out[out.length - 1];
-    if (last && last.day === day) last.messages.push(m);
-    else out.push({ day, messages: [m] });
+    if (last && last.key === key) last.messages.push(m);
+    else out.push({ key, date: d, messages: [m] });
   }
   return out;
-}
-
-/** Message envoyé d'ici, avant que VPDive le renvoie dans le fil. */
-function pending_(id: number, text: string): ChatMessage {
-  const now = new Date();
-  return { token: `local-${id}`, mine: true, text, date: `${ymd(now)} ${hhmm(now)}`, time: hhmm(now), author: '', files: [] };
 }
 
 /** Clavier physique : Entrée envoie. Sur téléphone, Entrée va à la ligne. */
 const hasFinePointer = () => typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
+const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
+
+/** L'autre personne d'une conversation à deux. */
+const otherMember = (c: Pick<ChatSummary, 'members'>, me: Me): ChatMember | undefined => c.members.find((m) => m.uct !== me.uct) ?? c.members[0];
+
+function ChatAvatar({ chat, me, size }: { chat: ChatSummary; me: Me; size: 'sm' | 'lg' }) {
+  if (chat.kind === 'group') {
+    return (
+      <span aria-hidden className={`${size === 'lg' ? 'w-10 h-10' : 'w-7 h-7'} rounded-full shrink-0 bg-tint text-brand inline-flex items-center justify-center`}>
+        <Users className={size === 'lg' ? 'w-5 h-5' : 'w-4 h-4'} />
+      </span>
+    );
+  }
+  const other = otherMember(chat, me);
+  return <Avatar name={other?.name || chat.title} picture={other?.picture} size={size === 'lg' ? 'md' : 'sm'} />;
+}
+
 // ── Vue ─────────────────────────────────────────────────────────
 
-export function MessagesView({ onSessionLost, onRead }: { onSessionLost: (e: unknown) => boolean; onRead: () => void }) {
-  const [conversations, setConversations] = useState<Conversation[] | null>(null);
+export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionLost: (e: unknown) => boolean; onRead: () => void }) {
+  const [chats, setChats] = useState<ChatSummary[] | null>(null);
   const [listError, setListError] = useState('');
   const [listLoading, setListLoading] = useState(true);
-  const [filter, setFilter] = useState<Filter>('all');
+  const [composing, setComposing] = useState(false);
 
-  const [open, setOpen] = useState<Conversation | null>(null);
-  const [thread, setThread] = useState<Thread | null>(null);
+  const [open, setOpen] = useState<ChatSummary | null>(null);
+  const [thread, setThread] = useState<ChatThread | null>(null);
   const [threadError, setThreadError] = useState('');
   const [threadLoading, setThreadLoading] = useState(false);
 
   const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
-  const [pending, setPending] = useState<{ id: number; text: string; time: string }[]>([]);
-  const [sendError, setSendError] = useState('');
+  const [outbox, setOutbox] = useState<{ id: string; text: string; at: string; status: 'sending' | 'failed' }[]>([]);
 
   // Les props et la conversation ouverte, lues depuis les minuteries sans les relancer.
   const lostRef = useRef(false);
   const onSessionLostRef = useRef(onSessionLost);
   const onReadRef = useRef(onRead);
-  const openKeyRef = useRef<string | null>(null);
+  const openIdRef = useRef<string | null>(null);
+  const tempIdRef = useRef(0);
   useEffect(() => {
     onSessionLostRef.current = onSessionLost;
     onReadRef.current = onRead;
@@ -143,13 +139,13 @@ export function MessagesView({ onSessionLost, onRead }: { onSessionLost: (e: unk
         setListError('');
       }
       try {
-        const list = await vpdive.fetchConversations();
-        // La conversation ouverte reste lue, même si VPDive n'a pas encore suivi.
-        setConversations(list.map((c) => (keyOf(c) === openKeyRef.current ? { ...c, read: true } : c)));
+        const list = await appApi.chats();
+        // La conversation ouverte reste lue.
+        setChats(list.map((c) => (c.id === openIdRef.current ? { ...c, unread: false } : c)));
         setListError('');
       } catch (e) {
         if (lost(e)) return;
-        if (!quiet) setListError(e instanceof Error && e.message ? e.message : 'Les conversations n’ont pas pu être chargées.');
+        if (!quiet) setListError(errorText(e, 'Les conversations n’ont pas pu être chargées.'));
       } finally {
         if (!quiet) setListLoading(false);
       }
@@ -158,78 +154,80 @@ export function MessagesView({ onSessionLost, onRead }: { onSessionLost: (e: unk
   );
 
   const loadThread = useCallback(
-    async (c: Conversation, quiet = false): Promise<boolean> => {
+    async (id: string, quiet = false): Promise<boolean> => {
       if (lostRef.current) return false;
-      const key = keyOf(c);
       if (!quiet) {
         setThreadLoading(true);
         setThreadError('');
       }
       try {
-        const t = await vpdive.fetchThread(c);
-        if (openKeyRef.current !== key) return false;
+        const t = await appApi.chat(id);
+        if (openIdRef.current !== id) return false;
         setThread(t);
         setThreadError('');
         return true;
       } catch (e) {
-        if (lost(e) || openKeyRef.current !== key) return false;
-        if (!quiet) setThreadError(e instanceof Error && e.message ? e.message : 'La conversation n’a pas pu être chargée.');
+        if (lost(e) || openIdRef.current !== id) return false;
+        if (!quiet) setThreadError(errorText(e, 'La conversation n’a pas pu être chargée.'));
         return false;
       } finally {
-        if (!quiet && openKeyRef.current === key) setThreadLoading(false);
+        if (!quiet && openIdRef.current === id) setThreadLoading(false);
       }
     },
     [lost],
   );
 
-  // Liste : au montage, puis toutes les 30 s.
+  // Liste : au montage, puis toutes les 20 s.
   useEffect(() => {
     void loadList();
     const id = window.setInterval(() => void loadList(true), LIST_POLL_MS);
     return () => window.clearInterval(id);
   }, [loadList]);
 
-  // Fil ouvert : toutes les 15 s.
-  const openKey = open ? keyOf(open) : null;
+  // Fil ouvert : toutes les 10 s.
+  const openId = open?.id ?? null;
   useEffect(() => {
-    if (!open) return;
-    const id = window.setInterval(() => void loadThread(open, true), THREAD_POLL_MS);
+    if (!openId) return;
+    const id = window.setInterval(() => void loadThread(openId, true), THREAD_POLL_MS);
     return () => window.clearInterval(id);
-  }, [open, loadThread]);
+  }, [openId, loadThread]);
 
-  const openConversation = async (c: Conversation) => {
-    const key = keyOf(c);
-    openKeyRef.current = key;
+  const openChat = async (c: ChatSummary) => {
+    openIdRef.current = c.id;
     scrollKeyRef.current = '';
     setOpen(c);
     setThread(null);
-    setPending([]);
+    setOutbox([]);
     setDraft('');
-    setSendError('');
-    setConversations((list) => list && list.map((x) => (keyOf(x) === key ? { ...x, read: true } : x)));
-    await loadThread(c);
-    if (openKeyRef.current === key && !lostRef.current) onReadRef.current();
+    setChats((list) => list && list.map((x) => (x.id === c.id ? { ...x, unread: false } : x)));
+    const ok = await loadThread(c.id);
+    if (ok && openIdRef.current === c.id && !lostRef.current) onReadRef.current();
   };
 
-  const closeConversation = () => {
-    openKeyRef.current = null;
+  const closeChat = () => {
+    openIdRef.current = null;
     setOpen(null);
     setThread(null);
     setThreadError('');
-    setPending([]);
-    setSendError('');
+    setOutbox([]);
+  };
+
+  const onCreated = (c: ChatSummary) => {
+    setComposing(false);
+    void openChat(c);
+    void loadList(true);
   };
 
   // Défile jusqu'au dernier message à l'ouverture et à chaque nouveau message.
-  const messageCount = (thread?.messages.length ?? 0) + pending.length;
+  const messageCount = (thread?.messages.length ?? 0) + outbox.length;
   useLayoutEffect(() => {
     if (!thread) return;
-    const key = `${openKey}:${messageCount}`;
+    const key = `${openId}:${messageCount}`;
     if (scrollKeyRef.current === key) return;
     const first = !scrollKeyRef.current;
     scrollKeyRef.current = key;
     endRef.current?.scrollIntoView({ block: 'end', behavior: first ? 'auto' : 'smooth' });
-  }, [thread, openKey, messageCount]);
+  }, [thread, openId, messageCount]);
 
   // Zone de saisie qui grandit avec le texte (plafonnée par max-h-32).
   useLayoutEffect(() => {
@@ -238,153 +236,172 @@ export function MessagesView({ onSessionLost, onRead }: { onSessionLost: (e: unk
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight + 2}px`;
     el.style.overflowY = el.scrollHeight > el.clientHeight ? 'auto' : 'hidden';
-  }, [draft]);
+  }, [draft, thread]);
 
-  const send = async (e?: FormEvent) => {
-    e?.preventDefault();
-    const c = open;
-    const text = draft.trim();
-    if (!c || !text || sending) return;
-    const key = keyOf(c);
-    const id = Date.now();
-    setSending(true);
-    setSendError('');
-    setPending((p) => [...p, { id, text, time: hhmm(new Date()) }]);
-    setDraft('');
+  /** Envoie (ou renvoie) un message de la boîte d'envoi. */
+  const deliver = async (chatId: string, tempId: string, text: string) => {
     try {
-      await vpdive.sendMessage(c, text);
-      const refreshed = await loadThread(c, true);
-      if (openKeyRef.current === key) {
-        const sent = pending_(id, text);
-        // Fil pas relu : le message envoyé reste affiché jusqu'au prochain relevé.
-        if (!refreshed) setThread((t) => t && { ...t, messages: [...t.messages, sent] });
-        setPending((p) => p.filter((x) => x.id !== id));
-      }
+      const sent = await appApi.chatSend(chatId, text);
+      if (openIdRef.current !== chatId) return;
+      setThread((t) => t && (t.messages.some((m) => m.id === sent.id) ? t : { ...t, messages: [...t.messages, sent], last: sent }));
+      setOutbox((o) => o.filter((x) => x.id !== tempId));
       void loadList(true);
+      if (!lostRef.current) onReadRef.current();
     } catch (err) {
-      if (lost(err) || openKeyRef.current !== key) return;
-      setPending((p) => p.filter((x) => x.id !== id));
-      setDraft((d) => d || text);
-      setSendError(err instanceof Error && err.message ? err.message : 'Le message n’a pas pu être envoyé.');
-    } finally {
-      setSending(false);
+      if (lost(err) || openIdRef.current !== chatId) return;
+      setOutbox((o) => o.map((x) => (x.id === tempId ? { ...x, status: 'failed' } : x)));
     }
+  };
+
+  const send = (e?: FormEvent) => {
+    e?.preventDefault();
+    const text = draft.trim();
+    if (!open || !thread || !text) return;
+    const tempId = `local-${++tempIdRef.current}`;
+    setOutbox((o) => [...o, { id: tempId, text, at: new Date().toISOString(), status: 'sending' }]);
+    setDraft('');
+    textareaRef.current?.focus();
+    void deliver(open.id, tempId, text);
+  };
+
+  const retry = (tempId: string) => {
+    const item = outbox.find((x) => x.id === tempId);
+    if (!open || !item) return;
+    setOutbox((o) => o.map((x) => (x.id === tempId ? { ...x, status: 'sending' } : x)));
+    void deliver(open.id, tempId, item.text);
   };
 
   const onComposerKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || !hasFinePointer()) return;
     e.preventDefault();
-    void send();
+    send();
   };
 
-  const visible = (conversations ?? []).filter((c) => filter === 'all' || c.kind === filter);
-  const failedFirst = conversations === null && !listLoading && !!listError;
+  const current = thread ?? open;
+  const members = current?.members ?? [];
+  const authorName = (uct: string) => members.find((m) => m.uct === uct)?.name || 'Membre';
+  const shown: Shown[] = thread ? [...thread.messages, ...outbox.map((o) => ({ id: o.id, from: me.uct, text: o.text, at: o.at, status: o.status }))] : [];
+
+  const failedFirst = chats === null && !listLoading && !!listError;
+  const empty = chats !== null && chats.length === 0 && !open && !composing;
+
+  const newButton = (label: string, className: string) => (
+    <button type="button" onClick={() => setComposing(true)} className={`btn btn-primary ${className}`} aria-label="Nouvelle conversation">
+      <Plus className="w-5 h-5" />
+      {label}
+    </button>
+  );
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-      <div className={open ? 'hidden md:block' : ''}>
-        <h1 className="text-xl font-semibold text-brand">Messagerie</h1>
+      <div className={open || composing ? 'hidden md:block' : ''}>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold text-brand">Messagerie</h1>
+          {!composing && !failedFirst && !empty && newButton('Nouvelle', 'h-10')}
+        </div>
         <div aria-hidden className="isobath bg-line mt-2 mb-4" />
       </div>
 
       {failedFirst ? (
         <div className="card p-4 sm:p-6 space-y-4">
           <div>
-            <p className="text-base text-ink">La messagerie VPDive n'a pas pu être chargée.</p>
-            {/* Le détail (code HTTP, message de VPDive) aide à savoir ce qui bloque. */}
+            <p className="text-base text-ink">La messagerie n'a pas pu être chargée.</p>
             <p className="mt-1 text-sm text-muted break-words">{listError}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={() => void loadList()} className="btn btn-quiet">
-              Réessayer
-            </button>
-            <a href={VPDIVE_URL} target="_blank" rel="noreferrer" className="text-sm font-medium text-brand underline underline-offset-2">
-              Ouvrir la messagerie sur VPDive
-            </a>
-          </div>
+          <button type="button" onClick={() => void loadList()} className="btn btn-quiet">
+            Réessayer
+          </button>
+        </div>
+      ) : empty ? (
+        <div className="card px-6 py-10 text-center max-w-lg mx-auto">
+          <Cromagnon className="w-40 mx-auto mb-5 text-field-border" />
+          <p className="text-base text-ink">Aucune conversation pour l'instant.</p>
+          <p className="mt-1 text-sm text-muted">Écrivez à un membre du club ou créez un groupe pour une sortie.</p>
+          <div className="mt-6 flex justify-center">{newButton('Nouvelle conversation', '')}</div>
         </div>
       ) : (
         <div className="md:flex md:items-start">
-          {/* Liste des conversations */}
-          <section aria-label="Conversations" className={`md:w-80 md:shrink-0 md:border-r border-line md:pr-4 ${open ? 'hidden md:block' : ''}`}>
-            <div role="group" aria-label="Filtrer" className="inline-flex rounded-lg border border-field-border bg-surface p-1 mb-3">
-              {FILTERS.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  aria-pressed={filter === f.id}
-                  onClick={() => setFilter(f.id)}
-                  className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.id ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-
-            {listError && conversations && (
-              <div className="mb-3 flex flex-wrap items-center gap-3">
-                <p className="text-sm text-danger flex-1 min-w-0">{listError}</p>
-                <button type="button" onClick={() => void loadList()} className="btn btn-quiet">
-                  Réessayer
-                </button>
-              </div>
-            )}
-
-            {conversations === null ? (
-              <p className="text-sm text-muted py-2">Chargement des conversations…</p>
-            ) : visible.length === 0 ? (
-              <p className="text-sm text-muted py-2">{FILTERS.find((f) => f.id === filter)?.empty}</p>
+          {/* Liste des conversations, ou le choix des personnes d'une nouvelle conversation */}
+          <section
+            aria-label={composing ? 'Nouvelle conversation' : 'Conversations'}
+            className={`md:w-80 md:shrink-0 md:border-r border-line md:pr-4 ${open && !composing ? 'hidden md:block' : ''}`}
+          >
+            {composing ? (
+              <NewChat me={me} lost={lost} onCancel={() => setComposing(false)} onCreated={onCreated} />
             ) : (
-              <ul className="card divide-y divide-line overflow-hidden">
-                {visible.map((c) => {
-                  const active = openKey === keyOf(c);
-                  return (
-                    <li key={keyOf(c)}>
-                      <button
-                        type="button"
-                        onClick={() => void openConversation(c)}
-                        aria-current={active ? 'true' : undefined}
-                        className={`flex items-center gap-3 px-3 py-3 text-left hover:bg-raised w-full ${active ? 'bg-tint' : ''}`}
-                      >
-                        <Avatar name={c.name} picture={c.picture} size="md" />
-                        <span className="flex-1 min-w-0">
-                          <span className="flex items-center gap-2 min-w-0">
-                            <span className={`truncate text-ink ${c.read ? 'font-medium' : 'font-semibold'}`}>{c.name}</span>
-                            {c.kind === 'group' && <span className="label shrink-0">Groupe</span>}
-                          </span>
-                          {c.last && <span className="block text-sm text-muted line-clamp-1">{c.last}</span>}
-                        </span>
-                        <span className="shrink-0 flex flex-col items-end gap-1.5 self-start pt-0.5">
-                          {c.date && <span className="text-sm text-muted whitespace-nowrap">{listDate(c.date)}</span>}
-                          {!c.read && <span className="alpha w-3 h-2.5 bg-brand" aria-label="non lu" role="img" />}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+              <>
+                {listError && chats && (
+                  <div className="mb-3 flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-danger flex-1 min-w-0">{listError}</p>
+                    <button type="button" onClick={() => void loadList()} className="btn btn-quiet">
+                      Réessayer
+                    </button>
+                  </div>
+                )}
+
+                {chats === null ? (
+                  <p className="text-sm text-muted py-2">Chargement des conversations…</p>
+                ) : chats.length === 0 ? (
+                  <p className="text-sm text-muted py-2">Aucune conversation pour l'instant.</p>
+                ) : (
+                  <ul className="card divide-y divide-line overflow-hidden">
+                    {chats.map((c) => {
+                      const active = openId === c.id;
+                      const mine = c.last?.from === me.uct;
+                      return (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            onClick={() => void openChat(c)}
+                            aria-current={active ? 'true' : undefined}
+                            className={`flex items-center gap-3 px-3 py-3 text-left hover:bg-raised w-full ${active ? 'bg-tint' : ''}`}
+                          >
+                            <span className="w-10 shrink-0 flex justify-center">
+                              <ChatAvatar chat={c} me={me} size="lg" />
+                            </span>
+                            <span className="flex-1 min-w-0">
+                              <span className={`block truncate text-ink ${c.unread ? 'font-semibold' : 'font-medium'}`}>{c.title}</span>
+                              <span className="block text-sm text-muted line-clamp-1 break-all">
+                                {c.last ? `${mine ? 'Vous : ' : ''}${c.last.text}` : 'Aucun message'}
+                              </span>
+                            </span>
+                            <span className="shrink-0 flex flex-col items-end gap-1.5 self-start pt-0.5">
+                              <span className="text-sm text-muted whitespace-nowrap">{listDate(c.last?.at ?? c.updatedAt)}</span>
+                              {c.unread && <span className="alpha w-3 h-2.5 bg-brand" aria-label="non lu" role="img" />}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </>
             )}
           </section>
 
           {/* Fil de la conversation */}
-          <section aria-label="Conversation" className={`flex-1 min-w-0 md:pl-6 ${open ? '' : 'hidden md:block'}`}>
-            {!open ? (
+          <section aria-label="Conversation" className={`flex-1 min-w-0 md:pl-6 ${open && !composing ? '' : 'hidden md:block'}`}>
+            {!open || !current ? (
               <p className="text-sm text-muted py-2">Choisissez une conversation.</p>
             ) : (
               <div className="flex flex-col">
                 <div className="flex items-center gap-2 pb-3 border-b border-line">
-                  <button type="button" onClick={closeConversation} className="icon-btn md:hidden -ml-2" aria-label="Retour aux conversations">
+                  <button type="button" onClick={closeChat} className="icon-btn md:hidden -ml-2" aria-label="Retour aux conversations">
                     <ArrowLeft className="w-5 h-5" />
                   </button>
-                  <Avatar name={thread?.name || open.name} picture={thread ? thread.picture : open.picture} size="sm" />
-                  <h2 className="font-semibold text-ink truncate min-w-0 flex-1">{thread?.name || open.name}</h2>
-                  {open.kind === 'group' && <span className="label shrink-0">Groupe</span>}
+                  <ChatAvatar chat={current} me={me} size="sm" />
+                  <span className="min-w-0 flex-1">
+                    <h2 className="font-semibold text-ink truncate">{current.title}</h2>
+                    {current.kind === 'group' && (
+                      <p className="text-sm text-muted truncate">{current.members.map((m) => (m.uct === me.uct ? 'vous' : firstName(m.name))).join(', ')}</p>
+                    )}
+                  </span>
                 </div>
 
                 {threadError && (
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <p className="text-sm text-danger flex-1 min-w-0">{threadError}</p>
-                    <button type="button" onClick={() => void loadThread(open)} className="btn btn-quiet">
+                    <button type="button" onClick={() => void loadThread(open.id)} className="btn btn-quiet">
                       Réessayer
                     </button>
                   </div>
@@ -393,64 +410,50 @@ export function MessagesView({ onSessionLost, onRead }: { onSessionLost: (e: unk
                 <div className="py-4 space-y-4">
                   {!thread ? (
                     threadLoading && <p className="text-sm text-muted">Chargement de la conversation…</p>
-                  ) : thread.messages.length === 0 && pending.length === 0 ? (
+                  ) : shown.length === 0 ? (
                     <p className="text-sm text-muted">Aucun message pour l’instant.</p>
                   ) : (
-                    byDay(thread.messages).map((g, gi) => (
-                      <div key={`${g.day}-${gi}`} className="space-y-3">
-                        {g.day && (
-                          <p className="label text-center">{dayLabel(g.day)}</p>
-                        )}
+                    byDay(shown).map((g, gi) => (
+                      <div key={`${g.key}-${gi}`} className="space-y-3">
+                        {g.date && <p className="label text-center">{dayLabel(g.date)}</p>}
                         {g.messages.map((m, i) => {
+                          const mine = m.from === me.uct;
                           const prev = g.messages[i - 1];
-                          const showAuthor = open.kind === 'group' && !m.mine && !!m.author && (!prev || prev.mine || prev.author !== m.author);
-                          return <Bubble key={m.token || `${gi}-${i}`} message={m} author={showAuthor ? m.author : ''} />;
+                          const showAuthor = current.kind === 'group' && !mine && (!prev || prev.from !== m.from);
+                          return (
+                            <Bubble key={m.id} message={m} mine={mine} author={showAuthor ? authorName(m.from) : ''} onRetry={() => retry(m.id)} />
+                          );
                         })}
                       </div>
                     ))
                   )}
-                  {thread &&
-                    pending.map((p) => (
-                      <Bubble
-                        key={`pending-${p.id}`}
-                        pending
-                        message={{ ...pending_(p.id, p.text), time: p.time }}
-                        author=""
-                      />
-                    ))}
                   <div ref={endRef} className="scroll-mb-40 sm:scroll-mb-24" />
                 </div>
 
-                {thread &&
-                  (thread.canRespond ? (
-                    <form onSubmit={(e) => void send(e)} className="sticky bottom-20 sm:bottom-0 z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3">
-                      {sendError && <p className="text-sm text-danger mb-2">{sendError}</p>}
-                      <div className="flex items-end gap-2">
-                        <label htmlFor="message-draft" className="sr-only">
-                          Votre message
-                        </label>
-                        <textarea
-                          id="message-draft"
-                          ref={textareaRef}
-                          rows={1}
-                          value={draft}
-                          onChange={(e) => setDraft(e.target.value)}
-                          onKeyDown={onComposerKey}
-                          readOnly={sending}
-                          aria-busy={sending}
-                          placeholder="Votre message"
-                          enterKeyHint="enter"
-                          className="field w-full h-auto min-h-11 max-h-32 py-2.5 resize-none"
-                        />
-                        <button type="submit" disabled={sending || !draft.trim()} className="btn btn-primary h-11 px-3 sm:px-4" aria-label="Envoyer">
-                          <SendHorizontal className="w-5 h-5" />
-                          <span className="hidden sm:inline">Envoyer</span>
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <p className="text-sm text-muted border-t border-line pt-3">Cette conversation n’accepte plus de réponse.</p>
-                  ))}
+                {thread && (
+                  <form onSubmit={send} className="sticky bottom-20 sm:bottom-0 z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3">
+                    <div className="flex items-end gap-2">
+                      <label htmlFor="message-draft" className="sr-only">
+                        Votre message
+                      </label>
+                      <textarea
+                        id="message-draft"
+                        ref={textareaRef}
+                        rows={1}
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={onComposerKey}
+                        placeholder="Votre message"
+                        enterKeyHint="enter"
+                        className="field w-full h-auto min-h-11 max-h-32 py-2.5 resize-none"
+                      />
+                      <button type="submit" disabled={!draft.trim()} className="btn btn-primary h-11 px-3 sm:px-4" aria-label="Envoyer">
+                        <SendHorizontal className="w-5 h-5" />
+                        <span className="hidden sm:inline">Envoyer</span>
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
             )}
           </section>
@@ -460,41 +463,216 @@ export function MessagesView({ onSessionLost, onRead }: { onSessionLost: (e: unk
   );
 }
 
-function Bubble({ message: m, author, pending = false }: { message: ChatMessage; author: string; pending?: boolean }) {
-  const time = messageTime(m);
+function Bubble({ message: m, mine, author, onRetry }: { message: Shown; mine: boolean; author: string; onRetry: () => void }) {
+  const d = parseDate(m.at);
   return (
-    <div className={`flex flex-col ${m.mine ? 'items-end' : 'items-start'}`}>
+    <div className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
       {author && <span className="text-sm text-muted mb-1 px-1">{author}</span>}
       <div
         className={`max-w-[80%] px-3 py-2 text-base whitespace-pre-wrap break-words ${
-          m.mine ? 'bg-fill text-white rounded-xl rounded-br-md' : 'bg-raised text-ink rounded-xl rounded-bl-md'
-        } ${pending ? 'opacity-60' : ''}`}
+          mine ? 'bg-fill text-white rounded-xl rounded-br-md' : 'bg-raised text-ink rounded-xl rounded-bl-md'
+        } ${m.status ? 'opacity-60' : ''}`}
       >
-        {m.text && <p>{m.text}</p>}
-        {m.files.length > 0 && (
-          <div className={`flex flex-col gap-2 ${m.text ? 'mt-2' : ''}`}>
-            {m.files.map((f, i) =>
-              f.image ? (
-                <a key={`${f.url}-${i}`} href={f.url} target="_blank" rel="noreferrer" className="block">
-                  <img src={f.url} alt="Image jointe" loading="lazy" className="max-h-48 rounded-lg" />
-                </a>
-              ) : (
-                <a
-                  key={`${f.url}-${i}`}
-                  href={f.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={`inline-flex items-center gap-1.5 underline underline-offset-2 ${m.mine ? 'text-white' : 'text-brand'}`}
-                >
-                  <Paperclip className="w-4 h-4 shrink-0" />
-                  Pièce jointe
-                </a>
-              ),
-            )}
+        {m.text}
+      </div>
+      {m.status === 'failed' ? (
+        <span className="text-sm text-danger mt-1 px-1">
+          Non envoyé —{' '}
+          <button type="button" onClick={onRetry} className="font-medium underline underline-offset-2 py-1">
+            Réessayer
+          </button>
+        </span>
+      ) : (
+        <span className="text-sm text-muted mt-1 px-1">{m.status === 'sending' ? 'Envoi…' : d ? hhmm(d) : ''}</span>
+      )}
+    </div>
+  );
+}
+
+// ── Nouvelle conversation ───────────────────────────────────────
+
+/** Choisir une ou plusieurs personnes dans l'annuaire du club (même filtre que « Voir en tant que »). */
+function NewChat({
+  me,
+  lost,
+  onCancel,
+  onCreated,
+}: {
+  me: Me;
+  lost: (e: unknown) => boolean;
+  onCancel: () => void;
+  onCreated: (c: ChatSummary) => void;
+}) {
+  const [directory, setDirectory] = useState<MemberMatch[] | null>(null);
+  const [dirError, setDirError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<MemberMatch[]>([]);
+  const [title, setTitle] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    vpdive.fetchMemberDirectory().then(
+      (list) => {
+        if (cancelled) return;
+        setDirectory(list.filter((m) => m.id !== me.uct));
+        setDirError('');
+      },
+      (e) => {
+        if (cancelled || lost(e)) return;
+        setDirError(errorText(e, 'L’annuaire du club n’a pas pu être chargé.'));
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt, me.uct, lost]);
+
+  const results = useMemo(() => {
+    const q = query.trim();
+    if (!directory || q.length < 2) return [];
+    const exact = directory.filter((m) => normalizeName(m.name).includes(normalizeName(q)));
+    const close = rankByName(q, directory, (m) => m.name, 0.6)
+      .map((r) => r.item)
+      .filter((m) => !exact.includes(m));
+    return [...exact, ...close].slice(0, 10);
+  }, [directory, query]);
+
+  const isSelected = (m: MemberMatch) => selected.some((s) => s.id === m.id);
+  const toggle = (m: MemberMatch) => setSelected((s) => (s.some((x) => x.id === m.id) ? s.filter((x) => x.id !== m.id) : [...s, m]));
+
+  const create = async () => {
+    if (selected.length === 0 || creating) return;
+    setCreating(true);
+    setCreateError('');
+    try {
+      const chat = await appApi.chatNew(
+        selected.map((m) => ({ uct: m.id, name: m.name, picture: m.picture })),
+        { name: me.name, picture: me.picture },
+        selected.length > 1 ? title.trim() || undefined : undefined,
+      );
+      onCreated(chat);
+    } catch (e) {
+      if (lost(e)) return;
+      setCreateError(errorText(e, 'La conversation n’a pas pu être créée.'));
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 pb-3 border-b border-line mb-3">
+        <button type="button" onClick={onCancel} className="icon-btn -ml-2" aria-label="Retour aux conversations">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <h2 className="font-semibold text-ink">Nouvelle conversation</h2>
+      </div>
+
+      {selected.length > 0 && (
+        <ul aria-label="Personnes choisies" className="flex flex-wrap gap-2 mb-3">
+          {selected.map((m) => (
+            <li key={m.id}>
+              <button
+                type="button"
+                onClick={() => toggle(m)}
+                aria-label={`Retirer ${m.name}`}
+                className="inline-flex items-center gap-1.5 h-9 pl-2 pr-1.5 rounded-lg border border-field-border bg-tint text-brand text-sm font-medium"
+              >
+                {m.name}
+                <X className="w-4 h-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <input
+        type="search"
+        autoFocus
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Nom d’un membre"
+        aria-label="Rechercher un membre"
+        className="field w-full"
+      />
+
+      <div className="mt-3">
+        {dirError ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-danger flex-1 min-w-0">{dirError}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setDirError('');
+                setAttempt((n) => n + 1);
+              }}
+              className="btn btn-quiet"
+            >
+              Réessayer
+            </button>
           </div>
+        ) : !directory ? (
+          <p className="text-sm text-muted">Chargement de l’annuaire…</p>
+        ) : query.trim().length < 2 ? (
+          <p className="text-sm text-muted">Tapez au moins deux lettres du nom.</p>
+        ) : results.length === 0 ? (
+          <p className="text-sm text-muted">Aucun membre ne correspond.</p>
+        ) : (
+          <ul className="card divide-y divide-line overflow-hidden">
+            {results.map((m) => {
+              const on = isSelected(m);
+              return (
+                <li key={m.id}>
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={on}
+                    onClick={() => toggle(m)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-raised ${on ? 'bg-tint' : ''}`}
+                  >
+                    <Avatar name={m.name} picture={m.picture} size="sm" />
+                    <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
+                    <span
+                      aria-hidden
+                      className={`w-5 h-5 shrink-0 rounded-md border inline-flex items-center justify-center ${
+                        on ? 'bg-fill border-transparent text-white' : 'border-field-border'
+                      }`}
+                    >
+                      {on && <Check className="w-4 h-4" />}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
-      {(time || pending) && <span className="text-sm text-muted mt-1 px-1">{pending ? 'Envoi…' : time}</span>}
+
+      {selected.length > 0 && (
+        <div className="sticky bottom-20 sm:bottom-0 z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3 mt-4 space-y-3">
+          {selected.length > 1 && (
+            <div>
+              <label htmlFor="group-title" className="label block mb-1.5">
+                Nom du groupe (facultatif)
+              </label>
+              <input id="group-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="field w-full" />
+            </div>
+          )}
+          {createError && (
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm text-danger flex-1 min-w-0">{createError}</p>
+              <button type="button" onClick={() => void create()} className="btn btn-quiet">
+                Réessayer
+              </button>
+            </div>
+          )}
+          <button type="button" onClick={() => void create()} disabled={creating} aria-busy={creating} className="btn btn-primary w-full">
+            {selected.length === 1 ? `Écrire à ${firstName(selected[0]?.name ?? '')}` : 'Créer le groupe'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

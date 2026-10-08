@@ -185,18 +185,18 @@ export default function App() {
     window.scrollTo({ top: 0 });
   };
 
-  // Pastille de la messagerie : conversations non lues, relues toutes les minutes. Sans messagerie VPDive, pas de pastille.
+  // Pastille de la messagerie (celle de l'appli) : conversations non lues, relues toutes les 30 secondes.
   const refreshUnread = useCallback(() => {
     if (!vpdive.getSession()) return;
-    vpdive.fetchConversations().then(
-      (list) => setUnread(list.filter((c) => !c.read).length),
+    appApi.chats().then(
+      (list) => setUnread(list.filter((c) => c.unread).length),
       () => setUnread(0),
     );
   }, []);
   useEffect(() => {
     if (!session) return;
     refreshUnread();
-    const id = window.setInterval(refreshUnread, 60_000);
+    const id = window.setInterval(refreshUnread, 30_000);
     return () => window.clearInterval(id);
   }, [session, refreshUnread]);
 
@@ -322,7 +322,12 @@ export default function App() {
           />
         )}
         {tab === 'cours' && <CoursesView onOpenEvent={setActiveEvent} onSessionLost={handleSessionLost} />}
-        {tab === 'messages' && <MessagesView onSessionLost={handleSessionLost} onRead={refreshUnread} />}
+        {tab === 'messages' &&
+          (me ? (
+            <MessagesView me={{ uct: me.uct, name: displayName, picture: picture ?? '' }} onSessionLost={handleSessionLost} onRead={refreshUnread} />
+          ) : (
+            <p className="max-w-5xl mx-auto px-4 sm:px-6 py-8 text-muted">Chargement…</p>
+          ))}
         {tab === 'profil' && (
           <ProfileView session={session} me={me} picture={picture} onOpenEvent={setActiveEvent} onLogout={handleLogout} onSessionLost={handleSessionLost} />
         )}

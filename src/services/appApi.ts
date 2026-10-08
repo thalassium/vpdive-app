@@ -30,6 +30,31 @@ export interface RoleEntry {
   revoked: boolean;
 }
 
+/** Messagerie de l'appli (server/chat.ts). Les membres sont repérés par leur jeton d'adhésion (uct). */
+export interface ChatMember {
+  uct: string;
+  name: string;
+  picture: string;
+}
+export interface ChatMessage {
+  id: string;
+  /** uct de l'auteur */
+  from: string;
+  text: string;
+  at: string;
+}
+export interface ChatSummary {
+  id: string;
+  kind: 'direct' | 'group';
+  /** Nom de l'autre personne (à deux) ou titre du groupe. */
+  title: string;
+  members: ChatMember[];
+  last: ChatMessage | null;
+  unread: boolean;
+  updatedAt: string;
+}
+export type ChatThread = ChatSummary & { messages: ChatMessage[] };
+
 export class AppApiError extends Error {
   constructor(
     message: string,
@@ -63,6 +88,12 @@ export const appApi = {
   setRole: (uct: string, change: { admin?: boolean; superAdmin?: boolean }) =>
     call<{ roles: RoleEntry[] }>('action=role', { method: 'POST', body: { uct, ...change } }).then((r) => r.roles),
   getOuting: (event: string) => call<{ doc: OutingDoc | null }>(`action=outing&event=${encodeURIComponent(event)}`).then((r) => r.doc),
+  chats: () => call<{ conversations: ChatSummary[] }>('action=chats').then((r) => r.conversations),
+  chat: (id: string) => call<ChatThread>(`action=chat&id=${encodeURIComponent(id)}`),
+  /** Une personne : la conversation à deux (retrouvée si elle existe). Plusieurs : un nouveau groupe. */
+  chatNew: (members: ChatMember[], me: Pick<ChatMember, 'name' | 'picture'>, title?: string) =>
+    call<ChatSummary>('action=chat_new', { method: 'POST', body: { members, me, title } }),
+  chatSend: (id: string, text: string) => call<{ message: ChatMessage }>('action=chat_send', { method: 'POST', body: { id, text } }).then((r) => r.message),
   /** Refused with status 409 (body.doc = the newer version) when someone saved in between. */
   saveOuting: (event: string, doc: OutingDoc, baseRev: number) =>
     call<{ doc: OutingDoc }>(`action=outing&event=${encodeURIComponent(event)}`, { method: 'POST', body: { doc, baseRev } }).then((r) => r.doc),

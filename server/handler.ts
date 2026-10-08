@@ -6,6 +6,10 @@
  *   POST ?action=role     {uct, admin?, superAdmin?}   super-admin : donner ou retirer un rôle
  *   GET  ?action=outing&event=<token>     admin ou DP de la sortie : plongées et fiches
  *   POST ?action=outing&event=<token>     {doc, baseRev}  enregistrer (refusé si quelqu'un a enregistré entre-temps)
+ *   GET  ?action=chats                    mes conversations (messagerie de l'appli, server/chat.ts)
+ *   GET  ?action=chat&id=<conv>           une conversation et ses messages ; la marque comme lue
+ *   POST ?action=chat_new  {members, title?, me}   conversation à deux (retrouvée si elle existe) ou groupe
+ *   POST ?action=chat_send {id, text}     envoyer un message
  *
  * Les rôles sont rattachés au jeton d'adhésion du membre (uct), le même que
  * l'`id` de la liste des membres : on peut nommer admin quelqu'un qui ne s'est
@@ -21,6 +25,7 @@
  */
 import { HttpError, identify, isDpOf, type Caller } from './auth.js';
 import { getStore } from './store.js';
+import { listConversations, readConversation, sendMessage, startConversation } from './chat.js';
 
 export type AppRole = 'superadmin' | 'admin' | 'member';
 
@@ -134,6 +139,18 @@ export async function handle(request: Request): Promise<Response> {
       }
       await store.set(rolesKey(caller), roles);
       return json({ roles: roleEntries(roles) });
+    }
+
+    // Messagerie de l'appli : chacun ne voit que ses conversations (server/chat.ts).
+    if (action === 'chats' || action === 'chat' || action === 'chat_new' || action === 'chat_send') {
+      const who = { clubId: caller.clubId, uct: caller.uct, name: caller.name };
+      if (request.method === 'GET' && action === 'chats') return json({ conversations: await listConversations(store, who) });
+      if (request.method === 'GET' && action === 'chat') return json(await readConversation(store, who, url.searchParams.get('id') ?? ''));
+      if (request.method === 'POST') {
+        const body = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
+        if (action === 'chat_new') return json(await startConversation(store, who, body));
+        if (action === 'chat_send') return json({ message: await sendMessage(store, who, body) });
+      }
     }
 
     if (action === 'outing') {
