@@ -15,6 +15,7 @@ import {
   restoreAccents,
   quickFixes,
   arbitrageCases,
+  familyCandidates,
   matchPerson,
   parseFfessmCsv,
   seasonOf,
@@ -188,32 +189,56 @@ test('rapprochement : toujours vers un compte Membre ; un invité homonyme n’e
   assert.deepEqual(two.candidates.map((c) => c.id).sort(), ['m2', 'member']);
 });
 
-test('corrections rapides : saison, assurance, licence vérifiée à prolonger ; jamais sans rapprochement sûr', () => {
+test('corrections rapides : saison, licence (date ou ajout), assurance, brevets ; jamais sans rapprochement sûr', () => {
   const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Loisir 2', category: '', pricing: 'Normal' };
   const [lea] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [row], 2027);
   const member = { id: 'u1', name: 'MARTIN Léa', picture: '' };
   const sure = { status: 'sure' as const, member, why: 'même date de naissance', candidates: [] };
   const rec: VpRecord = { email: '', birthday: '', seasons: ['2026'], licences: [{ number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2026-12-31', id: 7, verified: true }], insurance: '', insuranceYear: null, member: true, levels: [] };
-  const fixes = quickFixes(lea!, sure, rec, 2027);
-  assert.deepEqual(fixes.map((f) => [f.kind, f.after]), [['season', '+ 2026/2027'], ['insurance', 'Assurance Loisir 2'], ['licence', 'jusqu’au 31/12/2027']]);
-  assert.equal(fixes[2]!.licenceId, 7);
-  assert.deepEqual(quickFixes(lea!, { ...sure, status: 'confirm', member: null }, rec, 2027), [], 'pas de correction tant que le membre est à confirmer');
-  // Licence non vérifiée : pas d'actualisation automatique, c'est un arbitrage.
+  const fixes = quickFixes(lea!, sure, rec, 2027, ['Niveau 2']);
+  assert.deepEqual(fixes.map((f) => [f.kind, f.after]), [['season', '+ 2026/2027'], ['licence', 'jusqu’au 31/12/2027'], ['insurance', 'Assurance Loisir 2'], ['brevets', '+ Niveau 2']]);
+  assert.equal(fixes[1]!.refresh, true);
+  // Licence non vérifiée : c'est quand même une correction rapide, la date se saisit.
   const manual = { ...rec, licences: [{ ...rec.licences[0]!, verified: false }] };
-  const f2 = quickFixes(lea!, sure, manual, 2027);
-  assert.ok(!f2.some((f) => f.kind === 'licence'));
-  const cases = arbitrageCases(lea!, sure, manual, viewOf(lea!, manual, 2027, null), f2);
-  assert.deepEqual(cases.map((c) => c.kind), ['licence-manual']);
+  assert.equal(quickFixes(lea!, sure, manual, 2027).find((f) => f.kind === 'licence')?.refresh, false);
+  // Aucune licence FFESSM sur la fiche : à ajouter.
+  assert.deepEqual(quickFixes(lea!, sure, { ...rec, licences: [] }, 2027).filter((f) => f.kind === 'licence-add').map((f) => f.after), ['A-16-733717, jusqu’au 31/12/2027']);
+  assert.deepEqual(quickFixes(lea!, { ...sure, status: 'confirm', member: null }, rec, 2027), [], 'pas de correction tant que le membre est à confirmer');
 });
 
-test('arbitrage : homonymes, absent, invité, licence non prise, licence à ajouter', () => {
+test('arbitrage : homonymes, parents, absent, invité, licence non prise, autre numéro de licence', () => {
   const [lea] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [], 2027);
   const rec: VpRecord = { email: '', birthday: '', seasons: ['2027'], licences: [], insurance: '', insuranceYear: null, member: false, levels: [] };
   const v = viewOf(lea!, rec, 2027, null);
   const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
-  assert.deepEqual(arbitrageCases(lea!, sure, rec, v, []).map((c) => c.kind), ['not-taken', 'guest', 'licence-add']);
+  assert.deepEqual(arbitrageCases(lea!, sure, rec, v).map((c) => c.kind), ['not-taken', 'guest']);
   const nobody = { status: 'missing' as const, member: null, why: '', candidates: [] };
-  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null), []).map((c) => c.kind), ['absent', 'not-taken']);
+  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null)).map((c) => c.kind), ['absent', 'not-taken']);
+  const parent = { id: 'p1', name: 'MARTIN Paul', picture: '' };
+  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null), [parent]).map((c) => c.kind), ['family', 'not-taken']);
   const decided = { status: 'missing' as const, member: null, why: 'pas dans VPDive, selon Lucas', candidates: [] };
-  assert.ok(!arbitrageCases(lea!, decided, null, viewOf(lea!, null, 2027, null), []).some((c) => c.kind === 'absent'), 'déjà tranché');
+  assert.ok(!arbitrageCases(lea!, decided, null, viewOf(lea!, null, 2027, null)).some((c) => c.kind === 'absent'), 'déjà tranché');
+  const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
+  const [withLic] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [row], 2027);
+  const other = { ...rec, member: true, licences: [{ number: 'A-99-000001', organization: 'F.F.E.S.S.M.', expires: '2027-12-31' }] };
+  assert.deepEqual(arbitrageCases(withLic!, sure, other, viewOf(withLic!, other, 2027, null)).map((c) => c.kind), ['licence-other']);
+});
+
+test('parents : même nom de famille ou payeur HelloAsso ; un seul compte au même nom (accents près) est sûr', () => {
+  const [tom] = buildPeople([item({ firstName: 'Tom', lastName: 'Petit', birthDate: '2012-05-05', payerName: 'Claire Durand' })], [], 2027);
+  const dir: VpMember[] = [
+    { id: 'a', name: 'PETIT Marc', picture: '' },
+    { id: 'b', name: 'DURAND Claire', picture: '' },
+    { id: 'c', name: 'MARTIN Léa', picture: '' },
+  ];
+  assert.deepEqual(familyCandidates(tom!, dir).map((m) => m.id), ['b', 'a'], 'le payeur d’abord, puis le même nom');
+  const linked = matchPerson(tom!, dir, {}, { uct: 'b', by: 'Lucas', at: '', relation: 'parent' });
+  assert.equal(linked.status, 'missing');
+  assert.equal(linked.parent?.id, 'b');
+  const [adrien] = buildPeople([item({ firstName: 'Adrien', lastName: 'Cheminee', birthDate: '1985-01-01' })], [], 2027);
+  const one = [{ id: 'x', name: 'CHEMINÉE Adrien', picture: '' }];
+  const rec: VpRecord = { email: '', birthday: '', seasons: [], licences: [], insurance: '', insuranceYear: null, member: false, levels: [] };
+  const m = matchPerson(adrien!, one, { x: rec });
+  assert.equal(m.status, 'sure');
+  assert.equal(m.why, 'même nom (accents près)');
 });

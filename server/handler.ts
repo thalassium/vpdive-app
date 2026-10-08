@@ -17,7 +17,10 @@
  *   GET  ?action=brevet_map               admin : correspondance brevets FFESSM → niveaux VPDive
  *   POST ?action=brevet_map {brevet, levels}  admin : la fixer pour un brevet ([] : revenir à la règle automatique)
  *   GET  ?action=member_links             admin : rapprochements choisis à la main (personne → membre VPDive)
- *   POST ?action=member_links {key, uct}  admin : choisir (uct, ou 'none' : pas dans VPDive) ; uct null pour oublier
+ *   POST ?action=member_links {key, uct, relation?}  admin : choisir (uct, ou 'none' : pas dans VPDive ; relation 'parent' :
+ *                                         mineur rattaché au compte d'un parent) ; uct null pour oublier
+ *   GET  ?action=arbitrage_checks         admin : cas d'arbitrage vérifiés à la main
+ *   POST ?action=arbitrage_checks {key, checked, comment}  admin : cocher / décocher, commenter
  *
  * La messagerie n'est plus ici : l'appli lit et écrit directement celle de VPDive.
  *
@@ -42,6 +45,7 @@
  *   club:<id>:ffessm                 export FFESSM des licences déposé (gestion des adhésions)
  *   club:<id>:ffessm-brevets         export FFESSM des brevets déposé
  *   club:<id>:member-links           rapprochements choisis à la main
+ *   club:<id>:arbitrage-checks       cas d'arbitrage vérifiés (qui, quand, commentaire)
  *   club:<id>:brevet-map             correspondance des brevets
  *   app:helloasso-token              jeton HelloAsso en cours
  */
@@ -86,7 +90,9 @@ export type IgnoredDoc = Record<string, { name: string; by: string; at: string }
 const ffessmKey = (c: Caller, kind: string) => `club:${c.clubId}:ffessm${kind === 'brevets' ? '-brevets' : ''}`;
 const linksKey = (c: Caller) => `club:${c.clubId}:member-links`;
 const brevetMapKey = (c: Caller) => `club:${c.clubId}:brevet-map`;
-export type MemberLinks = Record<string, { uct: string; by: string; at: string }>;
+const checksKey = (c: Caller) => `club:${c.clubId}:arbitrage-checks`;
+export type ArbitrageChecks = Record<string, { by: string; at: string; comment: string }>;
+export type MemberLinks = Record<string, { uct: string; by: string; at: string; relation?: 'parent' }>;
 
 const envSuperAdmins = () =>
   (process.env.SUPER_ADMIN_EMAILS ?? '')
@@ -329,16 +335,37 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
       }
     }
 
+    // Arbitrage : un admin coche un cas vérifié à la main (qui, quand, commentaire), au lieu d'une liste d'ignorés.
+    if (action === 'arbitrage_checks') {
+      if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
+      const checks = (await store.get<ArbitrageChecks>(checksKey(caller))) ?? {};
+      if (request.method === 'GET') return json({ checks });
+      if (request.method === 'POST') {
+        const body = parseBody(await request.text()) as { key?: unknown; checked?: unknown; comment?: unknown } | null;
+        const key = String(body?.key ?? '');
+        if (!/^(lic|ha):.{1,200}\|[a-z-]{2,20}$/.test(key)) throw new HttpError(400, 'Cas inconnu.');
+        const comment = String(body?.comment ?? '').trim().slice(0, 500);
+        if (body?.checked === false) delete checks[key];
+        else if (checks[key] && body?.checked === undefined) checks[key] = { ...checks[key]!, comment };
+        else checks[key] = { by: caller.name || caller.email, at: new Date().toISOString(), comment };
+        if (Object.keys(checks).length > 2000) throw new HttpError(413, 'Trop de cas vérifiés.');
+        await store.set(checksKey(caller), checks);
+        return json({ checks });
+      }
+    }
+
     if (action === 'member_links') {
       if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
       const links = (await store.get<MemberLinks>(linksKey(caller))) ?? {};
       if (request.method === 'GET') return json({ links });
       if (request.method === 'POST') {
-        const body = parseBody(await request.text()) as { key?: string; uct?: string | null } | null;
+        const body = parseBody(await request.text()) as { key?: string; uct?: string | null; relation?: unknown } | null;
         const key = String(body?.key ?? '');
         if (!/^(lic|ha):.{1,200}$/.test(key)) throw new HttpError(400, 'Personne inconnue.');
+        const parent = body?.relation === 'parent';
         if (body?.uct == null) delete links[key];
-        else if (body.uct === 'none' || /^[\w-]{20,80}$/.test(body.uct)) links[key] = { uct: body.uct, by: caller.name || caller.email, at: new Date().toISOString() };
+        else if (body.uct === 'none' && !parent) links[key] = { uct: 'none', by: caller.name || caller.email, at: new Date().toISOString() };
+        else if (/^[\w-]{20,80}$/.test(body.uct)) links[key] = { uct: body.uct, by: caller.name || caller.email, at: new Date().toISOString(), ...(parent ? { relation: 'parent' as const } : {}) };
         else throw new HttpError(400, 'Membre inconnu.');
         await store.set(linksKey(caller), links);
         return json({ links });

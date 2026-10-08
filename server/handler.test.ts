@@ -304,3 +304,22 @@ test('demandes d’inscription : réservé aux admins ; décision inconnue refus
   const bad = await handleWith(req('POST', 'action=registration_requests', JSON.stringify({ token: 'x'.repeat(43), decision: 'supprimer' })), deps(store, admin));
   assert.equal(bad.status, 400);
 });
+
+test('arbitrage : case cochée par un admin (qui, quand, commentaire), commentaire modifiable, décochée ; lien parent', async () => {
+  const store = memStore();
+  const admin = caller({ vpdiveAdmin: true });
+  const post = (body: object) => handleWith(req('POST', 'action=arbitrage_checks', JSON.stringify(body)), deps(store, admin));
+  const key = 'lic:A-16-733717|unpaid';
+  let res = (await (await post({ key, checked: true, comment: 'payée en espèces' })).json()) as { checks: Record<string, { by: string; comment: string }> };
+  assert.equal(res.checks[key]?.by, 'Sue Per');
+  assert.equal(res.checks[key]?.comment, 'payée en espèces');
+  res = (await (await post({ key, comment: 'payée en espèces le 12/09' })).json()) as typeof res;
+  assert.equal(res.checks[key]?.comment, 'payée en espèces le 12/09');
+  res = (await (await post({ key, checked: false })).json()) as typeof res;
+  assert.deepEqual(res.checks, {});
+  assert.equal((await post({ key: 'nimporte', checked: true })).status, 400);
+  const member = caller({ uct: PLAIN, email: 'plain@club.fr' });
+  assert.equal((await handleWith(req('GET', 'action=arbitrage_checks'), deps(store, member))).status, 403);
+  const link = await handleWith(req('POST', 'action=member_links', JSON.stringify({ key: 'ha:petit tom|2012-05-05', uct: OTHER, relation: 'parent' })), deps(store, admin));
+  assert.equal(((await link.json()) as { links: Record<string, { relation?: string }> }).links['ha:petit tom|2012-05-05']?.relation, 'parent');
+});

@@ -5,7 +5,7 @@
  */
 import { vpdive, SessionExpiredError } from './vpdiveApi';
 import type { OutingDoc } from '../lib/outing';
-import type { FfessmBrevet, FfessmRow, HaItem, LinkChoice } from '../lib/membership';
+import type { CaseCheck, FfessmBrevet, FfessmRow, HaItem, LinkChoice } from '../lib/membership';
 
 /** Une demande d'inscription au club en attente de réponse. */
 export interface RegistrationRequest {
@@ -104,7 +104,13 @@ export const appApi = {
   brevetMap: () => call<{ map: Record<string, string[]> }>('action=brevet_map').then((r) => r.map),
   setBrevetMap: (brevet: string, levels: string[]) => call<{ map: Record<string, string[]> }>('action=brevet_map', { method: 'POST', body: { brevet, levels } }).then((r) => r.map),
   memberLinks: () => call<{ links: Record<string, LinkChoice> }>('action=member_links').then((r) => r.links),
-  setMemberLink: (key: string, uct: string | null) => call<{ links: Record<string, LinkChoice> }>('action=member_links', { method: 'POST', body: { key, uct } }).then((r) => r.links),
+  setMemberLink: (key: string, uct: string | null, relation?: 'parent') =>
+    call<{ links: Record<string, LinkChoice> }>('action=member_links', { method: 'POST', body: { key, uct, ...(relation ? { relation } : {}) } }).then((r) => r.links),
+  /** Cas d'arbitrage vérifiés à la main : clé « personne|cas » → qui, quand, commentaire. */
+  arbitrageChecks: () => call<{ checks: Record<string, CaseCheck> }>('action=arbitrage_checks').then((r) => r.checks),
+  /** checked : true coche, false décoche ; absent : met seulement le commentaire à jour. */
+  setArbitrageCheck: (key: string, checked: boolean | undefined, comment = '') =>
+    call<{ checks: Record<string, CaseCheck> }>('action=arbitrage_checks', { method: 'POST', body: { key, ...(checked !== undefined ? { checked } : {}), comment } }).then((r) => r.checks),
   docsIgnored: () => call<{ ignored: IgnoredDocs }>('action=docs_ignored').then((r) => r.ignored),
   setDocsIgnored: (uct: string, name: string, ignore: boolean) =>
     call<{ ignored: IgnoredDocs }>('action=docs_ignored', { method: 'POST', body: { uct, name, ignore } }).then((r) => r.ignored),

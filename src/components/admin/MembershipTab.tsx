@@ -7,6 +7,9 @@ import { MemberSearch } from '../dp/MemberSearch';
 import { vpdive } from '../../services/vpdiveApi';
 import { appApi, type FfessmImport } from '../../services/appApi';
 import {
+  caseKey,
+  familyCandidates,
+  lackingBrevets,
   arbitrageCases,
   quickFixes,
   brevetsByLicence,
@@ -22,6 +25,7 @@ import {
   viewOf,
   type BrevetMap,
   type Case,
+  type CaseCheck,
   type CaseKind,
   type Cell,
   type Fix,
@@ -35,6 +39,7 @@ import {
   type Person,
   type VpMember,
   type VpRecord,
+  sameName,
 } from '../../lib/membership';
 import { normalizeName } from '../../lib/fuzzy';
 
@@ -76,6 +81,8 @@ interface Row {
   record: VpRecord | null;
   view: PersonView;
   fixes: Fix[];
+  /** Pas de fiche à son nom : les comptes possibles d'un parent. */
+  family: VpMember[];
   cases: Case[];
   /** Fiches des candidats pas encore lues : le rapprochement peut encore changer. */
   pending: boolean;
@@ -83,24 +90,26 @@ interface Row {
 
 const VPDIVE_MEMBER = (uct: string) => `https://septentrion-env.vpdive.com/app/member/${encodeURIComponent(uct)}`;
 
+const FIX_ORDER: FixKind[] = ['season', 'licence', 'licence-add', 'insurance', 'brevets'];
 const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
   season: { title: `Saison d’adhésion à ajouter`, help: 'Adhésion payée sur HelloAsso (geste d’août compris), saison absente de la fiche VPDive.' },
-  licence: { title: 'Licence FFESSM à prolonger', help: 'Licence déjà vérifiée par VPDive auprès de la FFESSM : VPDive relit lui-même sa nouvelle validité.' },
+  licence: { title: 'Licence FFESSM : date de fin à mettre à jour', help: 'Même numéro, date ancienne. VPDive relit la FFESSM si la licence est vérifiée, sinon la date est saisie.' },
+  'licence-add': { title: 'Licence FFESSM à ajouter', help: 'Licence prise par le club (export Mon Club), absente de la fiche VPDive.' },
   insurance: { title: 'Assurance à reporter', help: 'Assurance prise à la FFESSM (export Mon Club), différente de celle de la fiche VPDive.' },
+  brevets: { title: 'Brevets à ajouter', help: 'Brevets délivrés par la FFESSM (export des brevets), absents des niveaux de la fiche VPDive.' },
 };
 const CASE_TITLE: Record<CaseKind, string> = {
   homonym: 'Homonymes : choisir le bon membre',
+  family: 'Patronyme commun : parents',
   absent: 'Pas de fiche VPDive',
   guest: 'Statut Invité à passer en Membre',
-  'licence-add': 'Licence absente de la fiche VPDive',
-  'licence-manual': 'Licence à mettre à jour à la main',
+  'licence-other': 'Autre numéro de licence dans VPDive',
   'not-taken': 'Licence payée, pas prise à la FFESSM',
   unpaid: 'Licence prise sans paiement HelloAsso',
   'season-unpaid': 'Saison sans adhésion HelloAsso',
-  brevets: 'Brevets à ajouter dans VPDive',
   'no-licence': 'Ni licence ni Pass payés au club',
 };
-const CASE_ORDER: CaseKind[] = ['homonym', 'absent', 'guest', 'licence-add', 'licence-manual', 'not-taken', 'unpaid', 'brevets', 'season-unpaid', 'no-licence'];
+const CASE_ORDER: CaseKind[] = ['homonym', 'family', 'absent', 'guest', 'licence-other', 'not-taken', 'unpaid', 'season-unpaid', 'no-licence'];
 
 /**
  * Étapes 2 à 4 de la gestion des adhésions, sur les mêmes données (lues une
@@ -140,6 +149,8 @@ export function MembershipTab({
   const [loadError, setLoadError] = useState<string | null>(null);
   /** Corrections cochées (clé : personne + type). */
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  /** Cas d'arbitrage vérifiés à la main, partagés entre admins. */
+  const [checks, setChecks] = useState<Record<string, CaseCheck>>({});
   const lost = useRef(onSessionLost);
   lost.current = onSessionLost;
 
@@ -149,6 +160,7 @@ export function MembershipTab({
     appApi.ffessmBrevets().then(setBrevetsImport, (e) => lost.current(e) || setLoadError(message(e)));
     appApi.brevetMap().then(setBrevetMap, (e) => lost.current(e) || setLoadError(message(e)));
     appApi.memberLinks().then(setLinks, (e) => lost.current(e) || setLoadError(message(e)));
+    appApi.arbitrageChecks().then(setChecks, (e) => lost.current(e) || setLoadError(message(e)));
     vpdive.fetchMemberDirectory().then(setDirectory, (e) => lost.current(e) || setLoadError(message(e)));
   }, []);
 
@@ -230,13 +242,15 @@ export function MembershipTab({
       const record = match.member ? (records[match.member.id] ?? null) : null;
       const cands = links[p.key] ? [] : candidatesFor(p, directory);
       const view = viewOf(p, record, season, brevets, brevetMap);
-      const fixes = quickFixes(p, match, record, season);
-      return { p, match, record, view, fixes, cases: arbitrageCases(p, match, record, view, fixes), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
+      const fixes = quickFixes(p, match, record, season, lackingBrevets(p, record, brevets, brevetMap));
+      const family = match.status === 'missing' && !match.why ? familyCandidates(p, directory) : [];
+      return { p, match, record, view, fixes, family, cases: arbitrageCases(p, match, record, view, family), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
     });
   }, [people, directory, links, records, season, brevets, brevetMap]);
 
   const fixCount = rows.reduce((n, r) => n + r.fixes.length, 0);
-  const caseCount = rows.filter((r) => r.cases.length > 0).length;
+  // Un cas coché « vérifié » ne compte plus.
+  const caseCount = rows.reduce((n, r) => n + r.cases.filter((c) => !checks[caseKey(r.p, c.kind)]).length, 0);
   useEffect(() => {
     if (rows.length) onCounts?.({ fixes: fixCount, cases: caseCount });
   }, [rows.length, fixCount, caseCount, onCounts]);
@@ -245,9 +259,9 @@ export function MembershipTab({
   const q = normalizeName(query);
   const matches = (r: Row) => !q || normalizeName(`${r.p.name} ${r.match.member?.name ?? ''} ${r.p.ffessm?.licence ?? ''}`).includes(q);
 
-  const choose = async (p: Person, uct: string | null) => {
+  const choose = async (p: Person, uct: string | null, relation?: 'parent') => {
     try {
-      setLinks(await appApi.setMemberLink(p.key, uct));
+      setLinks(await appApi.setMemberLink(p.key, uct, relation));
     } catch (e) {
       if (!lost.current(e)) setLoadError(message(e));
     }
@@ -403,7 +417,7 @@ export function MembershipTab({
   // ── 3. Corrections rapides ──
   if (step === 'quickfix') {
     const keyOf = (r: Row, f: Fix) => `${r.p.key}|${f.kind}`;
-    const groups = (['season', 'licence', 'insurance'] as FixKind[])
+    const groups = FIX_ORDER
       .map((kind) => ({ kind, list: rows.filter((r) => matches(r)).flatMap((r) => r.fixes.filter((f) => f.kind === kind).map((f) => ({ r, f }))) }))
       .filter((g) => g.list.length > 0);
     const toggle = (k: string) => setPicked((s) => new Set(s.has(k) ? [...s].filter((x) => x !== k) : [...s, k]));
@@ -450,6 +464,7 @@ export function MembershipTab({
                         <span className="text-sm text-muted">{f.before}</span>
                         <span aria-hidden className="text-muted">→</span>
                         <span className="text-sm font-semibold text-ok">{f.after}</span>
+                        {f.kind === 'licence' && <span className="text-xs text-muted">{f.refresh ? 'relue à la FFESSM' : 'date saisie'}</span>}
                       </label>
                     </li>
                   ))}
@@ -470,7 +485,19 @@ export function MembershipTab({
   }
 
   // ── 4. Arbitrage ──
-  const caseGroups = CASE_ORDER.map((kind) => ({ kind, list: rows.filter((r) => matches(r) && r.cases.some((c) => c.kind === kind)) })).filter((g) => g.list.length > 0);
+  const isChecked = (r: Row, kind: CaseKind) => !!checks[caseKey(r.p, kind)];
+  // Dans chaque groupe, ce qui reste à voir d'abord ; les cas vérifiés en bas, atténués.
+  const caseGroups = CASE_ORDER.map((kind) => ({
+    kind,
+    list: rows.filter((r) => matches(r) && r.cases.some((c) => c.kind === kind)).sort((a, b) => Number(isChecked(a, kind)) - Number(isChecked(b, kind))),
+  })).filter((g) => g.list.length > 0);
+  const saveCheck = async (key: string, checked: boolean | undefined, comment: string) => {
+    try {
+      setChecks(await appApi.setArbitrageCheck(key, checked, comment));
+    } catch (e) {
+      if (!lost.current(e)) setLoadError(message(e));
+    }
+  };
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -488,21 +515,28 @@ export function MembershipTab({
           <section key={kind} className="card overflow-hidden">
             <header className="flex items-center gap-2 px-4 py-2.5 bg-raised border-b border-line">
               <span className="font-semibold text-brand">{CASE_TITLE[kind]}</span>
-              <span className="text-sm text-muted tabular-nums">· {list.length}</span>
+              <span className="text-sm text-muted tabular-nums">
+                · {list.filter((r) => !isChecked(r, kind)).length}
+                {list.some((r) => isChecked(r, kind)) && ` (+ ${list.filter((r) => isChecked(r, kind)).length} vérifié${list.filter((r) => isChecked(r, kind)).length > 1 ? 's' : ''})`}
+              </span>
             </header>
             <ul className="divide-y divide-line">
               {list.map((r) => {
                 const c = r.cases.find((x) => x.kind === kind)!;
+                const key = caseKey(r.p, kind);
+                const check = checks[key];
                 return (
-                  <li key={r.p.key} className="px-4 py-3 grid gap-2 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,16rem)] items-start">
-                    <div className="min-w-0">
+                  <li key={r.p.key} className={`px-4 py-3 grid gap-x-4 gap-y-2 lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_minmax(0,16rem)_minmax(0,15rem)] items-start ${check ? 'bg-raised/50' : ''}`}>
+                    <div className={`min-w-0 ${check ? 'opacity-60' : ''}`}>
                       <p className="font-semibold text-ink break-words">{r.p.name}</p>
                       <p className="text-sm text-muted">{r.p.birthDate ? `né(e) le ${frDay(r.p.birthDate)}` : ''}</p>
                     </div>
-                    <p className="text-sm text-ink">{c.text}</p>
-                    <div className="min-w-0">
+                    <p className={`text-sm text-ink ${check ? 'opacity-60' : ''}`}>{c.text}</p>
+                    <div className={`min-w-0 ${check ? 'opacity-60' : ''}`}>
                       {kind === 'homonym' || kind === 'absent' ? (
                         <VpdiveCell match={r.match} pending={r.pending} onChoose={(uct) => void choose(r.p, uct)} />
+                      ) : kind === 'family' ? (
+                        <FamilyPicker family={r.family} payer={r.p.payerName} onPick={(uct) => void choose(r.p, uct, 'parent')} />
                       ) : kind === 'not-taken' || kind === 'unpaid' ? (
                         <a href="https://monclub.ffessm.fr" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-brand underline underline-offset-2">
                           Ouvrir Mon Club <ExternalLink className="w-3.5 h-3.5" />
@@ -513,6 +547,7 @@ export function MembershipTab({
                         </a>
                       ) : null}
                     </div>
+                    <CheckBox check={check} onSave={(checked, comment) => void saveCheck(key, checked, comment)} />
                   </li>
                 );
               })}
@@ -521,6 +556,71 @@ export function MembershipTab({
         ))
       )}
       <div className="flex flex-wrap items-center gap-3">{refreshButton}</div>
+    </div>
+  );
+}
+
+/** Mineur sans fiche : les comptes possibles d'un parent (payeur HelloAsso, même nom), ou un autre compte. */
+function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: string; onPick: (uct: string) => void }) {
+  const [searching, setSearching] = useState(false);
+  if (searching) {
+    return (
+      <div className="space-y-2">
+        <MemberSearch onPick={(m) => onPick(m.id)} />
+        <button type="button" onClick={() => setSearching(false)} className="btn btn-quiet h-8 text-sm">
+          Annuler
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1.5 text-sm">
+      {family.map((m) => (
+        <button key={m.id} type="button" onClick={() => onPick(m.id)} className="w-full flex items-center gap-2 px-2 py-1 rounded-lg border border-field-border hover:bg-tint text-left">
+          <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
+          <span className="flex-1 min-w-0 leading-tight">
+            <span className="block text-ink break-words">{m.name}</span>
+            {payer && sameName(payer, m.name) && <span className="block text-xs text-muted">a payé l’adhésion</span>}
+          </span>
+          <span className="text-brand font-medium shrink-0">Associer</span>
+        </button>
+      ))}
+      <button type="button" onClick={() => setSearching(true)} className="underline text-muted hover:text-brand">
+        Autre compte
+      </button>
+    </div>
+  );
+}
+
+/**
+ * « Vérifié » : l'admin a regardé le cas à la main et c'est bon. Qui, quand,
+ * et un commentaire facultatif ; partagé entre admins. Remplace une liste d'ignorés.
+ */
+function CheckBox({ check, onSave }: { check?: CaseCheck; onSave: (checked: boolean | undefined, comment: string) => void }) {
+  const [comment, setComment] = useState(check?.comment ?? '');
+  useEffect(() => setComment(check?.comment ?? ''), [check?.comment]);
+  return (
+    <div className="min-w-0 space-y-1.5">
+      <label className="inline-flex items-center gap-2 cursor-pointer text-sm font-medium text-ink">
+        <input type="checkbox" checked={!!check} onChange={(e) => onSave(e.target.checked, comment)} className="w-5 h-5 accent-[var(--fill)]" />
+        Vérifié
+      </label>
+      {check && (
+        <>
+          <p className="text-xs text-muted">
+            par {check.by} le {frDay(check.at)}
+          </p>
+          <input
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            onBlur={() => comment !== check.comment && onSave(undefined, comment)}
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+            placeholder="Commentaire (facultatif)"
+            aria-label="Commentaire de vérification"
+            className="field h-8 w-full text-sm"
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -610,6 +710,7 @@ function VpdiveStatus({ match, pending }: { match: Match; pending: boolean }) {
     );
   }
   if (pending) return <p className="text-sm text-muted">Lecture des fiches…</p>;
+  if (match.parent) return <p className="text-sm text-muted">{match.why}</p>;
   return (
     <p className="text-sm text-warn font-medium inline-flex items-center gap-1.5">
       <UserX className="w-4 h-4" /> {match.status === 'confirm' ? 'Homonymes : à trancher (étape 4)' : match.why || 'Pas de fiche VPDive (étape 4)'}
@@ -716,7 +817,7 @@ function FfessmImportBox<Row>({
     setError(null);
     try {
       const { rows, period } = parse(await file.text());
-      if (!rows.length) throw new Error(`Rien trouvé : est-ce bien l’export « Liste des ${what} » de Mon Club (CSV) ?`);
+      if (!rows.length) throw new Error(`Rien trouvé : est-ce bien l’export « Liste des ${what} » de Mon Club (CSV) ?`);
       onImported(await save(rows, period));
     } catch (e) {
       if (!onSessionLost(e)) setError(message(e));
