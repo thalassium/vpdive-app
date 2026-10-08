@@ -9,7 +9,7 @@
  * plongeurs.
  */
 import { aptitudesFromLabels, isInstructor, type Aptitudes } from './palanquees';
-import { DP_ROLE } from '../services/vpdiveApi';
+import { DP_ROLE, SURFACE_ROLES } from '../services/vpdiveApi';
 
 export interface StatEvent {
   token: string;
@@ -173,9 +173,12 @@ export function computeStats(events: StatEvent[], rosters: Record<string, StatPe
     if (e.max) fills.push(Math.min(1, n / e.max));
     if (!roster) continue;
     waiting += roster.length - taken!.length;
-    // DP : celui de l'appli s'il y en a un, sinon le rôle pris à l'inscription.
+    // DP : celui de l'appli s'il y en a un, sinon le rôle pris à l'inscription ; sans DP du
+    // tout, le pilote ou la sécurité surface de la sortie (règle du club).
     const appDp = (dpFromApp[e.token] ?? []).filter((id) => roster.some((p) => p.id === id));
-    const dpIds = new Set(appDp.length ? appDp : taken!.filter((p) => p.roles.some((r) => DP_ROLE.test(r))).map((p) => p.id));
+    const withRole = (re: RegExp) => taken!.filter((p) => p.roles.some((r) => re.test(r))).map((p) => p.id);
+    const vpDp = withRole(DP_ROLE);
+    const dpIds = new Set(appDp.length ? appDp : vpDp.length ? vpDp : withRole(SURFACE_ROLES));
     dpOf++;
     if (dpIds.size) dpKnown++;
     for (const p of taken!) {

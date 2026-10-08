@@ -91,3 +91,14 @@ test('niveaux : autres écoles à part, aucun niveau à part', () => {
   assert.deepEqual(s.otherSchools, [{ label: 'PADI', count: 2 }, { label: 'SSI', count: 1 }]);
   assert.deepEqual(s.groups, { divers: 1, staff: 0, otherSchool: 3, none: 2 });
 });
+
+test('DP : sans DP sur la sortie, le pilote ou la sécurité surface en tient lieu', () => {
+  const events = [ev('a', '2026-03-14T08:15:00'), ev('b', '2026-03-15T08:15:00')];
+  const rosters = {
+    a: [p('pilote', ['P4'], { roles: ['Pilote'] }), p('x', ['P1'])],
+    b: [p('dp', ['MF1'], { roles: ['Directeur de plongée'] }), p('secu', ['P3'], { roles: ['Sécurité surface'] })],
+  };
+  const s = computeStats(events, rosters);
+  assert.deepEqual(s.directors.map((d) => [d.id, d.count]), [['dp', 1], ['pilote', 1]], 'sur b il y a un DP : la sécu ne compte pas');
+  assert.deepEqual(s.dpKnown, { known: 2, of: 2 });
+});
