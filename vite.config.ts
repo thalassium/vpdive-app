@@ -78,7 +78,7 @@ function csp(): Plugin {
 export default defineConfig(({ mode }) => {
   // Server-side settings for the local API (SUPER_ADMIN_EMAILS…), from .env.local.
   const env = loadEnv(mode, process.cwd(), '');
-  for (const key of ['SUPER_ADMIN_EMAILS', 'KV_REST_API_URL', 'KV_REST_API_TOKEN', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']) {
+  for (const key of ['SUPER_ADMIN_EMAILS', 'KV_REST_API_URL', 'KV_REST_API_TOKEN', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'HELLOASSO_CLIENT_ID', 'HELLOASSO_CLIENT_SECRET', 'HELLOASSO_ORG_SLUG']) {
     if (env[key] && !process.env[key]) process.env[key] = env[key];
   }
   return {

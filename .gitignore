@@ -10,3 +10,8 @@ fixtures/*
 
 .vercel
 .env*
+
+# Exports FFESSM / HelloAsso déposés pour la gestion des adhésions : données personnelles
+ListeLicences*.csv
+*.licences.csv
+imports/

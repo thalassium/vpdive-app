@@ -15,6 +15,7 @@
  */
 
 import { fromVpdive, type VpdiveQualif } from '../lib/vpdiveLevels';
+import type { VpRecord } from '../lib/membership';
 
 const API_BASE = '/api/vpdive'; // Vite proxy → https://septentrion-env.vpdive.com/api
 const SESSION_KEY = 'vpdive_session';
@@ -952,6 +953,22 @@ class VpDiveClient {
     const token = str((obj(res.data) ?? res).token);
     if (!token) throw new VpDiveError('Membre introuvable dans la messagerie VPDive.', 0);
     return token;
+  }
+
+  /** Fiche d'un membre pour la gestion des adhésions : saisons, licences, assurance, statut Membre, e-mail, naissance. */
+  async memberRecord(uct: string): Promise<VpRecord> {
+    const res = await this.request(`/user?uct_token=${encodeURIComponent(uct)}`);
+    const u = obj(res.data) ?? res;
+    const info = infoOf(u);
+    return {
+      email: info.email,
+      birthday: info.birthday,
+      seasons: info.seasons,
+      licences: info.licences.map((l) => ({ number: l.number, organization: l.organization, expires: l.expires })),
+      insurance: info.insurance,
+      insuranceYear: info.insuranceYear,
+      member: obj(u.user_club_traceability)?.allMembers === true,
+    };
   }
 
   async memberStatus(uct: string): Promise<Pick<MemberInfo, 'seasons' | 'licences'>> {

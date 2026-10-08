@@ -5,6 +5,15 @@
  */
 import { vpdive, SessionExpiredError } from './vpdiveApi';
 import type { OutingDoc } from '../lib/outing';
+import type { FfessmRow, HaItem, LinkChoice } from '../lib/membership';
+
+/** Dernier export FFESSM déposé, partagé entre admins. */
+export interface FfessmImport {
+  rows: FfessmRow[];
+  period: string;
+  by: string;
+  at: string;
+}
 
 export type AppRole = 'superadmin' | 'admin' | 'member';
 
@@ -72,6 +81,12 @@ export const appApi = {
   outingRoles: (events: string[]) =>
     call<{ roles: Record<string, Record<string, string[]> | null> }>(`action=outing_roles&events=${events.map(encodeURIComponent).join(',')}`, { method: 'GET' }).then((r) => r.roles),
   /** Suivi des documents : membres ignorés (uct → nom, qui, quand), partagés entre admins. */
+  /** Gestion des adhésions : articles HelloAsso de la saison (année de fin). */
+  helloasso: (season: number) => call<{ items: HaItem[] }>(`action=helloasso&season=${season}`).then((r) => r.items),
+  ffessmImport: () => call<{ import: FfessmImport | null }>('action=ffessm').then((r) => r.import),
+  saveFfessmImport: (rows: FfessmRow[], period: string) => call<{ import: FfessmImport }>('action=ffessm', { method: 'POST', body: { rows, period } }).then((r) => r.import),
+  memberLinks: () => call<{ links: Record<string, LinkChoice> }>('action=member_links').then((r) => r.links),
+  setMemberLink: (key: string, uct: string | null) => call<{ links: Record<string, LinkChoice> }>('action=member_links', { method: 'POST', body: { key, uct } }).then((r) => r.links),
   docsIgnored: () => call<{ ignored: IgnoredDocs }>('action=docs_ignored').then((r) => r.ignored),
   setDocsIgnored: (uct: string, name: string, ignore: boolean) =>
     call<{ ignored: IgnoredDocs }>('action=docs_ignored', { method: 'POST', body: { uct, name, ignore } }).then((r) => r.ignored),

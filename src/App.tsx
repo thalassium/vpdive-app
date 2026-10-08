@@ -64,7 +64,7 @@ const tabFromHash = (): Tab => {
 };
 
 /** Caches de session de l'appli (documents, adhésions, libellés, météo, sorties DP) : effacés à la déconnexion, le téléphone peut être partagé. */
-const SESSION_CACHE_PREFIXES = ['docs-status:', 'club-member-v2:', 'my-labels:', 'meteo:', 'dp-events:'];
+const SESSION_CACHE_PREFIXES = ['docs-status:', 'member-record:', 'club-member-v2:', 'my-labels:', 'meteo:', 'dp-events:'];
 function clearSessionCaches() {
   try {
     const keys: string[] = [];
@@ -403,7 +403,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                   label="Admin"
                   items={[
                     { icon: <Users className="w-4 h-4" />, label: 'Gestion des membres', hint: realRole === 'superadmin' ? 'Rôles et doublons' : 'Doublons', onClick: () => setPanel('members') },
-                    { icon: <FileWarning className="w-4 h-4" />, label: 'Documentation', hint: 'CACI, licences, adhésions', onClick: () => setPanel('docs') },
+                    { icon: <FileWarning className="w-4 h-4" />, label: 'Gestion des adhésions', hint: 'HelloAsso, FFESSM, VPDive, relances', onClick: () => setPanel('docs') },
                     ...(realRole === 'superadmin'
                       ? [{ icon: <BarChart3 className="w-4 h-4" />, label: 'Stats', hint: 'Sorties, plongeurs, niveaux, âges', onClick: () => setPanel('stats') }]
                       : []),

@@ -272,3 +272,26 @@ test('outing : un simple membre qui n’est pas DP est refusé', async () => {
   assert.equal(dp.status, 200);
   assert.deepEqual(await dp.json(), { doc: null });
 });
+
+// ── Gestion des adhésions ──
+
+test('adhésions : réservé aux admins ; rapprochements mémorisés et validés ; export FFESSM partagé', async () => {
+  const store = memStore();
+  const member = caller({ uct: PLAIN, email: 'plain@club.fr' });
+  for (const q of ['action=helloasso&season=2027', 'action=ffessm', 'action=member_links']) {
+    assert.equal((await handleWith(req('GET', q), deps(store, member))).status, 403, q);
+  }
+  const admin = caller({ vpdiveAdmin: true });
+  const set = await handleWith(req('POST', 'action=member_links', JSON.stringify({ key: 'lic:A-16-733717', uct: OTHER })), deps(store, admin));
+  assert.equal(set.status, 200);
+  assert.equal(((await set.json()) as { links: Record<string, { uct: string }> }).links['lic:A-16-733717']?.uct, OTHER);
+  assert.equal((await handleWith(req('POST', 'action=member_links', JSON.stringify({ key: 'nimporte', uct: OTHER })), deps(store, admin))).status, 400);
+  assert.equal((await handleWith(req('POST', 'action=member_links', JSON.stringify({ key: 'lic:x', uct: 'pas un uct' })), deps(store, admin))).status, 400);
+  const none = await handleWith(req('POST', 'action=member_links', JSON.stringify({ key: 'lic:A-16-733717', uct: null })), deps(store, admin));
+  assert.deepEqual(((await none.json()) as { links: object }).links, {});
+  const saved = await handleWith(req('POST', 'action=ffessm', JSON.stringify({ rows: [{ licence: 'A-16-733717' }], period: 'Du 08/10/2025 au 08/10/2026' })), deps(store, admin));
+  assert.equal(saved.status, 200);
+  const read = (await (await handleWith(req('GET', 'action=ffessm'), deps(store, admin))).json()) as { import: { rows: unknown[]; by: string } };
+  assert.equal(read.import.rows.length, 1);
+  assert.equal(read.import.by, 'Sue Per');
+});

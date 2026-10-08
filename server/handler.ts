@@ -9,6 +9,11 @@
  *   POST ?action=outing&event=<token>     {doc, baseRev}  enregistrer (refusé si quelqu'un a enregistré entre-temps)
  *   GET  ?action=docs_ignored             admin : membres ignorés du suivi des documents
  *   POST ?action=docs_ignored {uct, name, ignore}  admin : ignorer / ne plus ignorer
+ *   GET  ?action=helloasso&season=2027    admin : adhésions HelloAsso de la saison (server/helloasso.ts)
+ *   GET  ?action=ffessm                   admin : dernier export FFESSM déposé
+ *   POST ?action=ffessm  {rows, period}   admin : déposer l'export « Liste des licences » de Mon Club (lu dans l'appli)
+ *   GET  ?action=member_links             admin : rapprochements choisis à la main (personne → membre VPDive)
+ *   POST ?action=member_links {key, uct}  admin : choisir (uct, ou 'none' : pas dans VPDive) ; uct null pour oublier
  *
  * La messagerie n'est plus ici : l'appli lit et écrit directement celle de VPDive.
  *
@@ -30,9 +35,13 @@
  *   club:<id>:outing:<event>         fiche de la sortie
  *   club:<id>:outing:<event>:lock    verrou le temps d'un enregistrement
  *   club:<id>:docs-ignored           suivi des documents
+ *   club:<id>:ffessm                 export FFESSM déposé (gestion des adhésions)
+ *   club:<id>:member-links           rapprochements choisis à la main
+ *   app:helloasso-token              jeton HelloAsso en cours
  */
 import { HttpError, forget, identify, isDpOf, type Caller } from './auth.js';
 import { getStore, type Store } from './store.js';
+import { helloassoConfigured, membershipItems } from './helloasso.js';
 
 export type AppRole = 'superadmin' | 'admin' | 'member';
 
@@ -67,6 +76,9 @@ const outingKey = (c: Caller, event: string) => `club:${c.clubId}:outing:${event
 /** Membres que les admins ont choisi d'ignorer dans le suivi des documents. */
 const docsIgnoredKey = (c: Caller) => `club:${c.clubId}:docs-ignored`;
 export type IgnoredDoc = Record<string, { name: string; by: string; at: string }>;
+const ffessmKey = (c: Caller) => `club:${c.clubId}:ffessm`;
+const linksKey = (c: Caller) => `club:${c.clubId}:member-links`;
+export type MemberLinks = Record<string, { uct: string; by: string; at: string }>;
 
 const envSuperAdmins = () =>
   (process.env.SUPER_ADMIN_EMAILS ?? '')
@@ -249,6 +261,49 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
         else delete ignored[uct];
         await store.set(docsIgnoredKey(caller), ignored);
         return json({ ignored });
+      }
+    }
+
+    // Gestion des adhésions (admins seulement) : HelloAsso, export FFESSM, rapprochements choisis.
+    if (action === 'helloasso' && request.method === 'GET') {
+      if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
+      if (!helloassoConfigured()) throw new HttpError(503, 'HelloAsso n’est pas configuré (clé API de l’association).');
+      const season = Number(url.searchParams.get('season'));
+      if (!Number.isInteger(season) || season < 2020 || season > 2100) throw new HttpError(400, 'Saison inconnue.');
+      try {
+        return json({ items: await membershipItems(store, season) });
+      } catch (e) {
+        throw new HttpError(502, e instanceof Error ? e.message : 'HelloAsso ne répond pas.');
+      }
+    }
+
+    if (action === 'ffessm') {
+      if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
+      if (request.method === 'GET') return json({ import: await store.get(ffessmKey(caller)) });
+      if (request.method === 'POST') {
+        const text = await request.text();
+        if (text.length > MAX_DOC_BYTES) throw new HttpError(413, 'Export trop volumineux.');
+        const body = parseBody(text) as { rows?: unknown; period?: unknown } | null;
+        if (!Array.isArray(body?.rows) || body.rows.length > 3000) throw new HttpError(400, 'Export illisible.');
+        const doc = { rows: body.rows, period: String(body.period ?? '').slice(0, 80), by: caller.name || caller.email, at: new Date().toISOString() };
+        await store.set(ffessmKey(caller), doc);
+        return json({ import: doc });
+      }
+    }
+
+    if (action === 'member_links') {
+      if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
+      const links = (await store.get<MemberLinks>(linksKey(caller))) ?? {};
+      if (request.method === 'GET') return json({ links });
+      if (request.method === 'POST') {
+        const body = parseBody(await request.text()) as { key?: string; uct?: string | null } | null;
+        const key = String(body?.key ?? '');
+        if (!/^(lic|ha):.{1,200}$/.test(key)) throw new HttpError(400, 'Personne inconnue.');
+        if (body?.uct == null) delete links[key];
+        else if (body.uct === 'none' || /^[\w-]{20,80}$/.test(body.uct)) links[key] = { uct: body.uct, by: caller.name || caller.email, at: new Date().toISOString() };
+        else throw new HttpError(400, 'Membre inconnu.');
+        await store.set(linksKey(caller), links);
+        return json({ links });
       }
     }
 

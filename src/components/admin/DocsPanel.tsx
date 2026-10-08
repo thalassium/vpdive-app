@@ -7,6 +7,7 @@ import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
 import { messaging } from '../../services/messaging';
 import { bulkReminderText, checkDocs, reminderText, type DocIssue, type DocKind, type DocsStatus } from '../../lib/docsCheck';
+import { MembershipTab } from './MembershipTab';
 
 interface Me {
   uct: string;
@@ -104,6 +105,10 @@ const hasKind = (r: Row, kind: DocKind) => r.issues.some((i) => i.kind === kind 
  * avec une pause, et les fiches membres sont gardées 6 h dans la session.
  */
 export function DocsPanel({ me, onClose, onSessionLost }: Props) {
+  /** Adhésions (HelloAsso × FFESSM × VPDive) ou Relance (inscrits des prochaines semaines). */
+  const [tab, setTab] = useState<'adhesions' | 'relance'>('adhesions');
+  /** La relance ne lit VPDive qu'une fois son onglet ouvert. */
+  const [relanceOpened, setRelanceOpened] = useState(false);
   const [outings, setOutings] = useState<Outing[] | null>(null);
   const [statuses, setStatuses] = useState<Record<string, DocsStatus>>({});
   const [phase, setPhase] = useState<Phase>('events');
@@ -250,11 +255,12 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   }, [checkStatuses]);
 
   useEffect(() => {
+    if (!relanceOpened) return;
     load();
     return () => {
       run.current++;
     };
-  }, [load]);
+  }, [load, relanceOpened]);
 
   const stop = () => {
     run.current++;
@@ -348,15 +354,19 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="docs-title" className="relative bg-surface w-full sm:max-w-5xl h-dvh sm:h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="docs-title" className={`relative bg-surface w-full ${tab === 'adhesions' ? 'sm:max-w-7xl' : 'sm:max-w-5xl'} h-dvh sm:h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop`}>
         <header className="relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <span className="label block mb-0.5">Admin</span>
               <h2 id="docs-title" className="text-xl font-semibold text-brand leading-snug flex items-center gap-2">
-                <FileText className="w-6 h-6 text-brand" /> Documentation
+                <FileText className="w-6 h-6 text-brand" /> Gestion des adhésions
               </h2>
-              <p className="mt-1 text-sm text-muted">Inscrits des {DAYS_AHEAD} prochains jours dont le dossier VPDive n’est pas en règle à la date de la sortie.</p>
+              <p className="mt-1 text-sm text-muted">
+                {tab === 'adhesions'
+                  ? 'Chaque membre vu par HelloAsso (paiements), la FFESSM (licence) et VPDive (fiche), et ce qu’il reste à corriger.'
+                  : `Inscrits des ${DAYS_AHEAD} prochains jours dont le dossier VPDive n’est pas en règle à la date de la sortie.`}
+              </p>
             </div>
             <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
               <ThemeToggle />
@@ -365,8 +375,30 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               </button>
             </div>
           </div>
-          {outings && (
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div role="tablist" aria-label="Gestion des adhésions" className="mt-3 flex gap-1 border-b border-line -mb-4">
+            {(
+              [
+                ['adhesions', 'Adhésions'],
+                ['relance', 'Relance'],
+              ] as const
+            ).map(([key, text]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={tab === key}
+                onClick={() => {
+                  setTab(key);
+                  if (key === 'relance') setRelanceOpened(true);
+                }}
+                className={`h-10 px-4 -mb-px border-b-2 text-sm font-semibold transition-colors ${tab === key ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'}`}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+          {tab === 'relance' && outings && (
+            <div className="mt-7 flex flex-wrap items-center gap-x-4 gap-y-2">
               <p className="text-sm text-ink flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1.5">
                   <span aria-hidden className="w-2.5 h-2.5 rounded-full bg-danger" /> {plural(counts.caci, 'CACI manquant', 'CACI manquants')}
@@ -399,6 +431,11 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
           )}
         </header>
 
+        {tab === 'adhesions' ? (
+          <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4">
+            <MembershipTab onSessionLost={onSessionLost} />
+          </div>
+        ) : (
         <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-4 py-3 space-y-3">
           {(loading || verifying || phase === 'stopped') && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted px-1" aria-live="polite">
@@ -510,8 +547,9 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             </ul>
           )}
         </div>
+        )}
 
-        {filter !== 'ignored' && active.length > 0 && (
+        {tab === 'relance' && filter !== 'ignored' && active.length > 0 && (
           <div className="sticky bottom-0 shrink-0 bg-surface border-t border-line px-4 sm:px-6 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="text-base text-ink font-medium">{plural(picked.length, 'sélectionné', 'sélectionnés')}</span>
             <button type="button" onClick={toggleAll} className="btn btn-quiet h-9 text-sm">
