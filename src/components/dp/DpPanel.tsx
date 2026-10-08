@@ -379,8 +379,10 @@ function OutingWorkspace({
     const fresh = await vpdive.fetchRoster(event.token);
     if (fresh.some((r) => r.id === person.id)) throw new Error(`VPDive n’a pas désinscrit ${person.name}.`);
     setRoster(fresh);
+    // Plus décoché : s'il se réinscrit, il revient coché comme tout nouvel inscrit.
     update((d) => ({
       ...d,
+      settings: toggleDiving(d.settings, person.id, true),
       unregistered: [...(d.unregistered ?? []).filter((u) => u.id !== person.id), { ...person, by: me, at: new Date().toISOString() }],
     }));
   };
