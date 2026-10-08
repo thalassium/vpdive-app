@@ -55,7 +55,7 @@ function dayLabel(d: Date): string {
 }
 
 /** Un message du fil, envoyé ou encore dans la boîte d'envoi. */
-type Shown = ChatMessage & { status?: 'sending' | 'failed' };
+type Shown = ChatMessage & { status?: 'sending' | 'failed'; error?: string };
 
 /** Messages groupés par jour (heure locale), dans l'ordre du fil. */
 function byDay(messages: Shown[]): { key: string; date: Date | null; messages: Shown[] }[] {
@@ -104,7 +104,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
   const [threadLoading, setThreadLoading] = useState(false);
 
   const [draft, setDraft] = useState('');
-  const [outbox, setOutbox] = useState<{ id: string; text: string; at: string; status: 'sending' | 'failed' }[]>([]);
+  const [outbox, setOutbox] = useState<{ id: string; text: string; at: string; status: 'sending' | 'failed'; error?: string }[]>([]);
 
   // Les props et la conversation ouverte, lues depuis les minuteries sans les relancer.
   const lostRef = useRef(false);
@@ -256,7 +256,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
       if (!lostRef.current) onReadRef.current();
     } catch (err) {
       if (lost(err) || openIdRef.current !== chatId) return;
-      setOutbox((o) => o.map((x) => (x.id === tempId ? { ...x, status: 'failed' } : x)));
+      setOutbox((o) => o.map((x) => (x.id === tempId ? { ...x, status: 'failed', error: errorText(err, '') } : x)));
     }
   };
 
@@ -287,7 +287,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
   const current = thread ?? open;
   const members = current?.members ?? [];
   const authorName = (uct: string) => members.find((m) => m.uct === uct)?.name || 'Membre';
-  const shown: Shown[] = thread ? [...thread.messages, ...outbox.map((o) => ({ id: o.id, from: me.uct, text: o.text, at: o.at, status: o.status }))] : [];
+  const shown: Shown[] = thread ? [...thread.messages, ...outbox.map((o) => ({ id: o.id, from: me.uct, text: o.text, at: o.at, status: o.status, error: o.error }))] : [];
 
   const failedFirst = chats === null && !listLoading && !!listError;
   const empty = chats !== null && chats.length === 0 && !open && !composing;
@@ -483,8 +483,8 @@ function Bubble({ message: m, mine, author, onRetry }: { message: Shown; mine: b
         {m.text}
       </div>
       {m.status === 'failed' ? (
-        <span className="text-sm text-danger mt-1 px-1">
-          Non envoyé —{' '}
+        <span className="text-sm text-danger mt-1 px-1 max-w-[80%] text-right">
+          Non envoyé{m.error ? ` : ${m.error}` : ''} —{' '}
           <button type="button" onClick={onRetry} className="font-medium underline underline-offset-2 py-1">
             Réessayer
           </button>

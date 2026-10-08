@@ -854,12 +854,23 @@ class VpDiveClient {
     return this.request('/messages_/notifications');
   }
 
-  /** Répond dans une conversation existante (mêmes champs que la messagerie de VPDive). */
-  async messageReply(conversation: string, text: string): Promise<void> {
+  /**
+   * Champs d'envoi, sous les deux noms qu'emploie VPDive : ceux de sa nouvelle
+   * messagerie (message, message_token…) et ceux du formulaire de l'ancienne
+   * (message_new_message_form[…]). Une seule requête : pas de double envoi.
+   */
+  private messageForm(fields: Record<string, string>): FormData {
     const form = new FormData();
-    form.append('message', text);
-    form.append('type_flux', 'discussion');
-    form.append('message_token', conversation);
+    for (const [k, v] of Object.entries(fields)) {
+      form.append(k, v);
+      form.append(`message_new_message_form[${k}]`, v);
+    }
+    return form;
+  }
+
+  /** Répond dans une conversation existante. */
+  async messageReply(conversation: string, text: string): Promise<void> {
+    const form = this.messageForm({ message: text, type_flux: 'discussion', message_token: conversation });
     const res = await this.request('/messages_/new_message', { method: 'POST', body: form });
     if (res.success === false) throw new VpDiveError(str(res.message) || 'Le message n’a pas été envoyé.', 0);
   }
@@ -869,9 +880,7 @@ class VpDiveClient {
    * conversation au premier message. Destinataires au format de sa messagerie.
    */
   async messageStart(userTokens: string[], text: string): Promise<void> {
-    const form = new FormData();
-    form.append('message', text);
-    form.append('message_token', JSON.stringify(userTokens.map((token) => ({ type: 'user', token }))));
+    const form = this.messageForm({ message: text, message_token: JSON.stringify(userTokens.map((token) => ({ type: 'user', token }))) });
     const res = await this.request('/messages_/new-message-members', { method: 'POST', body: form });
     if (res.success === false) throw new VpDiveError(str(res.message) || 'Le message n’a pas été envoyé.', 0);
   }
