@@ -276,6 +276,32 @@ export function computeStats(
   };
 }
 
+/** « 1er janvier », « 8 octobre » (avec l'année si demandé), depuis AAAA-MM-JJ. */
+export function dateFr(ymd: string, withYear = false): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const date = new Date(y!, m! - 1, d!);
+  const day = d === 1 ? `1er ${date.toLocaleDateString('fr-FR', { month: 'long' })}` : date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+  return withYear ? `${day} ${y}` : day;
+}
+
+/** « janv », « févr »… depuis une clé de mois AAAA-MM. */
+export function monthShort(key: string): string {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(y!, m! - 1, 1).toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '');
+}
+
+/** Chaque mois de la période, même sans sortie, dans l'ordre. */
+export function monthSeries(months: Stats['months'], from: string, to: string): Stats['months'] {
+  const byKey = new Map(months.map((m) => [m.key, m]));
+  const out: Stats['months'] = [];
+  const last = new Date(Number(to.slice(0, 4)), Number(to.slice(5, 7)) - 1, 1);
+  for (let d = new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, 1); d <= last; d.setMonth(d.getMonth() + 1)) {
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    out.push(byKey.get(key) ?? { key, outings: 0, places: 0 });
+  }
+  return out;
+}
+
 /** Période par défaut et préréglages : du 1er janvier à aujourd'hui, etc. (AAAA-MM-JJ). */
 export function presetRange(preset: 'year' | '12m' | 'last-year', today: Date): { from: string; to: string } {
   const p = (n: number) => String(n).padStart(2, '0');

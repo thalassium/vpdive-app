@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BarChart3, RefreshCw, X } from 'lucide-react';
+import { BarChart3, FileDown, Loader2, RefreshCw, X } from 'lucide-react';
 import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi } from '../../services/appApi';
-import { computeStats, isDiveActivity, presetRange, type StatEvent, type StatPerson, type StatStaff, type Stats } from '../../lib/stats';
+import { computeStats, dateFr, isDiveActivity, monthSeries, monthShort, presetRange, type StatEvent, type StatPerson, type StatStaff, type Stats } from '../../lib/stats';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
 import { useDialog } from '../../hooks/useDialog';
@@ -25,16 +25,6 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const nf = new Intl.NumberFormat('fr-FR');
 const n = (x: number) => nf.format(x);
 const plural = (x: number, one: string, many: string) => `${n(x)} ${x > 1 ? many : one}`;
-
-const dateFr = (ymd: string) => {
-  const [y, m, d] = ymd.split('-').map(Number);
-  const date = new Date(y!, m! - 1, d!);
-  return d === 1 ? `1er ${date.toLocaleDateString('fr-FR', { month: 'long' })}` : date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
-};
-const monthShort = (key: string) => {
-  const [y, m] = key.split('-').map(Number);
-  return new Date(y!, m! - 1, 1).toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '');
-};
 
 function toPerson(r: RosterEntry): StatPerson {
   return { id: r.id, name: r.name, ...(r.picture ? { picture: r.picture } : {}), age: r.age, levels: r.levels, training: r.training, roles: r.roles, waitingList: r.waitingList };
@@ -168,6 +158,21 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     return computeStats(statEvents, rosters, dpFromApp, staff);
   }, [events, rosters, dpFromApp, staff]);
 
+  const [pdfState, setPdfState] = useState<'idle' | 'busy' | 'error'>('idle');
+  /** Le générateur de PDF n'est chargé qu'au premier clic ; une lecture en cours donne des chiffres partiels, dits dans le PDF. */
+  const downloadPdf = async () => {
+    if (!stats) return;
+    setPdfState('busy');
+    try {
+      const { downloadStatsPdf } = await import('../../lib/statsPdf');
+      const partial = stopped || progress ? (progress ? `Chiffres partiels : ${n(progress.done)} listes d’inscrits lues sur ${n(progress.total)}.` : 'Chiffres partiels.') : null;
+      downloadStatsPdf(stats, { from: range.from, to: range.to, partial });
+      setPdfState('idle');
+    } catch {
+      setPdfState('error');
+    }
+  };
+
   const presets: { id: Preset; label: string }[] = [
     { id: 'year', label: 'Depuis janvier' },
     { id: '12m', label: '12 derniers mois' },
@@ -189,6 +194,16 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
           <h2 id="stats-title" className="text-xl font-semibold text-brand flex-1">
             Statistiques
           </h2>
+          {pdfState === 'error' && <span className="hidden sm:inline text-sm text-danger">PDF indisponible, réessayez</span>}
+          <button
+            type="button"
+            onClick={() => void downloadPdf()}
+            disabled={!stats || stats.outings === 0 || pdfState === 'busy'}
+            title={pdfState === 'error' ? 'PDF indisponible, réessayez' : 'Télécharger les statistiques en PDF'}
+            className="btn btn-quiet h-9 text-sm"
+          >
+            {pdfState === 'busy' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} PDF
+          </button>
           <ThemeToggle />
           <button onClick={onClose} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
@@ -411,14 +426,7 @@ function LevelsSection({ stats }: { stats: Stats }) {
 
 /** Sorties de plongée par mois ; le mois le plus chargé en rose. */
 function SeasonSection({ stats, from, to }: { stats: Stats; from: string; to: string }) {
-  // Chaque mois de la période, même sans sortie.
-  const byKey = new Map(stats.months.map((m) => [m.key, m]));
-  const months: Stats['months'] = [];
-  const last = new Date(Number(to.slice(0, 4)), Number(to.slice(5, 7)) - 1, 1);
-  for (let d = new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, 1); d <= last; d.setMonth(d.getMonth() + 1)) {
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    months.push(byKey.get(key) ?? { key, outings: 0, places: 0 });
-  }
+  const months = monthSeries(stats.months, from, to);
   const max = Math.max(1, ...months.map((m) => m.outings));
   const tops = months.filter((m) => m.outings === max);
   const peak = tops.length === 1 ? tops[0] : null;

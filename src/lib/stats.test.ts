@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { aptitudesFromLabels } from './palanquees';
-import { computeStats, diverLevel, isDiveActivity, presetRange, staffLevel, type StatEvent, type StatPerson } from './stats';
+import { computeStats, dateFr, diverLevel, isDiveActivity, monthSeries, presetRange, staffLevel, type StatEvent, type StatPerson } from './stats';
 
 const ev = (token: string, start: string, activity = 'Sortie', registered = 0, max: number | null = null): StatEvent => ({ token, start, activity, registered, max });
 const p = (id: string, levels: string[], extra: Partial<StatPerson> = {}): StatPerson => ({ id, name: `Nom ${id}`, age: 30, levels, training: [], roles: [], waitingList: false, ...extra });
@@ -111,4 +111,11 @@ test('équipe non inscrite : un pilote désigné dans VPDive compte comme DP s�
   assert.equal(s.divers, 2, 'le pilote non inscrit ne compte pas comme plongeur');
   assert.equal(s.places, 2);
   assert.deepEqual(s.instructors.map((d) => d.id), ['lucas']);
+});
+
+test('monthSeries : chaque mois de la période, même sans sortie, et dates en français', () => {
+  const s = monthSeries([{ key: '2026-03', outings: 4, places: 30 }], '2026-01-15', '2026-04-02');
+  assert.deepEqual(s.map((m) => [m.key, m.outings]), [['2026-01', 0], ['2026-02', 0], ['2026-03', 4], ['2026-04', 0]]);
+  assert.equal(dateFr('2026-01-01'), '1er janvier');
+  assert.equal(dateFr('2026-10-08', true), '8 octobre 2026');
 });

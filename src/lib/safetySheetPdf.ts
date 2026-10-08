@@ -3,6 +3,7 @@ import { autoTable, type CellInput, type RowInput } from 'jspdf-autotable';
 import { kindLabel, prerogativeLabel } from './palanquees';
 import { diversInWater, emptySheet, type Dive, type OutingDoc } from './outing';
 import { HEADER_FIELDS, firstNameOf, headerText, lastNameOf, sheetApt, sheetRows } from './safetySheet';
+import { pdfText } from './pdfText';
 
 /**
  * Fiche de sécurité d'une plongée en PDF (A4 paysage, trois palanquées par
@@ -17,10 +18,6 @@ const NAVY: [number, number, number] = [8, 36, 92];
 const GREY: [number, number, number] = [110, 116, 128];
 const LINE: [number, number, number] = [190, 196, 206];
 const TINT: [number, number, number] = [236, 240, 247];
-
-/** Les polices standard du PDF ne couvrent que le latin-1 : on remplace la typographie qui en sort. */
-const pdfText = (s: string) =>
-  s.replace(/[’‘]/g, "'").replace(/[“”]/g, '"').replace(/…/g, '...').replace(/ᵉ/g, 'e').replace(/[  ]/g, ' ').replace(/[–—]/g, '-');
 
 type Doc = jsPDF & { lastAutoTable?: { finalY: number } };
 
