@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { documentsOf, myRegistration, type MaterialOption } from './vpdiveApi';
+import { documentsOf, infoOf, myRegistration, type MaterialOption } from './vpdiveApi';
 
 const roles = [
   { key: 'diver', label: 'Plongeur (dès 32€)' },
@@ -66,4 +66,23 @@ test('documents de la fiche membre : certificat, licences, documents par type et
     ],
   );
   assert.ok(docs.every((d) => d.url.startsWith('https://septentrion-env.vpdive.com/uploads/documents/')));
+});
+
+test('mes infos : contact, naissance, adhésion et licences lus sur la fiche membre', () => {
+  const info = infoOf({
+    civility: 'mr', first_name: 'Jean', last_name: 'Dupont', name_of_birth: 'Dupont', email: 'jean@example.org', phone: '0601020304',
+    address: '1 quai du Port', zip_code: '13008', city: 'Marseille', country: 'FR',
+    birthday: '1985-04-12T00:00:00+02:00', city_of_birth: 'Lyon', zip_code_of_birth: '69001', country_of_birth: 'FR',
+    insurance: 'Loisir 1', insurance_year: 2026, honorability_authorized_at: '2025-09-01T00:00:00+02:00',
+    user_club_traceability: { dateConfirmation: '2024-09-10T10:00:00+02:00', yearsConfirmation: ['2025', '2026'], phone_show: true, birthday_show: false },
+    licenses: [{ number: 'A-19-1', organization: { name: 'FFESSM' }, expiration_date: null, is_expired: false, status: 'validated' }],
+  });
+  assert.equal(info.civility, 'M.');
+  assert.equal(info.country, 'France');
+  assert.equal(info.birthday, '1985-04-12');
+  assert.equal(info.birthPlace, 'Lyon (69001), France');
+  assert.equal(info.memberSince, '2024-09-10');
+  assert.deepEqual(info.seasons, ['2026', '2025']);
+  assert.deepEqual(info.licences, [{ number: 'A-19-1', organization: 'FFESSM', expires: '', expired: false, validated: true }]);
+  assert.deepEqual(info.shows, { phone: true, birthday: false });
 });

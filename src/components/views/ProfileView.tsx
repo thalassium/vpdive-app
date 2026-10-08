@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Award, CalendarDays, ChevronDown, ExternalLink, FileText, FolderOpen, ImageIcon, LogOut } from 'lucide-react';
-import { vpdive, ymd, type CalendarEvent, type MemberDocument, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { Award, CalendarDays, ChevronDown, ExternalLink, FileText, FolderOpen, IdCard, ImageIcon, LogOut } from 'lucide-react';
+import { vpdive, ymd, type CalendarEvent, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import type { Me } from '../../services/appApi';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
 import { EventRow } from '../StandardCalendar';
 
-const VPDIVE_URL = 'https://septentrion-env.vpdive.com/';
+/** Ma page profil sur VPDive : informations, documents, niveaux. */
+const VPDIVE_URL = 'https://septentrion-env.vpdive.com/app/profile';
 
 /** Niveaux, prérogatives et certificat médical, quelle que soit leur source. */
 interface Quals {
@@ -69,6 +70,8 @@ export function ProfileView({
   const [qualsError, setQualsError] = useState<string | null>(null);
   /** undefined : en cours ; null : fiche VPDive inaccessible. */
   const [documents, setDocuments] = useState<MemberDocument[] | null | undefined>(undefined);
+  /** undefined : en cours ; null : fiche VPDive inaccessible. */
+  const [info, setInfo] = useState<MemberInfo | null | undefined>(undefined);
   const request = useRef(0);
 
   const meUct = me?.uct ?? null;
@@ -82,6 +85,7 @@ export function ProfileView({
     setQuals(undefined);
     setQualsError(null);
     setDocuments(undefined);
+    setInfo(undefined);
 
     // 1. Mes inscriptions à venir.
     let mine: CalendarEvent[] = [];
@@ -108,9 +112,11 @@ export function ProfileView({
         if (stale()) return;
         found = fromProfile(file.profile);
         setDocuments(file.documents);
+        setInfo(file.info);
       } catch (e) {
         if (stale() || onSessionLost(e)) return;
         setDocuments(null);
+        setInfo(null);
         try {
           found = fromProfile(await vpdive.memberProfile(meUct));
         } catch (e2) {
@@ -120,6 +126,7 @@ export function ProfileView({
       }
     } else {
       setDocuments(null);
+      setInfo(null);
     }
     const first = mine[0];
     if (!hasAny(found) && first && userId !== null) {
@@ -212,6 +219,25 @@ export function ProfileView({
               ))}
             </div>
           )}
+        </Box>
+
+        {/* Mes infos : ce que VPDive sait de moi ; se modifie sur VPDive */}
+        <Box icon={<IdCard className="w-5 h-5" />} title="Mes infos">
+          {info === undefined ? (
+            <Skeleton rows={2} />
+          ) : info === null ? (
+            <div className="p-4">
+              <p className="text-muted">Vos informations ne sont pas accessibles depuis l’appli.</p>
+            </div>
+          ) : (
+            <InfoList info={info} />
+          )}
+          <div className="px-4 pb-4">
+            <a href={VPDIVE_URL} target="_blank" rel="noreferrer" className="btn btn-quiet">
+              <ExternalLink className="w-4 h-4" />
+              Modifier sur VPDive
+            </a>
+          </div>
         </Box>
 
         <Box icon={<Award className="w-5 h-5" />} title="Mes niveaux">
@@ -311,6 +337,87 @@ export function ProfileView({
           Ouvrir mon profil sur VPDive
         </a>
       </section>
+    </div>
+  );
+}
+
+/** « 1985-04-12 » → « 12/04/1985 ». */
+const jjmmaaaa = (iso: string) => (iso ? iso.split('-').reverse().join('/') : '');
+
+/**
+ * Mes infos, groupées comme sur une fiche d'adhésion : contact, identité,
+ * adhésion, licences. Une ligne vide n'est pas affichée ; le contact d'urgence
+ * n'existe pas dans VPDive, on le dit plutôt que de laisser croire à un oubli.
+ */
+function InfoList({ info }: { info: MemberInfo }) {
+  const adresse = [info.address, [info.zipCode, info.city].filter(Boolean).join(' '), info.country].filter(Boolean).join(', ');
+  const naissance = [info.birthday && `le ${jjmmaaaa(info.birthday)}`, info.birthPlace && `à ${info.birthPlace}`].filter(Boolean).join(' ');
+  const groupes: { titre: string; lignes: [string, ReactNode][] }[] = [
+    {
+      titre: 'Contact',
+      lignes: [
+        ['Téléphone', info.phone && <a href={`tel:${info.phone.replace(/\s/g, '')}`} className="text-brand underline underline-offset-2">{info.phone}</a>],
+        ['E-mail', info.email],
+        ['Adresse', adresse],
+        ['Contact d’urgence', <span className="text-muted">non géré par VPDive</span>],
+      ],
+    },
+    {
+      titre: 'Identité',
+      lignes: [
+        ['Nom', [info.civility, info.firstName, info.lastName].filter(Boolean).join(' ')],
+        ['Nom de naissance', info.birthName !== info.lastName ? info.birthName : ''],
+        ['Naissance', naissance],
+      ],
+    },
+    {
+      titre: 'Adhésion',
+      lignes: [
+        ['Membre depuis', jjmmaaaa(info.memberSince)],
+        ['Saisons', info.seasons.join(', ')],
+        ['Assurance', [info.insurance, info.insuranceYear && `(${info.insuranceYear})`].filter(Boolean).join(' ')],
+        ['Honorabilité', info.honorabilityAt && `contrôle validé le ${jjmmaaaa(info.honorabilityAt)}`],
+        ['Visible des membres', [info.shows.phone && 'téléphone', info.shows.birthday && 'date de naissance'].filter(Boolean).join(', ') || 'ni téléphone ni date de naissance'],
+      ],
+    },
+    {
+      titre: 'Licences',
+      lignes: info.licences.map((l): [string, ReactNode] => [
+        l.organization || 'Licence',
+        <span>
+          <span className="tabular-nums">{l.number}</span>
+          {l.expired ? (
+            <span className="text-danger"> · expirée</span>
+          ) : l.expires ? (
+            <span className="text-muted"> · jusqu’au {jjmmaaaa(l.expires)}</span>
+          ) : l.validated ? (
+            <span className="text-ok"> · validée</span>
+          ) : (
+            <span className="text-muted"> · en attente</span>
+          )}
+        </span>,
+      ]),
+    },
+  ];
+  return (
+    <div className="p-4 space-y-4">
+      {groupes.map((g) => {
+        const lignes = g.lignes.filter(([, v]) => !!v);
+        if (!lignes.length) return null;
+        return (
+          <div key={g.titre}>
+            <h3 className="label mb-1">{g.titre}</h3>
+            <dl className="divide-y divide-line">
+              {lignes.map(([k, v]) => (
+                <div key={k} className="grid grid-cols-[8.5rem_1fr] sm:grid-cols-[11rem_1fr] gap-3 py-2">
+                  <dt className="text-sm text-muted">{k}</dt>
+                  <dd className="text-ink break-words min-w-0">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -108,6 +108,36 @@ const VPDIVE_ORIGIN = 'https://septentrion-env.vpdive.com';
 const pictureUrl = (path: string) =>
   !path || path.startsWith('/files/images/') ? '' : path.startsWith('http') ? path : `${VPDIVE_ORIGIN}${path.startsWith('/') ? '' : '/'}${path}`;
 
+/** Mes informations, telles que la fiche « Mon profil » de VPDive les donne. Chaînes vides si non renseignées. */
+export interface MemberInfo {
+  /** « M. », « Mme » */
+  civility: string;
+  firstName: string;
+  lastName: string;
+  birthName: string;
+  alias: string;
+  email: string;
+  phone: string;
+  address: string;
+  zipCode: string;
+  city: string;
+  country: string;
+  /** AAAA-MM-JJ */
+  birthday: string;
+  birthPlace: string;
+  insurance: string;
+  insuranceYear: number | null;
+  /** Contrôle d'honorabilité validé le (AAAA-MM-JJ) */
+  honorabilityAt: string;
+  /** Adhésion au club confirmée le (AAAA-MM-JJ) */
+  memberSince: string;
+  /** Saisons d'adhésion (« 2026 », « 2025 »…), la plus récente d'abord. */
+  seasons: string[];
+  licences: { number: string; organization: string; expires: string; expired: boolean; validated: boolean }[];
+  /** Ce que VPDive montre aux autres membres. */
+  shows: { phone: boolean; birthday: boolean };
+}
+
 /** Un document déposé par le membre sur VPDive (certificat, licence, adhésion, qualification…). */
 export interface MemberDocument {
   /** Ce que c'est : « Certificat médical », « Licence », le type de document du club… */
@@ -346,6 +376,54 @@ function profileOf(u: Json): MemberProfile {
     phone: str(u.phone),
     birthday: str(u.birthday),
     medicalUntil: str(u.medical_examination).slice(0, 10),
+  };
+}
+
+/** Code pays ISO (« FR ») → nom en français ; tel quel si inconnu. */
+const countryName = (code: string): string => {
+  if (!/^[A-Z]{2}$/.test(code)) return code;
+  try {
+    return new Intl.DisplayNames(['fr'], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+};
+
+/** Fiche membre VPDive → mes informations personnelles et d'adhésion. */
+export function infoOf(u: Json): MemberInfo {
+  const day = (v: unknown) => str(v).slice(0, 10);
+  const uct = obj(u.user_club_traceability) ?? {};
+  const civ = str(u.civility).toLowerCase();
+  const birthCity = str(u.city_of_birth).trim();
+  const birthZip = str(u.zip_code_of_birth).trim();
+  const birthCountry = countryName(str(u.country_of_birth).trim());
+  return {
+    civility: civ === 'mr' || civ === 'm' ? 'M.' : civ === 'mme' || civ === 'mrs' || civ === 'ms' ? 'Mme' : '',
+    firstName: str(u.first_name).trim(),
+    lastName: str(u.last_name).trim(),
+    birthName: str(u.name_of_birth).trim(),
+    alias: str(u.alias).trim(),
+    email: str(u.email).trim(),
+    phone: str(u.phone).trim(),
+    address: str(u.address).trim(),
+    zipCode: str(u.zip_code).trim(),
+    city: str(u.city).trim(),
+    country: countryName(str(u.country).trim()),
+    birthday: day(u.birthday),
+    birthPlace: [birthCity && (birthZip ? `${birthCity} (${birthZip})` : birthCity), birthCountry].filter(Boolean).join(', '),
+    insurance: str(u.insurance).trim(),
+    insuranceYear: num(u.insurance_year),
+    honorabilityAt: day(u.honorability_authorized_at),
+    memberSince: day(uct.dateConfirmation) || day(uct.createdAt),
+    seasons: (Array.isArray(uct.yearsConfirmation) ? uct.yearsConfirmation.map(String) : []).sort().reverse(),
+    licences: (Array.isArray(u.licenses) ? u.licenses : []).map(obj).filter((l): l is Json => !!l && !!str(l.number)).map((l) => ({
+      number: str(l.number).trim(),
+      organization: str(obj(l.organization)?.name).trim(),
+      expires: day(l.expiration_date),
+      expired: l.is_expired === true,
+      validated: str(l.status) === 'validated',
+    })),
+    shows: { phone: uct.phone_show === true || uct.cellphone_show === true, birthday: uct.birthday_show === true },
   };
 }
 
@@ -726,10 +804,10 @@ class VpDiveClient {
    * Ma fiche, telle que la page « Mon profil » de VPDive la lit (/user/member/<mon
    * jeton d'adhésion>) : niveaux, et les documents que j'ai déposés.
    */
-  async myFile(uct: string): Promise<{ profile: MemberProfile; documents: MemberDocument[] }> {
+  async myFile(uct: string): Promise<{ profile: MemberProfile; documents: MemberDocument[]; info: MemberInfo }> {
     const res = await this.request(`/user/member/${encodeURIComponent(uct)}`);
     const u = obj(res.data) ?? res;
-    return { profile: profileOf(u), documents: documentsOf(u) };
+    return { profile: profileOf(u), documents: documentsOf(u), info: infoOf(u) };
   }
 
   /** Same headers as VPDive calls, for the app's own API (/api/app), which checks them with VPDive. */
