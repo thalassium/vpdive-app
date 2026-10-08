@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, Pencil, Users } from 'lucide-react';
-import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption } from '../services/vpdiveApi';
+import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption, type RoleOption } from '../services/vpdiveApi';
 import { ThemeToggle } from './ThemeToggle';
 import { BuddyField } from './BuddyField';
+import { useDialog } from '../hooks/useDialog';
 import { BOTTLES, DEFAULT_BOTTLE, SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Bottle, type Size, type SizedKind } from '../lib/gear';
+import { asksFor, canSupervise, classifyRoles, cleanRoleLabel, entryFromRole, roleKeyFor, volunteerTotal, type Entry, type InstructorMode } from '../lib/registration';
 
 const VPDIVE_EVENT_URL = (token: string) => `https://septentrion-env.vpdive.com/app/activities/${token}`;
 
@@ -24,7 +26,16 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const [detail, setDetail] = useState<EventDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [roleKey, setRoleKey] = useState<string | null>(null);
+  /** Étape « Je viens comme… » : plongeur, encadrant (et s'il encadre ou plonge pour lui), bénévole (et son poste). */
+  const [entry, setEntry] = useState<Entry | null>(null);
+  const [mode, setMode] = useState<InstructorMode | null>(null);
+  const [post, setPost] = useState<string | null>(null);
+  /** Modification : rôle gardé tel quel (DP attribué par le club, ou rôle que la sortie ne propose plus). */
+  const [fixedRole, setFixedRole] = useState<RoleOption | null>(null);
+  /** Modification d'une inscription déjà encadrant : la carte reste ouverte quel que soit le niveau lu. */
+  const [keepInstructor, setKeepInstructor] = useState(false);
+  /** Mes niveaux (P4, E3…) : undefined = en cours de lecture, null = non lus sur VPDive. */
+  const [labels, setLabels] = useState<string[] | null | undefined>(undefined);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [pricesLoading, setPricesLoading] = useState(false);
   const [tariffToken, setTariffToken] = useState<string | null>(null);
@@ -45,6 +56,12 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const priceRequest = useRef(0);
   const loadRequest = useRef(0);
+  /** Levels are read once per opening of the modal, not again after a booking reloads the outing. */
+  const labelsAsked = useRef(false);
+  /** Role key whose prices are shown; the detail's own prices are those of the default role. */
+  const quotedKey = useRef<string | null>(null);
+
+  const cls = useMemo(() => classifyRoles(detail?.roles ?? []), [detail]);
 
   const load = useCallback(async () => {
     // Only the latest load may touch the form. Otherwise an earlier answer shows
@@ -59,8 +76,20 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       setDetail(d);
       setPrices(Object.fromEntries(d.tariffs.map((t) => [t.token, t.price])));
       setTariffToken(d.tariffs[0]?.token ?? null);
+      const roles = classifyRoles(d.roles);
       // Same default as VPDive: plain "diver" when offered, otherwise no role pre-chosen.
-      setRoleKey(d.roles.some((r) => r.key === 'diver') ? 'diver' : null);
+      setEntry(roles.diver ? 'diver' : null);
+      setMode(null);
+      setPost(null);
+      setFixedRole(null);
+      setKeepInstructor(false);
+      quotedKey.current = roles.diver?.key ?? null;
+      if (roles.instructor && !labelsAsked.current) {
+        labelsAsked.current = true;
+        vpdive.myAptitudeLabels().then(setLabels, (e) => {
+          if (!onSessionLost(e)) setLabels(null);
+        });
+      }
       setGear({});
       setChoiceOf({});
       setKindSize({});
@@ -77,36 +106,8 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
     load();
   }, [load]);
 
-  // Escape closes; the page behind does not scroll while the dialog is open.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !busy && onClose();
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [busy, onClose]);
-
-  // Prices depend on the role (a dive director or instructor often dives for free).
-  const chooseRole = async (key: string) => {
-    setRoleKey(key);
-    if (!detail) return;
-    const id = ++priceRequest.current;
-    setPricesLoading(true);
-    try {
-      const p = await vpdive.fetchPricesForRole(detail.token, key);
-      if (id === priceRequest.current) setPrices(p);
-    } catch (e) {
-      if (onSessionLost(e)) return;
-      if (id === priceRequest.current) {
-        setStatus({ kind: 'error', text: `Tarifs non mis à jour pour ce rôle : ${e instanceof Error ? e.message : e}` });
-      }
-    } finally {
-      if (id === priceRequest.current) setPricesLoading(false);
-    }
-  };
+  // Échap, bouton Retour, focus et verrou de défilement : hooks/useDialog. Pas de fermeture pendant un envoi.
+  const { ref: dialogRef } = useDialog({ onClose, canClose: () => !busy, label: 'inscription' });
 
   /** Opens the form on the member's current registration, as VPDive recorded it. */
   const startEdit = () => {
@@ -123,9 +124,26 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
     setBuddy(parsed.buddy);
     setStatus({ kind: 'idle' });
     setEditing(true);
-    if (r.roleKey) void chooseRole(r.roleKey);
-    else setRoleKey(null);
+    // The role as VPDive recorded it; a DP (or a role the outing no longer offers) is kept as is.
+    const pre = entryFromRole(r.roleKey, cls);
+    const chosen = pre && 'entry' in pre ? pre : null;
+    setFixedRole(pre && 'fixed' in pre ? pre.fixed : null);
+    setEntry(chosen?.entry ?? null);
+    setMode(chosen?.mode ?? null);
+    setPost(chosen?.post ?? null);
+    setKeepInstructor(chosen?.entry === 'instructor');
   };
+
+  const pick = (e: Entry) => {
+    if (e === entry) return;
+    setEntry(e);
+    setMode(null);
+    // A single surface post needs no further choice.
+    setPost(e === 'volunteer' && cls.volunteers.length === 1 ? (cls.volunteers[0]?.key ?? null) : null);
+  };
+
+  const instructorOk = keepInstructor || (!!labels && canSupervise(labels));
+  const instructorHint = instructorOk ? null : labels === undefined ? '…' : labels === null ? 'Niveau non lu sur VPDive' : 'Réservé aux N4 et E1 à E4';
 
   /**
    * A checked item is rented once per place booked: one stab for a solo booking,
@@ -135,7 +153,9 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
     (m: MaterialOption) => Math.min(m.maxQuantity, detail?.multipleBooking ? people : 1),
     [detail, people],
   );
-  const checkedGear = useMemo(() => (detail?.materials ?? []).filter((m) => gear[m.id]), [detail, gear]);
+  /** What the form asks for: everything of a diver, no buddy of who supervises, nothing of a volunteer. */
+  const asks = asksFor(entry, mode);
+  const checkedGear = useMemo(() => (asks.gear ? (detail?.materials ?? []).filter((m) => gear[m.id]) : []), [asks.gear, detail, gear]);
 
   /**
    * Sizes to ask for. Items with club-defined variants in VPDive: one choice per
@@ -167,9 +187,40 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
     return { materials, choices, commentSizes, gearTotal };
   }, [checkedGear, choiceOf, kindSize, neededKinds, quantityFor]);
 
-  const tariffPrice = tariffToken != null ? (prices[tariffToken] ?? 0) : 0;
+  const tariffPrice = asks.tariff && tariffToken != null ? (prices[tariffToken] ?? 0) : 0;
   const total = tariffPrice * people + booking.gearTotal;
-  const roleRequired = (detail?.roles.length ?? 0) > 0 && !roleKey;
+  const volunteerPost = entry === 'volunteer' && post ? cls.volunteers.find((v) => v.key === post) : null;
+  const volunteer = volunteerPost ? volunteerTotal(volunteerPost.label) : null;
+  const hasRoles = (detail?.roles.length ?? 0) > 0;
+  /** Entry chosen and its sub-choice complete, unless the role is kept as VPDive recorded it. */
+  const roleRequired = hasRoles && !fixedRole && (!entry || (entry === 'instructor' && !mode) || (entry === 'volunteer' && !post));
+  const roleKeyToSend = fixedRole ? fixedRole.key : hasRoles ? roleKeyFor(entry, mode, post, cls) : null;
+  const showForm = !!detail && !detail.requiresExtraForm && (editing ? detail.canModify : !detail.alreadyRegistered && detail.canRegister);
+
+  // Prices depend on the role (an instructor often dives for free): quoted again whenever the role to send changes.
+  useEffect(() => {
+    if (!detail || !showForm || roleRequired || roleKeyToSend === quotedKey.current) return;
+    quotedKey.current = roleKeyToSend;
+    const id = ++priceRequest.current;
+    setPricesLoading(true);
+    vpdive
+      .fetchPricesForRole(detail.token, roleKeyToSend)
+      .then(
+        (p) => {
+          if (id === priceRequest.current) setPrices(p);
+        },
+        (e) => {
+          if (onSessionLost(e)) return;
+          quotedKey.current = null;
+          if (id === priceRequest.current) {
+            setStatus({ kind: 'error', text: `Tarifs non mis à jour pour ce rôle : ${e instanceof Error ? e.message : e}` });
+          }
+        },
+      )
+      .finally(() => {
+        if (id === priceRequest.current) setPricesLoading(false);
+      });
+  }, [detail, showForm, roleRequired, roleKeyToSend, onSessionLost]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -181,10 +232,11 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       const res = await vpdive.register(
         {
           eventToken: detail.token,
-          roleKey,
-          tariffToken,
-          people,
-          comment: composeComment(comment, booking.commentSizes, buddy, bottle),
+          roleKey: roleKeyToSend,
+          // A volunteer: no tariff, one place, no gear (booking is already empty), no buddy.
+          tariffToken: asks.tariff ? tariffToken : null,
+          people: asks.tariff ? people : 1,
+          comment: composeComment(comment, booking.commentSizes, asks.buddy ? buddy : null, asks.gear ? bottle : DEFAULT_BOTTLE),
           materials: booking.materials,
           choices: booking.choices,
         },
@@ -223,7 +275,6 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const start = detail?.start || event.start;
   const end = detail?.end || event.end;
   const location = detail?.location || event.location;
-  const showForm = !!detail && !detail.requiresExtraForm && (editing ? detail.canModify : !detail.alreadyRegistered && detail.canRegister);
   let step = 0;
 
   return (
@@ -232,6 +283,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="booking-title"
@@ -324,22 +376,53 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                       </div>
                     )}
 
-                    {/* Role */}
-                    {detail.roles.length > 0 && (
+                    {/* Entry: diver, instructor (N4/E1…E4 only), volunteer on a surface post. The DP is never offered. */}
+                    {hasRoles && !fixedRole && (
+                      <section>
+                        <SectionTitle n={++step}>Je viens comme…</SectionTitle>
+                        <div role="radiogroup" aria-label="Je viens comme" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <ChoiceCard role="radio" selected={entry === 'diver'} onClick={() => pick('diver')}>
+                            <span className="text-base font-medium">Plongeur</span>
+                          </ChoiceCard>
+                          {cls.instructor && (
+                            <ChoiceCard role="radio" selected={entry === 'instructor'} disabled={!instructorOk} onClick={() => pick('instructor')}>
+                              <span className="text-base font-medium">Encadrant</span>
+                              {instructorHint && <span className="block text-sm text-muted mt-0.5">{instructorHint}</span>}
+                            </ChoiceCard>
+                          )}
+                          {cls.volunteers.length > 0 && (
+                            <ChoiceCard role="radio" selected={entry === 'volunteer'} onClick={() => pick('volunteer')}>
+                              <span className="text-base font-medium">Bénévole</span>
+                            </ChoiceCard>
+                          )}
+                        </div>
+                        {entry === 'instructor' && (
+                          <Chips
+                            label="Encadrant"
+                            options={[
+                              { value: 'supervise', label: 'J’encadre' },
+                              { value: 'dive', label: 'Je plonge pour moi' },
+                            ]}
+                            value={mode}
+                            onChange={(v) => setMode(v as InstructorMode)}
+                          />
+                        )}
+                        {entry === 'volunteer' && (
+                          <Chips label="Poste" options={cls.volunteers.map((v) => ({ value: v.key, label: cleanRoleLabel(v.label) }))} value={post} onChange={setPost} />
+                        )}
+                      </section>
+                    )}
+                    {fixedRole && (
                       <section>
                         <SectionTitle n={++step}>Votre rôle</SectionTitle>
-                        <div role="radiogroup" aria-label="Votre rôle" className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {detail.roles.map((r) => (
-                            <ChoiceCard key={r.key} role="radio" selected={roleKey === r.key} onClick={() => chooseRole(r.key)}>
-                              <span className="text-base font-medium">{r.label}</span>
-                            </ChoiceCard>
-                          ))}
-                        </div>
+                        <p className="text-base text-ink">
+                          {cleanRoleLabel(fixedRole.label) || 'Rôle'} <span className="text-muted">(attribué par le club)</span>
+                        </p>
                       </section>
                     )}
 
                     {/* Tariff */}
-                    {detail.tariffs.length > 0 && (
+                    {asks.tariff && detail.tariffs.length > 0 && (
                       <section>
                         <SectionTitle n={++step} hint={pricesLoading ? 'Mise à jour des tarifs…' : undefined}>
                           Formule
@@ -374,75 +457,77 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                       </section>
                     )}
 
-                    {/* Rental gear: tap to check. The bottle is asked of everyone, rental or not. */}
-                    <section>
-                      <SectionTitle
-                        n={++step}
-                        hint={
-                          detail.materials.length === 0
-                            ? undefined
-                            : detail.multipleBooking && people > 1
-                              ? `Quantité alignée sur ${people} places`
-                              : 'Touchez pour ajouter'
-                        }
-                      >
-                        {detail.materials.length > 0 ? 'Location de matériel' : 'Matériel'}
-                      </SectionTitle>
-                      {detail.materials.length > 0 && (
-                        <div role="group" aria-label="Location de matériel" className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          {detail.materials.map((m) => {
-                            const checked = !!gear[m.id];
-                            const qty = quantityFor(m);
-                            return (
-                              <ChoiceCard
-                                key={m.id}
-                                selected={checked}
-                                onClick={() => setGear((prev) => ({ ...prev, [m.id]: !prev[m.id] }))}
-                                label={`${m.name}, ${m.price > 0 ? formatEuro(m.price) : 'inclus'}`}
-                              >
-                                <span className="block text-base font-medium leading-snug break-words hyphens-auto">{m.name}</span>
-                                <span className={`block text-sm tabular-nums mt-1 ${checked ? 'text-brand font-semibold' : 'text-muted'}`}>
-                                  {m.price > 0 ? `+${formatEuro(m.price)}` : 'Inclus'}
-                                  {checked && qty > 1 ? ` × ${qty}` : ''}
-                                  {checked && choiceOf[m.id] ? ` · ${m.choices.find((c) => c.id === choiceOf[m.id])?.name ?? ''}` : ''}
-                                </span>
-                              </ChoiceCard>
-                            );
-                          })}
-                        </div>
-                      )}
+                    {/* Rental gear: tap to check. The bottle is asked of every diver, rental or not. */}
+                    {asks.gear && (
+                      <section>
+                        <SectionTitle
+                          n={++step}
+                          hint={
+                            detail.materials.length === 0
+                              ? undefined
+                              : detail.multipleBooking && people > 1
+                                ? `Quantité alignée sur ${people} places`
+                                : 'Touchez pour ajouter'
+                          }
+                        >
+                          {detail.materials.length > 0 ? 'Location de matériel' : 'Matériel'}
+                        </SectionTitle>
+                        {detail.materials.length > 0 && (
+                          <div role="group" aria-label="Location de matériel" className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {detail.materials.map((m) => {
+                              const checked = !!gear[m.id];
+                              const qty = quantityFor(m);
+                              return (
+                                <ChoiceCard
+                                  key={m.id}
+                                  selected={checked}
+                                  onClick={() => setGear((prev) => ({ ...prev, [m.id]: !prev[m.id] }))}
+                                  label={`${m.name}, ${m.price > 0 ? formatEuro(m.price) : 'inclus'}`}
+                                >
+                                  <span className="block text-base font-medium leading-snug break-words hyphens-auto">{m.name}</span>
+                                  <span className={`block text-sm tabular-nums mt-1 ${checked ? 'text-brand font-semibold' : 'text-muted'}`}>
+                                    {m.price > 0 ? `+${formatEuro(m.price)}` : 'Inclus'}
+                                    {checked && qty > 1 ? ` × ${qty}` : ''}
+                                    {checked && choiceOf[m.id] ? ` · ${m.choices.find((c) => c.id === choiceOf[m.id])?.name ?? ''}` : ''}
+                                  </span>
+                                </ChoiceCard>
+                              );
+                            })}
+                          </div>
+                        )}
 
-                      {choiceGear.map((m) => (
+                        {choiceGear.map((m) => (
+                          <SizePicker
+                            key={m.id}
+                            label={sizedKinds(m.name).length ? `${m.name} : votre taille` : `${m.name} : votre choix`}
+                            options={m.choices.map((c) => ({ value: c.id, label: c.name }))}
+                            value={choiceOf[m.id] ?? null}
+                            onChange={(v) => setChoiceOf((prev) => ({ ...prev, [m.id]: v }))}
+                          />
+                        ))}
+                        {neededKinds.map((k) => (
+                          <SizePicker
+                            key={k}
+                            label={`Taille ${SIZED_LABEL[k].toLowerCase()}`}
+                            options={SIZES.map((s) => ({ value: s, label: s }))}
+                            value={kindSize[k] ?? null}
+                            onChange={(v) => setKindSize((prev) => ({ ...prev, [k]: v as Size }))}
+                          />
+                        ))}
                         <SizePicker
-                          key={m.id}
-                          label={sizedKinds(m.name).length ? `${m.name} : votre taille` : `${m.name} : votre choix`}
-                          options={m.choices.map((c) => ({ value: c.id, label: c.name }))}
-                          value={choiceOf[m.id] ?? null}
-                          onChange={(v) => setChoiceOf((prev) => ({ ...prev, [m.id]: v }))}
+                          label="Bouteille"
+                          hint="12 L pour tous par défaut"
+                          options={BOTTLES.map((b) => ({ value: b, label: b }))}
+                          value={bottle}
+                          onChange={(v) => setBottle(v as Bottle)}
+                          className={detail.materials.length > 0 ? 'mt-4' : ''}
                         />
-                      ))}
-                      {neededKinds.map((k) => (
-                        <SizePicker
-                          key={k}
-                          label={`Taille ${SIZED_LABEL[k].toLowerCase()}`}
-                          options={SIZES.map((s) => ({ value: s, label: s }))}
-                          value={kindSize[k] ?? null}
-                          onChange={(v) => setKindSize((prev) => ({ ...prev, [k]: v as Size }))}
-                        />
-                      ))}
-                      <SizePicker
-                        label="Bouteille"
-                        hint="12 L pour tous par défaut"
-                        options={BOTTLES.map((b) => ({ value: b, label: b }))}
-                        value={bottle}
-                        onChange={(v) => setBottle(v as Bottle)}
-                        className={detail.materials.length > 0 ? 'mt-4' : ''}
-                      />
-                    </section>
+                      </section>
+                    )}
 
                     {/* People & comment */}
                     <section className="space-y-4">
-                      {detail.multipleBooking && (
+                      {asks.tariff && detail.multipleBooking && (
                         <div>
                           <label htmlFor="people" className="label block mb-1.5">
                             Nombre de places
@@ -461,7 +546,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                           </select>
                         </div>
                       )}
-                      <BuddyField value={buddy} onChange={setBuddy} onSessionLost={onSessionLost} />
+                      {asks.buddy && <BuddyField value={buddy} onChange={setBuddy} onSessionLost={onSessionLost} />}
                       <div>
                         <label htmlFor="comment" className="label block mb-1.5">
                           Message pour le club / le DP <span className="font-normal text-muted">(facultatif)</span>
@@ -486,7 +571,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-sm">
                   <a
-                    href={googleCalendarUrl(title, start, end, location)}
+                    href={googleCalendarUrl(title, start, end, location, event.allDay)}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1.5 text-brand font-medium underline underline-offset-2"
@@ -510,8 +595,11 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           {showForm && (
             <div className="shrink-0 border-t border-line bg-surface px-5 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] flex items-center gap-4">
               <div className="shrink-0">
-                <span className="text-sm text-muted block">Total estimé</span>
-                <span className="text-xl font-semibold tabular-nums text-brand leading-none">{formatEuro(total)}</span>
+                {/* A volunteer's post: the price hint VPDive writes in the role name; the exact amount follows in the cart. */}
+                <span className="text-sm text-muted block">{volunteer && !('zero' in volunteer && volunteer.zero) ? 'Selon VPDive' : 'Total estimé'}</span>
+                <span className="text-xl font-semibold tabular-nums text-brand leading-none">
+                  {!volunteer ? formatEuro(total) : 'unknown' in volunteer ? '—' : volunteer.zero ? '0 €' : `dès ${formatEuro(volunteer.from)}`}
+                </span>
               </div>
               <button
                 type="submit"
@@ -584,29 +672,59 @@ function SizePicker({
   );
 }
 
-/** Selectable card used for roles (single choice) and rental gear (toggle). */
+/** Sub-choice under the entry cards (« J’encadre » / « Je plonge pour moi », or the surface post): a segmented control that wraps on phones. */
+function Chips({ label, options, value, onChange }: { label: string; options: { value: string; label: string }[]; value: string | null; onChange: (v: string) => void }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="inline-flex flex-wrap max-w-full gap-0.5 rounded-lg border border-field-border bg-surface p-1 mt-2">
+      {options.map((o) => {
+        const selected = value === o.value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(o.value)}
+            className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${selected ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Selectable card used for the entry (single choice) and rental gear (toggle). Disabled: greyed, with the reason as its content. */
 function ChoiceCard({
   selected,
   onClick,
   children,
   role,
   label,
+  disabled = false,
 }: {
   selected: boolean;
   onClick: () => void;
   children: ReactNode;
   role?: 'radio';
   label?: string;
+  disabled?: boolean;
 }) {
   const a11y = role === 'radio' ? { role: 'radio', 'aria-checked': selected } : { 'aria-pressed': selected };
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       aria-label={label}
+      aria-disabled={disabled || undefined}
       {...a11y}
       className={`relative text-left min-h-[52px] px-3.5 py-3 rounded-xl transition-colors ${
-        selected ? 'border-2 border-brand bg-tint text-brand' : 'border border-field-border bg-field text-ink hover:border-brand/30'
+        selected
+          ? 'border-2 border-brand bg-tint text-brand'
+          : disabled
+            ? 'border border-field-border bg-field text-ink opacity-50 cursor-not-allowed'
+            : 'border border-field-border bg-field text-ink hover:border-brand/30'
       }`}
     >
       <span className="block pr-6">{children}</span>
@@ -623,8 +741,10 @@ function ChoiceCard({
 
 function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDetail; busy: boolean; onCancel: () => void; onEdit: () => void }) {
   const r = detail.myRegistration;
-  // « Directeur de plongée (0€) » → « Directeur de plongée »
-  const role = r?.roleKey ? detail.roles.find((x) => x.key === r.roleKey)?.label.replace(/\s*\(.*\)\s*$/, '') : null;
+  const roleOption = r?.roleKey ? detail.roles.find((x) => x.key === r.roleKey) : undefined;
+  const role = roleOption ? cleanRoleLabel(roleOption.label) : null;
+  // A volunteer (surface post) rents nothing: no gear line.
+  const volunteer = !!roleOption && classifyRoles(detail.roles).volunteers.some((v) => v.key === roleOption.key);
   const gear = (r?.gear ?? []).flatMap((g) => {
     const m = detail.materials.find((x) => x.id === g.id);
     const choice = m?.choices.find((c) => c.id === g.choiceId);
@@ -642,11 +762,13 @@ function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDeta
       {r && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-ink">
           {role && <SummaryRow label="Rôle">{role}</SummaryRow>}
-          <SummaryRow label="Matériel">
-            {gear.length ? gear.join(', ') : 'aucune location'}
-            {sizeText.length > 0 && <span className="text-muted"> · taille {sizeText.join(', ')}</span>}
-            {bottle !== DEFAULT_BOTTLE && <span className="text-muted"> · bouteille {bottle}</span>}
-          </SummaryRow>
+          {!volunteer && (
+            <SummaryRow label="Matériel">
+              {gear.length ? gear.join(', ') : 'aucune location'}
+              {sizeText.length > 0 && <span className="text-muted"> · taille {sizeText.join(', ')}</span>}
+              {bottle !== DEFAULT_BOTTLE && <span className="text-muted"> · bouteille {bottle}</span>}
+            </SummaryRow>
+          )}
           {buddy && <SummaryRow label="Binôme">{buddy}</SummaryRow>}
         </dl>
       )}
@@ -784,9 +906,15 @@ function formatRange(start: string, end: string, allDay: boolean): string {
   return e ? `${day}, ${t(s)} – ${sameDay ? t(e) : `${e.toLocaleDateString('fr-FR')} ${t(e)}`}` : `${day}, ${t(s)}`;
 }
 
-function googleCalendarUrl(title: string, start: string, end: string, location: string): string {
+function googleCalendarUrl(title: string, start: string, end: string, location: string, allDay = false): string {
   const fmt = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  // Journée entière : dates seules, la fin étant le lendemain (convention Google).
+  const day = (iso: string, plus = 0) => {
+    const d = new Date(iso);
+    d.setDate(d.getDate() + plus);
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  };
   const params = new URLSearchParams({ action: 'TEMPLATE', text: title, location });
-  if (start) params.set('dates', `${fmt(start)}/${fmt(end || start)}`);
+  if (start) params.set('dates', allDay ? `${day(start)}/${day(end || start, 1)}` : `${fmt(start)}/${fmt(end || start)}`);
   return `https://calendar.google.com/calendar/render?${params}`;
 }

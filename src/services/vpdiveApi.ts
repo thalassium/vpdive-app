@@ -160,6 +160,8 @@ export interface MemberDocument {
 }
 
 export interface MemberProfile {
+  /** Ce que lit le moteur des palanquées : codes de niveau (P4, PE40…) et prérogative E1…E4 (lib/vpdiveLevels.ts). */
+  labels: string[];
   levels: string[];
   teaching: string[];
   qualifications: string[];
@@ -382,11 +384,33 @@ const ADMIN_PERMISSION = 'member_view';
 
 type RequestInit_ = { method?: 'GET' | 'POST'; body?: unknown; auth?: boolean };
 
+/** Autres activités fédérales dans le nom VPDive (« A - … » apnée, « H - … » hockey…), même liste que lib/vpdiveLevels.ts. */
+const OTHER_ACTIVITY = /^(A|OS|NAP|NEV|H|PSP|PS|TIR|RS|AS|BIO|PSH|AUD|s)\s?-/;
+
 /** Fiche membre VPDive → niveaux, enseignement, qualifications, certificat. */
 function profileOf(u: Json): MemberProfile {
-  const names = (key: string, inner: string) =>
-    (Array.isArray(u[key]) ? u[key] : []).map((x) => str(obj(obj(x)?.[inner])?.name).trim()).filter(Boolean);
+  const entries = (key: string, inner: string): Json[] =>
+    (Array.isArray(u[key]) ? u[key] : []).map((x) => obj(obj(x)?.[inner])).filter((q): q is Json => q !== null);
+  const names = (key: string, inner: string) => entries(key, inner).map((q) => str(q.name).trim()).filter(Boolean);
+  // La fiche (/user/member, /user?uct_token) ne donne souvent que le nom, sans code
+  // court : à défaut, le nom complet d'un diplôme de plongée (« P-Plongeur Niveau 4
+  // (P4-N4) »), que le moteur des palanquées sait lire. Les autres activités
+  // (un initiateur apnée…) ne donnent aucune prérogative en scaphandre.
+  const qualifs: VpdiveQualif[] = (
+    [
+      ['user_level', 'level', 'level'],
+      ['user_teaching', 'teaching', 'teaching'],
+      ['user_qualification', 'qualification', 'qualification'],
+    ] as const
+  ).flatMap(([key, inner, family]) =>
+    entries(key, inner).flatMap((q) => {
+      const name = str(q.name).trim();
+      const code = str(q.abbreviation).trim() || (OTHER_ACTIVITY.test(name) ? '' : name);
+      return code ? [{ family, code, name }] : [];
+    }),
+  );
   return {
+    labels: fromVpdive(qualifs).labels,
     levels: names('user_level', 'level'),
     teaching: names('user_teaching', 'teaching'),
     qualifications: names('user_qualification', 'qualification'),
@@ -940,6 +964,46 @@ class VpDiveClient {
     return { profile: profileOf(u), documents: documentsOf(u), info: infoOf(u) };
   }
 
+  /**
+   * Mes niveaux tels que le moteur des palanquées les lit (P4, E3…), pour savoir
+   * si je peux m'inscrire comme encadrant : ma fiche (/user/member/<uct>), à
+   * défaut la fiche membre (/user?uct_token=). Gardés 6 h dans l'onglet. Null si
+   * VPDive ne les donne pas ; une session expirée reste une erreur.
+   */
+  async myAptitudeLabels(): Promise<string[] | null> {
+    const s = this.getSession();
+    if (!s) throw new SessionExpiredError();
+    const uct = s.traceability;
+    const key = `my-labels:${uct}`;
+    try {
+      const cached = obj(JSON.parse(sessionStorage.getItem(key) ?? 'null'));
+      const at = num(cached?.at) ?? 0;
+      if (Array.isArray(cached?.labels) && at + 6 * 3_600_000 > Date.now()) {
+        return cached.labels.filter((l): l is string => typeof l === 'string');
+      }
+    } catch {
+      // Stockage indisponible ou illisible : on redemande à VPDive.
+    }
+    let labels: string[];
+    try {
+      labels = (await this.myFile(uct)).profile.labels;
+    } catch (e) {
+      if (e instanceof SessionExpiredError) throw e;
+      try {
+        labels = (await this.memberProfile(uct)).labels;
+      } catch (e2) {
+        if (e2 instanceof SessionExpiredError) throw e2;
+        return null;
+      }
+    }
+    try {
+      sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), labels }));
+    } catch {
+      // Navigation privée : simplement pas de cache.
+    }
+    return labels;
+  }
+
   /** Same headers as VPDive calls, for the app's own API (/api/app), which checks them with VPDive. */
   authHeaders(): Record<string, string> {
     const s = this.getSession();
@@ -1170,7 +1234,9 @@ function mapDetail(token: string, data: Json, ev: Json, userId: number | null): 
 export function myRegistration(u: Json | null, roles: RoleOption[], tariffs: TariffOption[], materials: MaterialOption[]): MyRegistration | null {
   if (!u) return null;
   const roleTokens = (Array.isArray(u.roles_token) ? u.roles_token : []).map((r) => str(obj(r)?.role_token)).filter(Boolean);
-  const roleKey = roles.find((r) => roleTokens.includes(r.key))?.key ?? (roles.some((r) => r.key === 'diver') ? 'diver' : null);
+  // Un rôle que la sortie ne propose plus (DP attribué par le club, liste vide…) est
+  // gardé tel quel : une modification le renvoie inchangé, jamais remplacé par « plongeur ».
+  const roleKey = roles.find((r) => roleTokens.includes(r.key))?.key ?? roleTokens[0] ?? (roles.some((r) => r.key === 'diver') ? 'diver' : null);
   const tariff = str(u.tariff_plan_token);
   const flatName = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const gear: MyRegistration['gear'] = [];
