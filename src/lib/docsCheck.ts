@@ -35,8 +35,22 @@ export interface DocsStatus {
   licences: { number: string; organization: string; expires: string; expired: boolean; validated: boolean }[];
 }
 
-/** Numéro de licence FFESSM : « A-26-123456 ». */
-export const FFESSM_NUMBER = /^A-\d{2}-\d{4,}$/i;
+/**
+ * Numéro de licence FFESSM, saisi de mille façons dans VPDive (« A-26-123456 »,
+ * « A26-123456 », « A 26 12345 », « a261045719 ») : un A suivi de l'année et du
+ * numéro, une fois retirés espaces, tirets et autres séparateurs.
+ */
+export const FFESSM_NUMBER = /^A\d{6,}$/i;
+
+/**
+ * Licence FFESSM ? L'organisation fait foi quand elle est connue (« F.F.E.S.S.M. »,
+ * « FFESSM », points et casse ignorés) ; sinon, la forme du numéro.
+ */
+export function isFfessm(organization: string, number: string): boolean {
+  const org = organization.replace(/[^a-z]/gi, '').toUpperCase();
+  if (org) return org.includes('FFESSM');
+  return FFESSM_NUMBER.test(number.replace(/[^a-z0-9]/gi, ''));
+}
 
 /** AAAA-MM-JJ → JJ/MM/AAAA */
 export const frDate = (d: string): string => d.split('-').reverse().join('/');
@@ -68,10 +82,10 @@ export function checkDocs(
   // Licence FFESSM : la fiche du membre d'abord, sinon les licences de la liste des inscrits.
   const ffessm: { until: string | null; ok: boolean }[] = status
     ? status.licences
-        .filter((l) => /ffessm/i.test(l.organization))
+        .filter((l) => isFfessm(l.organization, l.number))
         .map((l) => ({ until: l.expires || null, ok: l.expires ? l.expires >= outingDate : !l.expired }))
     : (entry.licences ?? [])
-        .filter((l) => FFESSM_NUMBER.test(l.number.trim()))
+        .filter((l) => isFfessm('', l.number))
         .map((l) => ({ until: l.until, ok: l.until ? l.until >= outingDate : l.valid }));
   if (!ffessm.some((l) => l.ok)) {
     const last = ffessm

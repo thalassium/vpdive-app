@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bulkReminderText, checkDocs, reminderText, type DocsStatus } from './docsCheck';
+import { bulkReminderText, checkDocs, isFfessm, reminderText, type DocsStatus } from './docsCheck';
 
 const TODAY = '2026-10-08';
 const OUTING = '2026-10-11';
@@ -79,4 +79,18 @@ test('messages de relance', () => {
   assert.match(bulk, /certificat médical \(CACI\)/);
   assert.match(bulk, /licence FFESSM/);
   assert.match(bulk, /saison 2026/);
+});
+
+test('isFfessm : organisation écrite avec des points, numéros sous toutes leurs formes', () => {
+  assert.equal(isFfessm('F.F.E.S.S.M.', 'a241045719'), true);
+  assert.equal(isFfessm('Ffessm - Fédération française', ''), true);
+  // L'organisation fait foi : un numéro de forme FFESSM rangé chez l'ANMP n'en est pas une.
+  assert.equal(isFfessm('A.N.M.P.', 'A-19-831774'), false);
+  for (const n of ['A-24-123456', 'A24-123456', 'A 24 12345', 'a241045719', 'A+24-1234567']) assert.equal(isFfessm('', n), true, n);
+  for (const n of ['241045719', '123456', '']) assert.equal(isFfessm('', n), false, n);
+});
+
+test('licence « F.F.E.S.S.M. » valable à la date de la sortie : rien à signaler', () => {
+  const lic = { number: 'a241045719', organization: 'F.F.E.S.S.M.', expires: '2026-12-31', expired: false, validated: false };
+  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2026'], licences: [lic] }, TODAY).level, 'ok');
 });
