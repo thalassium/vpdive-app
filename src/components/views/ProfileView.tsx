@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, LogOut } from 'lucide-react';
-import { vpdive, ymd, type CalendarEvent, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import type { ReactNode } from 'react';
+import { Award, CalendarDays, ChevronDown, ExternalLink, FileText, FolderOpen, ImageIcon, LogOut } from 'lucide-react';
+import { vpdive, ymd, type CalendarEvent, type MemberDocument, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import type { Me } from '../../services/appApi';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
@@ -66,6 +67,8 @@ export function ProfileView({
   /** undefined : en cours ; null : rien trouvé. */
   const [quals, setQuals] = useState<Quals | null | undefined>(undefined);
   const [qualsError, setQualsError] = useState<string | null>(null);
+  /** undefined : en cours ; null : fiche VPDive inaccessible. */
+  const [documents, setDocuments] = useState<MemberDocument[] | null | undefined>(undefined);
   const request = useRef(0);
 
   const meUct = me?.uct ?? null;
@@ -78,6 +81,7 @@ export function ProfileView({
     setEventsError(null);
     setQuals(undefined);
     setQualsError(null);
+    setDocuments(undefined);
 
     // 1. Mes inscriptions à venir.
     let mine: CalendarEvent[] = [];
@@ -95,15 +99,27 @@ export function ProfileView({
       setEventsError(eventsFailed);
     }
 
-    // 2. Niveaux : la fiche membre si VPDive l'ouvre (admins), sinon la liste des inscrits d'une sortie.
+    // 2. Ma fiche VPDive (« Mon profil ») : niveaux et documents déposés. À défaut, la fiche
+    //    membre (admins), puis la liste des inscrits d'une sortie pour les niveaux.
     let found: Quals | null = null;
     if (meUct) {
       try {
-        found = fromProfile(await vpdive.memberProfile(meUct));
+        const file = await vpdive.myFile(meUct);
+        if (stale()) return;
+        found = fromProfile(file.profile);
+        setDocuments(file.documents);
       } catch (e) {
-        // Refusée aux simples membres (403) : on passe à la liste des inscrits.
         if (stale() || onSessionLost(e)) return;
+        setDocuments(null);
+        try {
+          found = fromProfile(await vpdive.memberProfile(meUct));
+        } catch (e2) {
+          // Refusée aux simples membres (403) : on passe à la liste des inscrits.
+          if (stale() || onSessionLost(e2)) return;
+        }
       }
+    } else {
+      setDocuments(null);
     }
     const first = mine[0];
     if (!hasAny(found) && first && userId !== null) {
@@ -162,81 +178,121 @@ export function ProfileView({
         </div>
       </div>
 
-      {/* Mes prochaines sorties */}
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold text-brand mb-2">Mes prochaines sorties</h2>
-        {eventsError ? (
-          <ErrorLine text={eventsError} onRetry={load} />
-        ) : upcoming === null ? (
-          <Skeleton rows={2} />
-        ) : upcoming.length === 0 ? (
-          <div>
-            <p className="text-muted">Aucune inscription à venir. Les sorties se réservent depuis le calendrier.</p>
-            <button
-              type="button"
-              className="btn btn-quiet mt-3"
-              onClick={() => {
-                window.location.hash = '';
-              }}
-            >
-              Voir le calendrier
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {byDay.map(([day, events]) => (
-              <div key={day}>
-                <h3 className="label mb-1.5 px-1">{dayLabel(day)}</h3>
-                <div className="card divide-y divide-line overflow-hidden">
+      <div className="mt-6 space-y-3">
+        {/* Mes sorties : ouverte d'emblée, c'est ce qu'on vient voir */}
+        <Box icon={<CalendarDays className="w-5 h-5" />} title="Mes sorties" count={upcoming?.length} defaultOpen>
+          {eventsError ? (
+            <div className="p-4">
+              <ErrorLine text={eventsError} onRetry={load} />
+            </div>
+          ) : upcoming === null ? (
+            <Skeleton rows={2} />
+          ) : upcoming.length === 0 ? (
+            <div className="p-4">
+              <p className="text-muted">Aucune inscription à venir. Les sorties se réservent depuis le calendrier.</p>
+              <button
+                type="button"
+                className="btn btn-quiet mt-3"
+                onClick={() => {
+                  window.location.hash = '';
+                }}
+              >
+                Voir le calendrier
+              </button>
+            </div>
+          ) : (
+            <div className="divide-y divide-line">
+              {byDay.map(([day, events]) => (
+                <div key={day}>
+                  <h3 className="label px-4 pt-3 pb-1 first-letter:uppercase">{dayLabel(day)}</h3>
                   {events.map((ev) => (
                     <EventRow key={ev.token} ev={ev} onClick={() => onOpenEvent(ev)} />
                   ))}
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Niveaux et qualifications */}
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold text-brand mb-2">Niveaux et qualifications</h2>
-        {qualsError ? (
-          <ErrorLine text={qualsError} onRetry={load} />
-        ) : quals === undefined ? (
-          <Skeleton rows={1} />
-        ) : quals === null ? (
-          <p className="text-muted">Les niveaux s'affichent dès votre prochaine inscription à une sortie.</p>
-        ) : (
-          <div className="card p-4 space-y-4">
-            {quals.groups
-              .filter((g) => g.items.length > 0)
-              .map((g) => (
-                <div key={g.label}>
-                  <h3 className="label mb-1.5">{g.label}</h3>
-                  <ul className="flex flex-wrap gap-1.5">
-                    {g.items.map((item) => (
-                      <li key={item} className="chip text-brand">
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
               ))}
-            {quals.training.length > 0 && <p className="text-ink">En préparation : {quals.training.join(', ')}</p>}
-            <p className="text-ink">
-              Certificat médical :{' '}
-              {!quals.medical ? (
-                <span className="text-muted">non renseigné</span>
-              ) : quals.medical.valid ? (
-                <span className="text-ok font-medium">{quals.medical.until ? `valable jusqu'au ${frDate(quals.medical.until)}` : 'valable'}</span>
-              ) : (
-                <span className="text-danger font-medium">à renouveler</span>
-              )}
-            </p>
+            </div>
+          )}
+        </Box>
+
+        <Box icon={<Award className="w-5 h-5" />} title="Mes niveaux">
+          <div className="p-4">
+            {qualsError ? (
+              <ErrorLine text={qualsError} onRetry={load} />
+            ) : quals === undefined ? (
+              <div aria-hidden className="h-14 rounded-lg animate-pulse bg-raised" />
+            ) : quals === null ? (
+              <p className="text-muted">Les niveaux s'affichent dès votre prochaine inscription à une sortie.</p>
+            ) : (
+              <div className="space-y-4">
+                {quals.groups
+                  .filter((g) => g.items.length > 0)
+                  .map((g) => (
+                    <div key={g.label}>
+                      <h3 className="label mb-1.5">{g.label}</h3>
+                      <ul className="flex flex-wrap gap-1.5">
+                        {g.items.map((item) => (
+                          <li key={item} className="chip text-brand">
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                {quals.training.length > 0 && <p className="text-ink">En préparation : {quals.training.join(', ')}</p>}
+                <p className="text-ink">
+                  Certificat médical :{' '}
+                  {!quals.medical ? (
+                    <span className="text-muted">non renseigné</span>
+                  ) : quals.medical.valid ? (
+                    <span className="text-ok font-medium">{quals.medical.until ? `valable jusqu'au ${frDate(quals.medical.until)}` : 'valable'}</span>
+                  ) : (
+                    <span className="text-danger font-medium">à renouveler</span>
+                  )}
+                </p>
+              </div>
+            )}
           </div>
-        )}
-      </section>
+        </Box>
+
+        {/* Mes documents : ceux que le membre a déposés sur VPDive ; le lien ouvre le fichier */}
+        <Box icon={<FolderOpen className="w-5 h-5" />} title="Mes documents" count={documents?.length}>
+          {documents === undefined ? (
+            <Skeleton rows={2} />
+          ) : documents === null || documents.length === 0 ? (
+            <div className="p-4">
+              <p className="text-muted">
+                {documents === null ? 'Vos documents ne sont pas accessibles depuis l’appli.' : 'Aucun document déposé sur VPDive.'}
+              </p>
+              <a href={VPDIVE_URL} target="_blank" rel="noreferrer" className="btn btn-quiet mt-3">
+                <ExternalLink className="w-4 h-4" />
+                Déposer un document sur VPDive
+              </a>
+            </div>
+          ) : (
+            <ul className="divide-y divide-line">
+              {documents.map((doc) => (
+                <li key={doc.url}>
+                  <a
+                    href={doc.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-raised focus-visible:bg-raised transition-colors"
+                  >
+                    <span className="w-9 h-9 shrink-0 rounded-lg bg-tint text-brand inline-flex items-center justify-center">
+                      {doc.kind === 'image' ? <ImageIcon className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-medium text-ink truncate">{doc.label}</span>
+                      {doc.detail && <span className="block text-sm text-muted truncate">{doc.detail}</span>}
+                    </span>
+                    <ExternalLink aria-hidden className="w-4 h-4 text-muted shrink-0" />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Box>
+      </div>
 
       {/* Réglages et compte */}
       <section className="mt-8 pt-5 border-t border-line space-y-4">
@@ -259,6 +315,24 @@ export function ProfileView({
   );
 }
 
+/**
+ * Boîte dépliable du profil : un titre qui ouvre ou ferme son contenu
+ * (élément <details>, accessible au clavier et au lecteur d'écran sans code).
+ */
+function Box({ icon, title, count, defaultOpen, children }: { icon: ReactNode; title: string; count?: number; defaultOpen?: boolean; children: ReactNode }) {
+  return (
+    <details open={defaultOpen} className="group card border-l-4 border-l-brand overflow-hidden">
+      <summary className="flex items-center gap-3 px-4 py-3.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-raised">
+        <span className="text-brand shrink-0">{icon}</span>
+        <span className="flex-1 text-lg font-semibold text-ink">{title}</span>
+        {count !== undefined && count > 0 && <span className="text-sm text-muted tabular-nums">{count}</span>}
+        <ChevronDown aria-hidden className="w-5 h-5 text-muted shrink-0 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-line">{children}</div>
+    </details>
+  );
+}
+
 function ErrorLine({ text, onRetry }: { text: string; onRetry: () => void }) {
   return (
     <div role="alert" className="flex flex-wrap items-center gap-3">
@@ -272,7 +346,7 @@ function ErrorLine({ text, onRetry }: { text: string; onRetry: () => void }) {
 
 function Skeleton({ rows }: { rows: number }) {
   return (
-    <div aria-hidden className="card divide-y divide-line overflow-hidden">
+    <div aria-hidden className="divide-y divide-line">
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="h-14 animate-pulse bg-raised" />
       ))}

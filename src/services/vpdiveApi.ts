@@ -108,6 +108,17 @@ const VPDIVE_ORIGIN = 'https://septentrion-env.vpdive.com';
 const pictureUrl = (path: string) =>
   !path || path.startsWith('/files/images/') ? '' : path.startsWith('http') ? path : `${VPDIVE_ORIGIN}${path.startsWith('/') ? '' : '/'}${path}`;
 
+/** Un document déposé par le membre sur VPDive (certificat, licence, adhésion, qualification…). */
+export interface MemberDocument {
+  /** Ce que c'est : « Certificat médical », « Licence », le type de document du club… */
+  label: string;
+  /** Détail : nom du fichier, commentaire, validité. */
+  detail: string;
+  /** Lien de téléchargement sur vpdive.com. */
+  url: string;
+  kind: 'pdf' | 'image' | 'file';
+}
+
 export interface MemberProfile {
   levels: string[];
   teaching: string[];
@@ -322,6 +333,65 @@ function hasPermission(permissions: unknown, key: string): boolean {
 const ADMIN_PERMISSION = 'member_view';
 
 type RequestInit_ = { method?: 'GET' | 'POST'; body?: unknown; auth?: boolean };
+
+/** Fiche membre VPDive → niveaux, enseignement, qualifications, certificat. */
+function profileOf(u: Json): MemberProfile {
+  const names = (key: string, inner: string) =>
+    (Array.isArray(u[key]) ? u[key] : []).map((x) => str(obj(obj(x)?.[inner])?.name).trim()).filter(Boolean);
+  return {
+    levels: names('user_level', 'level'),
+    teaching: names('user_teaching', 'teaching'),
+    qualifications: names('user_qualification', 'qualification'),
+    email: str(u.email),
+    phone: str(u.phone),
+    birthday: str(u.birthday),
+    medicalUntil: str(u.medical_examination).slice(0, 10),
+  };
+}
+
+/**
+ * Les documents d'une fiche membre : certificat médical, licences, documents
+ * par type (adhésion…), documents partagés avec le club (qualifications). Les
+ * fichiers sont sous /uploads/documents/ ; les icônes génériques (/files/images/)
+ * ne sont pas des documents.
+ */
+export function documentsOf(u: Json): MemberDocument[] {
+  const out: MemberDocument[] = [];
+  const kindOf = (name: string, type = ''): MemberDocument['kind'] =>
+    /pdf/i.test(type) || /\.pdf$/i.test(name) ? 'pdf' : /image|jpe?g|png|webp|heic/i.test(type) || /\.(jpe?g|png|webp|heic)$/i.test(name) ? 'image' : 'file';
+  const url = (path: string) => (path.startsWith('/uploads/') ? `${VPDIVE_ORIGIN}${path}` : path.startsWith('http') ? path : '');
+  const push = (label: string, detail: string, path: string, name = '', type = '') => {
+    const link = url(path);
+    if (link && !out.some((d) => d.url === link)) out.push({ label, detail, url: link, kind: kindOf(name || path, type) });
+  };
+
+  const med = obj(u.file_medical_examination);
+  if (med) {
+    const until = str(u.medical_examination).slice(0, 10);
+    push('Certificat médical', until ? `valable jusqu’au ${until.split('-').reverse().join('/')}` : str(med.name), str(med.link), str(med.name), str(med.type));
+  }
+  const licences = Array.isArray(u.user_licence) ? u.user_licence.map(obj) : [];
+  for (const [id, raw] of Object.entries(obj(u.file_licence) ?? {})) {
+    const f = obj(raw);
+    if (!f) continue;
+    const lic = licences.find((l) => l && String(l.id) === id);
+    const org = str(obj(lic?.organization)?.name);
+    push(org ? `Licence ${org}` : 'Licence', str(lic?.licence) || str(f.name), str(f.link), str(f.name), str(f.type));
+  }
+  for (const raw of Object.values(obj(u.type_document) ?? {})) {
+    const f = obj(raw);
+    if (!f || !str(f.filePath)) continue;
+    const label = str(f.name).trim();
+    push(label ? label.charAt(0).toUpperCase() + label.slice(1) : 'Document', str(f.fileName), str(f.filePath), str(f.fileName), str(f.fileType));
+  }
+  for (const raw of Array.isArray(u.document_shared) ? u.document_shared : []) {
+    const f = obj(raw);
+    if (!f) continue;
+    const name = str(obj(f.userClubDocuments)?.name).trim();
+    push(name ? name.charAt(0).toUpperCase() + name.slice(1) : 'Document partagé', str(f.comment).trim() || str(f.document_file), str(f.document_link), str(f.document_file));
+  }
+  return out;
+}
 
 // ── Client ───────────────────────────────────────────────────────
 
@@ -649,18 +719,17 @@ class VpDiveClient {
    * member profile page; needs `member_view`.
    */
   async memberProfile(memberToken: string): Promise<MemberProfile> {
-    const u = await this.request(`/user?uct_token=${encodeURIComponent(memberToken)}`);
-    const names = (key: string, inner: string) =>
-      (Array.isArray(u[key]) ? u[key] : []).map((x) => str(obj(obj(x)?.[inner])?.name).trim()).filter(Boolean);
-    return {
-      levels: names('user_level', 'level'),
-      teaching: names('user_teaching', 'teaching'),
-      qualifications: names('user_qualification', 'qualification'),
-      email: str(u.email),
-      phone: str(u.phone),
-      birthday: str(u.birthday),
-      medicalUntil: str(u.medical_examination).slice(0, 10),
-    };
+    return profileOf(await this.request(`/user?uct_token=${encodeURIComponent(memberToken)}`));
+  }
+
+  /**
+   * Ma fiche, telle que la page « Mon profil » de VPDive la lit (/user/member/<mon
+   * jeton d'adhésion>) : niveaux, et les documents que j'ai déposés.
+   */
+  async myFile(uct: string): Promise<{ profile: MemberProfile; documents: MemberDocument[] }> {
+    const res = await this.request(`/user/member/${encodeURIComponent(uct)}`);
+    const u = obj(res.data) ?? res;
+    return { profile: profileOf(u), documents: documentsOf(u) };
   }
 
   /** Same headers as VPDive calls, for the app's own API (/api/app), which checks them with VPDive. */

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { myRegistration, type MaterialOption } from './vpdiveApi';
+import { documentsOf, myRegistration, type MaterialOption } from './vpdiveApi';
 
 const roles = [
   { key: 'diver', label: 'Plongeur (dès 32€)' },
@@ -45,4 +45,25 @@ test('inscription en cours : sans rôle particulier, plongeur ; formule inconnue
   assert.equal(r?.roleKey, 'diver');
   assert.equal(r?.tariffToken, null);
   assert.equal(myRegistration(null, roles, tariffs, materials), null);
+});
+
+test('documents de la fiche membre : certificat, licences, documents par type et partagés ; pas les icônes génériques', () => {
+  const docs = documentsOf({
+    medical_examination: '2026-11-24T00:00:00+01:00',
+    file_medical_examination: { link: '/uploads/documents/med', name: 'certif.pdf', type: 'application', path: '/files/images/file_formats/pdf.png' },
+    user_licence: [{ id: 7, licence: 'A-19-1', organization: { name: 'FFESSM' } }],
+    file_licence: { 7: { link: '/uploads/documents/lic', name: 'licence.jpg', type: 'image' } },
+    type_document: { 1: { name: 'adhésion payée', fileName: 'fiche.pdf', filePath: '/uploads/documents/adh', fileType: 'application/pdf' }, 2: { name: 'vide', filePath: null } },
+    document_shared: [{ comment: 'Nitrox confirmé', document_file: 'n.pdf', document_link: '/uploads/documents/nx', userClubDocuments: { name: 'carte niveau' } }],
+  });
+  assert.deepEqual(
+    docs.map((d) => [d.label, d.detail, d.kind]),
+    [
+      ['Certificat médical', 'valable jusqu’au 24/11/2026', 'pdf'],
+      ['Licence FFESSM', 'A-19-1', 'image'],
+      ['Adhésion payée', 'fiche.pdf', 'pdf'],
+      ['Carte niveau', 'Nitrox confirmé', 'pdf'],
+    ],
+  );
+  assert.ok(docs.every((d) => d.url.startsWith('https://septentrion-env.vpdive.com/uploads/documents/')));
 });
