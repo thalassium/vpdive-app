@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Wind, RefreshCw, AlertCircle, Check, MapPin } from 'lucide-react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChevronLeft, ChevronRight, Wind, RefreshCw, AlertCircle, Check } from 'lucide-react';
 import { ymd, type CalendarEvent, type MeteoSlot } from '../services/vpdiveApi';
 
 const MOIS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
@@ -78,7 +78,9 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
   /** Month cell showing all its outings instead of the first three. */
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [onlyMine, setOnlyMine] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  /** Jour tapé dans la grille sur téléphone : la liste y défile et le surligne un instant. */
+  const [flashDay, setFlashDay] = useState<string | null>(null);
+  const flashTimer = useRef<number | undefined>(undefined);
 
   const year = month.getFullYear();
   const m = month.getMonth();
@@ -102,15 +104,14 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
     return out;
   }, [month, m]);
 
-  // Day shown under the grid on phones: today if visible, else the month's first outing.
-  useEffect(() => {
-    const visible = (d: string) => Number(d.slice(5, 7)) - 1 === m && Number(d.slice(0, 4)) === year;
-    setSelectedDay((cur) => {
-      if (cur && visible(cur)) return cur;
-      if (visible(todayStr)) return todayStr;
-      return Object.keys(byDay).filter(visible).sort()[0] ?? null;
-    });
-  }, [m, year, byDay, todayStr]);
+  /** Sur téléphone, taper un jour de la grille fait défiler la liste du mois jusqu'à lui. */
+  const jumpTo = (date: string) => {
+    setFlashDay(date);
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById(`day-${date}`)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlashDay(null), 1500);
+  };
 
   // Current month: the list starts the day before (older outings are history); other months show in full.
   const isCurrentMonth = inMonth(todayStr);
@@ -123,8 +124,13 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
   const monthTotal = events.filter((e) => inMonth(eventDay(e))).length;
   const registeredCount = events.filter((e) => e.registered && inMonth(eventDay(e))).length;
   const shownCount = listDays.reduce((n, d) => n + (byDay[d]?.length ?? 0), 0);
-  const selectedWind = selectedDay ? daytimeWind(meteoData[selectedDay]) : null;
+  // Sous la grille sur téléphone : tout le mois, pas seulement à partir de la veille.
+  const monthDays = Object.keys(byDay).filter(inMonth).sort();
   const firstLoad = isLoading && events.length === 0;
+  const empty = <p className="py-14 text-center text-muted">{isCurrentMonth ? 'Plus aucune' : 'Aucune'} {onlyMine ? 'inscription' : 'sortie'} ce mois-ci.</p>;
+  const agenda = (dates: string[]) => (
+    <AgendaList dates={dates} byDay={byDay} meteoData={meteoData} todayStr={todayStr} flashDay={flashDay} onOpenEvent={onOpenEvent} />
+  );
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
@@ -202,7 +208,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
       {viewMode === 'month' ? (
         <>
           <div className="mt-6 card overflow-hidden">
-            <div className="grid grid-cols-7 border-b border-line text-center label py-3">
+            <div className="grid grid-cols-7 border-b border-line text-center label py-2 sm:py-3">
               {['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map((d) => (
                 <div key={d}>
                   <span className="sm:hidden">{d.slice(0, 1).toUpperCase()}</span>
@@ -216,28 +222,29 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                 const dayEvents = byDay[day.date] ?? [];
                 const wind = daytimeWind(meteoData[day.date]);
                 const isToday = day.date === todayStr;
-                const isSelected = day.date === selectedDay;
+                const isFlash = day.date === flashDay;
 
                 return (
                   <div
                     key={day.date}
-                    className={`relative min-h-[60px] sm:min-h-[132px] p-1.5 sm:p-2 flex flex-col border-line ${i % 7 !== 6 ? 'border-r' : ''} ${
+                    className={`relative min-h-11 sm:min-h-[132px] p-1 sm:p-2 flex flex-col border-line ${i % 7 !== 6 ? 'border-r' : ''} ${
                       i < days.length - 7 ? 'border-b' : ''
-                    } ${!day.inMonth ? 'bg-canvas/70' : day.weekend ? 'bg-raised/60' : ''} ${isSelected ? 'max-sm:bg-tint' : ''}`}
+                    } ${!day.inMonth ? 'bg-canvas/70' : day.weekend ? 'bg-raised/60' : ''}`}
                   >
-                    {/* Phones: the whole cell selects the day */}
-                    <button
-                      className="sm:hidden absolute inset-0"
-                      onClick={() => setSelectedDay(day.date)}
-                      aria-label={`${dayLabel(day.date)} : ${dayEvents.length} sortie${dayEvents.length > 1 ? 's' : ''}`}
-                      aria-pressed={isSelected}
-                    />
+                    {/* Téléphone : un jour qui a des sorties mène à sa place dans la liste du mois, sous la grille. */}
+                    {dayEvents.length > 0 && (
+                      <button
+                        className="sm:hidden absolute inset-0"
+                        onClick={() => jumpTo(day.date)}
+                        aria-label={`${dayLabel(day.date)} : ${plural(dayEvents.length, 'sortie')}`}
+                      />
+                    )}
 
                     <div className="flex items-center justify-between max-sm:justify-center">
                       <span
                         className={`text-sm tabular-nums w-7 h-7 flex items-center justify-center rounded-full ${
                           isToday ? 'bg-pink text-on-pink font-bold' : day.inMonth ? 'text-ink font-medium' : 'text-muted'
-                        }`}
+                        } ${isFlash ? 'ring-2 ring-brand' : ''}`}
                       >
                         {day.day}
                       </span>
@@ -252,13 +259,13 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                       )}
                     </div>
 
-                    {/* Phones: dots */}
+                    {/* Téléphone : une puce par sortie, à la couleur de l'activité, cerclée de vert si inscrit */}
                     {dayEvents.length > 0 && (
-                      <div className="sm:hidden mt-1.5 flex items-center justify-center gap-1">
+                      <div aria-hidden className="sm:hidden mt-0.5 flex items-center justify-center gap-1">
                         {dayEvents.slice(0, 3).map((ev) => (
                           <span
                             key={ev.token}
-                            className={`w-2 h-2 rounded-full ${ev.registered ? 'ring-2 ring-green ring-offset-1 ring-offset-surface' : ''}`}
+                            className={`w-1.5 h-1.5 rounded-full ${ev.registered ? 'ring-2 ring-green ring-offset-1 ring-offset-surface' : ''}`}
                             style={{ backgroundColor: ev.color }}
                           />
                         ))}
@@ -285,38 +292,12 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
             </div>
           </div>
 
-          {/* Phones: outings of the selected day */}
-          {selectedDay && (
-            <section className="sm:hidden mt-6" aria-live="polite">
-              <DayHeading date={selectedDay} wind={selectedWind} />
-              {(byDay[selectedDay] ?? []).length ? (
-                <div className="space-y-3">
-                  {(byDay[selectedDay] ?? []).map((ev) => (
-                    <EventCard key={ev.token} ev={ev} onClick={() => onOpenEvent(ev)} />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted px-1">Aucune sortie ce jour-là.</p>
-              )}
-            </section>
-          )}
+          {/* Téléphone : la liste de tout le mois sous la grille ; un tap sur un jour y fait défiler */}
+          <div className="sm:hidden mt-4">{firstLoad ? <Skeletons /> : monthDays.length ? agenda(monthDays) : !error && empty}</div>
         </>
       ) : (
-        <div className="mt-6 space-y-7">
-          {firstLoad && <Skeletons />}
-          {!isLoading && !error && shownCount === 0 && (
-            <p className="py-14 text-center text-muted">{isCurrentMonth ? 'Plus aucune' : 'Aucune'} {onlyMine ? 'inscription' : 'sortie'} ce mois-ci.</p>
-          )}
-          {listDays.map((date) => (
-            <section key={date}>
-              <DayHeading date={date} wind={daytimeWind(meteoData[date])} today={date === todayStr} />
-              <div className="space-y-3">
-                {(byDay[date] ?? []).map((ev) => (
-                  <EventCard key={ev.token} ev={ev} onClick={() => onOpenEvent(ev)} />
-                ))}
-              </div>
-            </section>
-          ))}
+        <div className="mt-6">
+          {firstLoad ? <Skeletons /> : shownCount === 0 ? !isLoading && !error && empty : agenda(listDays)}
         </div>
       )}
     </div>
@@ -336,36 +317,121 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
   );
 }
 
-function DayHeading({ date, wind, today }: { date: string; wind: ReturnType<typeof daytimeWind>; today?: boolean }) {
+/**
+ * L'agenda en lignes, comme les vues « planning » des agendas mobiles : une
+ * colonne de date par jour, puis une ligne par sortie (heure, titre, un seul
+ * état). Le lieu et le détail sont dans la fiche, à un tap.
+ */
+function AgendaList({
+  dates,
+  byDay,
+  meteoData,
+  todayStr,
+  flashDay,
+  onOpenEvent,
+}: {
+  dates: string[];
+  byDay: Record<string, CalendarEvent[]>;
+  meteoData: Record<string, MeteoSlot[]>;
+  todayStr: string;
+  flashDay: string | null;
+  onOpenEvent: (ev: CalendarEvent) => void;
+}) {
   return (
-    <div className="flex items-center justify-between gap-2 mb-3 px-1">
-      <h2 className="text-lg font-semibold text-brand first-letter:uppercase flex items-center gap-2">
-        {dayLabel(date)}
-        {today && <span className="rounded-md bg-pink text-on-pink text-sm font-semibold px-2 py-0.5">Aujourd’hui</span>}
-      </h2>
-      {wind && (
-        <span
-          title={`Vent max en journée, rafales ${wind.gusts} nd`}
-          className={`inline-flex items-center gap-1.5 text-sm tabular-nums px-2.5 py-1 rounded-md ${
-            wind.strong ? 'bg-warn-soft text-warn font-semibold' : 'text-muted'
-          }`}
-        >
-          <Wind className="w-4 h-4" /> {wind.max} nd {wind.dir}{wind.strong && <WindWarning />}
-        </span>
-      )}
+    <div className="card divide-y divide-line overflow-hidden">
+      {dates.map((date) => {
+        const d = new Date(`${date}T12:00:00`);
+        const wind = daytimeWind(meteoData[date]);
+        const today = date === todayStr;
+        return (
+          <section
+            key={date}
+            id={`day-${date}`}
+            aria-label={dayLabel(date)}
+            className={`scroll-mt-28 grid grid-cols-[3.25rem_1fr] sm:grid-cols-[4rem_1fr] transition-colors duration-700 ${flashDay === date ? 'bg-tint' : ''}`}
+          >
+            <div className="flex flex-col items-center gap-1 pt-2.5 pb-2 border-r border-line">
+              <span className="text-sm text-muted leading-none">{d.toLocaleDateString('fr-FR', { weekday: 'short' })}</span>
+              <span
+                className={`w-8 h-8 inline-flex items-center justify-center rounded-full text-xl font-semibold tabular-nums leading-none ${
+                  today ? 'bg-pink text-on-pink' : 'text-brand'
+                }`}
+              >
+                {d.getDate()}
+              </span>
+              {wind?.strong && (
+                <span title={`Vent max en journée : ${wind.max} nd (${wind.dir}), rafales ${wind.gusts} nd`} className="text-sm font-semibold text-warn tabular-nums inline-flex items-center gap-0.5">
+                  <WindWarning />
+                  {wind.max}
+                </span>
+              )}
+            </div>
+            <div className="min-w-0">
+              {(byDay[date] ?? []).map((ev) => (
+                <EventRow key={ev.token} ev={ev} onClick={() => onOpenEvent(ev)} />
+              ))}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
 
-/** Loading placeholders shaped like the cards they stand in for. */
+/** Pendant le premier chargement : des lignes à la forme de l'agenda. */
 function Skeletons() {
   return (
-    <div className="space-y-3 animate-pulse" aria-hidden>
-      <div className="h-5 w-44 rounded-md bg-tint" />
+    <div className="card divide-y divide-line overflow-hidden animate-pulse" aria-hidden>
       {[0, 1, 2].map((i) => (
-        <div key={i} className="h-[104px] rounded-xl bg-surface border border-line" />
+        <div key={i} className="grid grid-cols-[3.25rem_1fr] sm:grid-cols-[4rem_1fr] h-24">
+          <div className="border-r border-line" />
+          <div className="p-3 space-y-3">
+            <div className="h-4 w-3/4 rounded-md bg-tint" />
+            <div className="h-4 w-1/2 rounded-md bg-tint" />
+          </div>
+        </div>
       ))}
     </div>
+  );
+}
+
+/** L'état qui décide, en une ligne : inscrit, en liste d'attente, complet, ou places restantes. */
+function rowStatus(ev: CalendarEvent): { text: string; tone: 'ok' | 'warn' | 'muted' } | null {
+  if (ev.onWaitingList) return { text: 'Liste d’attente', tone: 'warn' };
+  if (ev.registered) return { text: 'Inscrit', tone: 'ok' };
+  if (ev.availableSpots === null) return null;
+  if (ev.availableSpots === 0) return { text: 'Complet', tone: 'warn' };
+  return { text: `${ev.availableSpots} pl.`, tone: ev.availableSpots <= 2 ? 'warn' : 'muted' };
+}
+
+/** Une sortie, une ligne : heure, titre (deux lignes au plus), un état. Le tap ouvre la fiche. */
+function EventRow({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) {
+  const status = rowStatus(ev);
+  return (
+    <button
+      onClick={onClick}
+      data-event-card
+      title={[ev.title, ev.location].filter(Boolean).join(' — ')}
+      className="w-full flex items-center gap-2.5 sm:gap-3 pl-2.5 pr-3 sm:pr-4 py-2.5 text-left hover:bg-raised focus-visible:bg-raised transition-colors"
+    >
+      {/* Couleur de l'activité, telle que le club la règle dans VPDive */}
+      <span aria-hidden className="self-stretch w-[3px] shrink-0 rounded-full" style={{ backgroundColor: ev.color }} />
+      <span className={`w-[3.25rem] shrink-0 tabular-nums font-semibold text-brand ${ev.allDay ? 'text-sm' : 'text-base'}`}>{timeOf(ev)}</span>
+      <span className="flex-1 min-w-0">
+        <span className="block font-medium text-ink leading-snug line-clamp-2">{ev.title}</span>
+        {ev.location && <span className="hidden lg:block text-sm text-muted truncate">{ev.location}</span>}
+      </span>
+      {status &&
+        (status.tone === 'ok' ? (
+          <span className="shrink-0 inline-flex items-center gap-1 text-sm font-semibold text-ok">
+            <Check className="w-4 h-4" strokeWidth={3} />
+            {/* Sur téléphone, la coche seule : la place va au titre. */}
+            <span className="sr-only sm:not-sr-only">{status.text}</span>
+          </span>
+        ) : (
+          <span className={`shrink-0 text-sm tabular-nums whitespace-nowrap ${status.tone === 'warn' ? 'text-warn font-semibold' : 'text-muted'}`}>{status.text}</span>
+        ))}
+    </button>
   );
 }
 
@@ -374,68 +440,6 @@ function availability(ev: CalendarEvent): { text: string; tone: 'ok' | 'warn' | 
   if (ev.availableSpots === null) return null;
   if (ev.availableSpots === 0) return { text: ev.hasWaitingList ? 'Complet · liste d’attente' : 'Complet', tone: 'warn' };
   return { text: `${plural(ev.availableSpots, 'place')} libre${ev.availableSpots > 1 ? 's' : ''}`, tone: ev.availableSpots <= 2 ? 'warn' : 'muted' };
-}
-
-/** List / day card: big tap target, everything readable at arm's length. */
-function EventCard({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) {
-  const a = availability(ev);
-  const pct = ev.maxParticipants ? Math.min(100, Math.round((ev.registeredCount / ev.maxParticipants) * 100)) : null;
-  return (
-    <button
-      onClick={onClick}
-      data-event-card
-      className={`group relative w-full text-left flex items-stretch gap-4 card pl-5 pr-4 py-4 transition-colors overflow-hidden ${
-        ev.registered ? 'border-green/50' : 'hover:border-brand/40'
-      }`}
-    >
-      {/* Activity colour, as set by the club in VPDive */}
-      <span aria-hidden className="absolute inset-y-0 left-0 w-1.5" style={{ backgroundColor: ev.color }} />
-
-      <div className="w-14 shrink-0 flex flex-col items-center justify-center text-center">
-        <span className="text-lg font-semibold text-brand tabular-nums leading-none">{timeOf(ev)}</span>
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <p className="text-base font-semibold text-ink leading-snug">{ev.title}</p>
-
-        {(ev.activity || ev.location) && (
-          <p className="mt-1 text-sm text-muted flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
-            {ev.activity && <span className="capitalize">{ev.activity.name}</span>}
-            {ev.location && (
-              <span className="inline-flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5 shrink-0" />
-                {ev.location}
-              </span>
-            )}
-          </p>
-        )}
-
-        {(ev.registered || (pct !== null && a)) && (
-          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-            {ev.registered && (
-              <span className="inline-flex items-center gap-1 text-sm font-semibold text-ok bg-ok-soft px-2.5 py-0.5 rounded-md whitespace-nowrap">
-                <Check className="w-3.5 h-3.5" strokeWidth={3} />
-                Inscrit
-              </span>
-            )}
-            {pct !== null && a && (
-              <span className="inline-flex flex-wrap items-center gap-x-2.5 gap-y-1 min-w-0">
-                <span className="h-1.5 w-20 sm:w-32 shrink-0 rounded-full bg-tint overflow-hidden" aria-hidden>
-                  <span className={`block h-full rounded-full ${a.tone === 'warn' ? 'bg-warn' : 'bg-green'}`} style={{ width: `${pct}%` }} />
-                </span>
-                <span className="text-sm text-muted tabular-nums">
-                  {ev.registeredCount}/{ev.maxParticipants}
-                </span>
-                <span className={`text-sm ${a.tone === 'warn' ? 'text-warn font-semibold' : 'text-muted'}`}>{a.text}</span>
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      <ChevronRight className="hidden sm:block w-5 h-5 text-muted self-center shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:text-brand" />
-    </button>
-  );
 }
 
 function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) {
