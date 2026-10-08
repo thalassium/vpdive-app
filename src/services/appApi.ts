@@ -111,6 +111,9 @@ export const appApi = {
   /** checked : true coche, false décoche ; absent : met seulement le commentaire à jour. */
   setArbitrageCheck: (key: string, checked: boolean | undefined, comment = '') =>
     call<{ checks: Record<string, CaseCheck> }>('action=arbitrage_checks', { method: 'POST', body: { key, ...(checked !== undefined ? { checked } : {}), comment } }).then((r) => r.checks),
+  /** Journal des fiches VPDive écrites par les corrections rapides (avec la fiche d'avant). */
+  logMemberWrite: (w: { uct: string; name: string; kinds: string[]; ok: boolean; message: string; before: unknown }) =>
+    call<{ ok: true }>('action=member_writes', { method: 'POST', body: w }),
   docsIgnored: () => call<{ ignored: IgnoredDocs }>('action=docs_ignored').then((r) => r.ignored),
   setDocsIgnored: (uct: string, name: string, ignore: boolean) =>
     call<{ ignored: IgnoredDocs }>('action=docs_ignored', { method: 'POST', body: { uct, name, ignore } }).then((r) => r.ignored),

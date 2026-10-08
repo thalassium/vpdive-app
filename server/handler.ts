@@ -21,6 +21,9 @@
  *                                         mineur rattaché au compte d'un parent) ; uct null pour oublier
  *   GET  ?action=arbitrage_checks         admin : cas d'arbitrage vérifiés à la main
  *   POST ?action=arbitrage_checks {key, checked, comment}  admin : cocher / décocher, commenter
+ *   GET  ?action=member_writes            admin : journal des écritures de fiches VPDive (corrections rapides)
+ *   POST ?action=member_writes {uct, name, kinds, ok, message, before}  admin : une fiche écrite (ou refusée),
+ *                                         avec ce qu'elle contenait avant (pour revenir en arrière à la main)
  *
  * La messagerie n'est plus ici : l'appli lit et écrit directement celle de VPDive.
  *
@@ -46,6 +49,7 @@
  *   club:<id>:ffessm-brevets         export FFESSM des brevets déposé
  *   club:<id>:member-links           rapprochements choisis à la main
  *   club:<id>:arbitrage-checks       cas d'arbitrage vérifiés (qui, quand, commentaire)
+ *   club:<id>:member-writes          journal des écritures de fiches VPDive (les 300 dernières)
  *   club:<id>:brevet-map             correspondance des brevets
  *   app:helloasso-token              jeton HelloAsso en cours
  */
@@ -91,6 +95,18 @@ const ffessmKey = (c: Caller, kind: string) => `club:${c.clubId}:ffessm${kind ==
 const linksKey = (c: Caller) => `club:${c.clubId}:member-links`;
 const brevetMapKey = (c: Caller) => `club:${c.clubId}:brevet-map`;
 const checksKey = (c: Caller) => `club:${c.clubId}:arbitrage-checks`;
+const writesKey = (c: Caller) => `club:${c.clubId}:member-writes`;
+export interface MemberWrite {
+  uct: string;
+  name: string;
+  kinds: string[];
+  ok: boolean;
+  message: string;
+  /** Les blocs de la fiche avant l'écriture (licences, niveaux, saisons, assurance, statut). */
+  before: unknown;
+  by: string;
+  at: string;
+}
 export type ArbitrageChecks = Record<string, { by: string; at: string; comment: string }>;
 export type MemberLinks = Record<string, { uct: string; by: string; at: string; relation?: 'parent' }>;
 
@@ -351,6 +367,33 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
         if (Object.keys(checks).length > 2000) throw new HttpError(413, 'Trop de cas vérifiés.');
         await store.set(checksKey(caller), checks);
         return json({ checks });
+      }
+    }
+
+    // Corrections rapides écrites dans VPDive : qui, quand, quoi, et la fiche d'avant.
+    if (action === 'member_writes') {
+      if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
+      const writes = (await store.get<MemberWrite[]>(writesKey(caller))) ?? [];
+      if (request.method === 'GET') return json({ writes });
+      if (request.method === 'POST') {
+        const text = await request.text();
+        if (text.length > 60_000) throw new HttpError(413, 'Fiche trop grosse pour le journal.');
+        const body = parseBody(text) as Partial<Record<keyof MemberWrite, unknown>> | null;
+        const uct = String(body?.uct ?? '');
+        if (!/^[\w-]{20,80}$/.test(uct)) throw new HttpError(400, 'Membre inconnu.');
+        const kinds = Array.isArray(body?.kinds) ? body.kinds.map(String).filter((k) => /^[a-z-]{2,20}$/.test(k)).slice(0, 10) : [];
+        writes.push({
+          uct,
+          name: String(body?.name ?? '').slice(0, 120),
+          kinds,
+          ok: body?.ok === true,
+          message: String(body?.message ?? '').slice(0, 500),
+          before: body?.before ?? null,
+          by: caller.name || caller.email,
+          at: new Date().toISOString(),
+        });
+        await store.set(writesKey(caller), writes.slice(-300));
+        return json({ ok: true });
       }
     }
 

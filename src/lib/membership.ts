@@ -293,6 +293,41 @@ export function hasBrevet(levels: string[], brevet: string, map: BrevetMap = {})
   });
 }
 
+/** Un niveau du référentiel VPDive du club (/user/settings/capacities) : « l_125 », « t_3 »… */
+export interface Capacity {
+  group: string;
+  name: string;
+  id: string;
+}
+const isFfessmGroup = (group: string) => /f\.?f\.?e\.?s\.?s\.?m/i.test(group);
+
+/**
+ * Le niveau VPDive à cocher pour un brevet FFESSM, selon les mêmes règles que
+ * hasBrevet (table des admins, puis code, puis mots du brevet), en préférant
+ * les niveaux FFESSM. Null si aucun ou plusieurs possibles : à choisir dans la
+ * correspondance des brevets.
+ */
+export function brevetTarget(brevet: string, map: BrevetMap, catalog: Capacity[]): Capacity | null {
+  const unique = (found: Capacity[]) => {
+    const fed = found.filter((c) => isFfessmGroup(c.group));
+    const pool = fed.length ? fed : found;
+    return new Set(pool.map((c) => c.id)).size === 1 ? pool[0]! : null;
+  };
+  const chosen = map[brevet];
+  if (chosen?.length) {
+    // Plusieurs équivalences choisies : la première qui désigne un seul niveau.
+    for (const n of chosen) {
+      const hit = unique(catalog.filter((c) => levelName(c.name) === levelName(n)));
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const codes = brevetCodes(brevet);
+  if (codes.length) return unique(catalog.filter((c) => vpdiveCodes(c.name).some((x) => codes.includes(x))));
+  const words = plain(brevet).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !/^(plongeur|plongee|des|les)$/.test(w));
+  return words.length ? unique(catalog.filter((c) => words.every((w) => plain(c.name).includes(w)))) : null;
+}
+
 // ── Personnes de la saison (HelloAsso + FFESSM) ──────────────────
 
 export interface Person {
@@ -413,7 +448,7 @@ export function candidatesFor(p: Pick<Person, 'name'>, directory: VpMember[], ma
     .map((x) => x.m);
 }
 
-const flatLicence = (s: string) => s.replace(/[^a-z0-9]/gi, '').toUpperCase();
+export const flatLicence = (s: string) => s.replace(/[^a-z0-9]/gi, '').toUpperCase();
 const sameEmail = (a: string, b: string) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 
 /** Ce qui prouve que ce membre VPDive est bien la personne. */
@@ -536,7 +571,7 @@ const licenceTier = (tier: string) => {
   const m = /licence\s+ffessm\s+(\S+)/i.exec(tier);
   return m ? m[1]!.charAt(0).toUpperCase() + m[1]!.slice(1).toLowerCase() : 'Licence';
 };
-const isFfessmLicence = (l: { number: string; organization: string }) => /F\.?F\.?E\.?S\.?S\.?M/i.test(l.organization) || /^A-?\d{2}-?\d{5,}$/i.test(l.number.trim());
+export const isFfessmLicence = (l: { number: string; organization: string }) => /F\.?F\.?E\.?S\.?S\.?M/i.test(l.organization) || /^A-?\d{2}-?\d{5,}$/i.test(l.number.trim());
 
 /**
  * Licence FFESSM. Fait foi : HelloAsso (licence payée pour la saison). On

@@ -15,7 +15,8 @@
  */
 
 import { fromVpdive, type VpdiveQualif } from '../lib/vpdiveLevels';
-import type { VpRecord } from '../lib/membership';
+import type { Capacity, VpRecord } from '../lib/membership';
+import type { RawMember } from '../lib/memberWrite';
 
 const API_BASE = '/api/vpdive'; // Vite proxy → https://septentrion-env.vpdive.com/api
 const SESSION_KEY = 'vpdive_session';
@@ -1016,6 +1017,38 @@ class VpDiveClient {
     return Object.entries(res)
       .map(([group, v]) => ({ group, names: Object.keys(obj(v) ?? {}) }))
       .filter((g) => g.names.length > 0);
+  }
+
+  /** Référentiel des niveaux avec leurs identifiants (« l_125 »…), ceux qu'attend le bloc niveaux d'une fiche. */
+  async capacities(): Promise<Capacity[]> {
+    const res = await this.request('/user/settings/capacities');
+    const groups = obj(obj(res.data)?.capacities) ?? obj(res.capacities) ?? res;
+    return Object.entries(groups).flatMap(([group, v]) =>
+      Object.entries(obj(v) ?? {})
+        .filter(([, id]) => typeof id === 'string' && !!id)
+        .map(([name, id]) => ({ group, name, id: id as string })),
+    );
+  }
+
+  /** Fiche complète telle que l'écran d'édition VPDive la lit (GET /user/member/{uct}), pour la réécrire. */
+  async memberForm(uct: string): Promise<RawMember> {
+    const res = await this.request(`/user/member/${encodeURIComponent(uct)}`);
+    const u = obj(res.data);
+    if (!u) throw new VpDiveError('Fiche VPDive illisible.', 0);
+    return u as RawMember;
+  }
+
+  /** Envoie un bloc de la fiche (voir lib/memberWrite : un bloc par envoi). */
+  async updateMember(uct: string, entries: [string, string][]): Promise<void> {
+    const form = new FormData();
+    for (const [k, v] of entries) form.append(k, v);
+    await this.request(`/user/member/${encodeURIComponent(uct)}/update`, { method: 'POST', body: form });
+  }
+
+  /** Fait relire à VPDive une licence vérifiée FFESSM ; true si VPDive l'a mise à jour. */
+  async refreshFfessmLicence(uct: string, licenceId: number): Promise<boolean> {
+    const res = await this.request(`/user/licence/ffessm/refresh?user_licence_id=${licenceId}&uct_token=${encodeURIComponent(uct)}`, { method: 'POST' });
+    return res.applied === true || obj(res.data)?.applied === true;
   }
 
   /** Fiche d'un membre pour la gestion des adhésions : saisons, licences, assurance, statut Membre, e-mail, naissance. */

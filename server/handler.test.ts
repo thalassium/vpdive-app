@@ -322,4 +322,13 @@ test('arbitrage : case cochée par un admin (qui, quand, commentaire), commentai
   assert.equal((await handleWith(req('GET', 'action=arbitrage_checks'), deps(store, member))).status, 403);
   const link = await handleWith(req('POST', 'action=member_links', JSON.stringify({ key: 'ha:petit tom|2012-05-05', uct: OTHER, relation: 'parent' })), deps(store, admin));
   assert.equal(((await link.json()) as { links: Record<string, { relation?: string }> }).links['ha:petit tom|2012-05-05']?.relation, 'parent');
+  // Journal des écritures VPDive.
+  const write = (body: object) => handleWith(req('POST', 'action=member_writes', JSON.stringify(body)), deps(store, admin));
+  assert.equal((await write({ uct: OTHER, name: 'MARTIN Léa', kinds: ['season', 'DROP TABLE'], ok: true, message: 'écrit', before: { seasons: [2026] } })).status, 200);
+  assert.equal((await write({ uct: 'x', kinds: [] })).status, 400);
+  const log = (await (await handleWith(req('GET', 'action=member_writes'), deps(store, admin))).json()) as { writes: { kinds: string[]; by: string; before: unknown }[] };
+  assert.deepEqual(log.writes[0]?.kinds, ['season']);
+  assert.equal(log.writes[0]?.by, 'Sue Per');
+  assert.deepEqual(log.writes[0]?.before, { seasons: [2026] });
+  assert.equal((await handleWith(req('GET', 'action=member_writes'), deps(store, member))).status, 403);
 });
