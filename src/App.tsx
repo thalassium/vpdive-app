@@ -245,9 +245,9 @@ export default function App() {
               <Logo className="h-12 sm:h-14" />
             </a>
 
-            {/* Ordinateur et tablette : les onglets dans l'en-tête */}
+            {/* Ordinateur et tablette : les onglets dans l'en-tête, sauf Profil, déjà au menu du compte à droite */}
             <nav aria-label="Navigation" className="hidden sm:flex items-stretch self-stretch gap-1">
-              {TABS.map((t) => (
+              {TABS.filter((t) => t.id !== 'profil').map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -298,6 +298,7 @@ export default function App() {
                 email={session.email}
                 picture={picture}
                 role={realRole}
+                onProfile={() => goTo('profil')}
                 onViewAs={startViewAs}
                 onLogout={handleLogout}
                 onSessionLost={handleSessionLost}

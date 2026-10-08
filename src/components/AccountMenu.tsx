@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronDown, Eye, LogOut } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Eye, LogOut, UserRound } from 'lucide-react';
 import { Avatar } from './Avatar';
 import { vpdive, type MemberMatch } from '../services/vpdiveApi';
 import { appApi, type AppRole } from '../services/appApi';
@@ -21,17 +21,18 @@ interface Props {
   picture?: string;
   /** Rôle réel dans l'appli (pas celui qu'on simule). */
   role: AppRole;
+  onProfile: () => void;
   onViewAs: (pick: ViewAsPick) => void;
   onLogout: () => void;
   onSessionLost: (e: unknown) => boolean;
 }
 
 /**
- * Le compte, en haut à droite : photo et nom ; au clic, qui l'on est,
- * « Voir en tant que » pour un super-admin, et la déconnexion. Les écrans
- * d'administration sont dans le menu « Admin » de l'en-tête.
+ * Le compte, en haut à droite : photo et nom ; au clic, qui l'on est, le
+ * profil, « Voir en tant que » pour un super-admin, et la déconnexion. Les
+ * écrans d'administration sont dans le menu « Admin » de l'en-tête.
  */
-export function AccountMenu({ name, email, picture, role, onViewAs, onLogout, onSessionLost }: Props) {
+export function AccountMenu({ name, email, picture, role, onProfile, onViewAs, onLogout, onSessionLost }: Props) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'main' | 'viewAs'>('main');
   const box = useRef<HTMLDivElement>(null);
@@ -87,13 +88,22 @@ export function AccountMenu({ name, email, picture, role, onViewAs, onLogout, on
                 </span>
                 <span className="ml-auto shrink-0 rounded-md bg-tint text-brand text-xs font-semibold px-1.5 py-0.5">{ROLE_LABEL[role]}</span>
               </div>
-              {role === 'superadmin' && (
-                <div className="py-1 border-b border-line">
+              <div className="py-1 border-b border-line">
+                <MenuItem
+                  icon={<UserRound className="w-4 h-4" />}
+                  onClick={() => {
+                    close();
+                    onProfile();
+                  }}
+                >
+                  Mon profil
+                </MenuItem>
+                {role === 'superadmin' && (
                   <MenuItem icon={<Eye className="w-4 h-4" />} onClick={() => setView('viewAs')}>
                     Voir en tant que…
                   </MenuItem>
-                </div>
-              )}
+                )}
+              </div>
               <div className="py-1">
                 <MenuItem icon={<LogOut className="w-4 h-4" />} danger onClick={onLogout}>
                   Se déconnecter
