@@ -4,7 +4,7 @@
  * ressourcedev/Fiche-securite-plongee.xlsx. Enregistrée sur le serveur de
  * l'appli (server/handler.ts), partagée entre les admins et le DP de la sortie.
  */
-import type { Plan } from './palanquees';
+import type { Diver, Plan } from './palanquees';
 import type { DiverSettings } from './palanqueeEdit';
 import { DP_ROLE, SURFACE_ROLES, type CalendarEvent, type RosterEntry } from '../services/vpdiveApi';
 
@@ -194,6 +194,65 @@ export function nextDive(doc: OutingDoc): Dive {
     validated: null,
     sheets: {},
     gas: prev ? { ...prev.gas } : {},
+  };
+}
+
+/**
+ * Rapproche une sortie enregistrée de la liste des inscrits du jour. Ceux qui se
+ * sont désinscrits (ou passés en liste d'attente) sortent des palanquées, des
+ * non-placés, des rôles, des postes de bénévoles et des gaz. Une palanquée qui
+ * perd son encadrant garde ses plongeurs, désormais sans encadrant (« À
+ * revoir ») ; une palanquée vidée disparaît. Une plongée validée dont la
+ * composition change est dévalidée : sa fiche de sécurité n'est plus juste.
+ * `departed` : les noms retirés d'une composition, pour le dire au DP.
+ */
+export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: OutingDoc; departed: string[] } {
+  const present = new Set(dayParticipants(roster).map((r) => r.id));
+  const gone = new Map<string, string>();
+  const keep = <T extends Diver | null>(d: T): T => {
+    if (d && !present.has(d.id)) {
+      gone.set(d.id, d.name);
+      return null as T;
+    }
+    return d;
+  };
+  const onlyPresent = (ids: string[] | undefined) => ids?.filter((id) => present.has(id));
+
+  const dives = doc.dives.map((dive) => {
+    const gas = Object.fromEntries(Object.entries(dive.gas).filter(([id]) => present.has(id)));
+    if (!dive.plan) return Object.keys(gas).length === Object.keys(dive.gas).length ? dive : { ...dive, gas };
+    const before = gone.size;
+    const palanquees = dive.plan.palanquees
+      .map((p) => ({ ...p, guide: keep(p.guide), extra: keep(p.extra), members: p.members.filter((m) => keep(m) !== null) }))
+      .filter((p) => p.guide || p.extra || p.members.length > 0);
+    const unassigned = dive.plan.unassigned.filter((u) => keep(u.diver) !== null);
+    const changed = gone.size > before || palanquees.length !== dive.plan.palanquees.length;
+    if (!changed) return Object.keys(gas).length === Object.keys(dive.gas).length ? dive : { ...dive, gas };
+    const kept = new Set(palanquees.map((p) => p.id));
+    const sheets = Object.fromEntries(Object.entries(dive.sheets).filter(([id]) => kept.has(id)));
+    return { ...dive, plan: { palanquees, unassigned }, validated: null, sheets, gas };
+  });
+
+  const roles: Roles = {};
+  for (const { id } of DIVE_ROLES) {
+    const ids = onlyPresent(doc.roles?.[id]);
+    if (ids?.length) roles[id] = ids;
+  }
+  const volunteers: Volunteers = {};
+  for (const { id } of VOLUNTEER_POSTS) {
+    const ids = onlyPresent(doc.volunteers?.[id]);
+    if (ids?.length) volunteers[id] = ids;
+  }
+
+  return {
+    doc: {
+      ...doc,
+      settings: { ...doc.settings, excluded: doc.settings.excluded.filter((id) => present.has(id)) },
+      dives,
+      ...(doc.roles ? { roles } : {}),
+      ...(doc.volunteers ? { volunteers } : {}),
+    },
+    departed: [...new Set(gone.values())],
   };
 }
 

@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { vpdive, ymd, DP_ROLE, type CalendarEvent, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import { appApi, AppApiError, type AppRole } from '../../services/appApi';
-import { headerFromRoles, newOuting, nextDive, type Dive, type OutingDoc } from '../../lib/outing';
+import { headerFromRoles, newOuting, nextDive, syncWithRoster, type Dive, type OutingDoc } from '../../lib/outing';
 import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
 import { ThemeToggle } from '../ThemeToggle';
+import { useDialog } from '../../hooks/useDialog';
 
 interface Props {
   session: Session;
@@ -32,7 +33,8 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [selected, setSelected] = useState<CalendarEvent | null>(initialEvent ?? null);
-  const closeRef = useRef<() => Promise<void>>(async () => {});
+  /** Enregistre ce qui reste et dit si tout est bien enregistré. */
+  const closeRef = useRef<() => Promise<boolean>>(async () => true);
 
   const loadList = useCallback(async () => {
     setListError(null);
@@ -46,10 +48,15 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
       if (role === 'member' && dpEvents) {
         list = list.filter((e) => dpEvents.includes(e.token));
       } else if (role === 'member') {
-        // Pas admin : seulement les sorties où l'on est inscrit comme DP.
+        // Pas admin : seulement les sorties où l'on est inscrit comme DP, listes lues une à une avec une pause (le pare-feu VPDive bloque les rafales).
         const mine = list.filter((e) => e.registered);
-        const rosters = await Promise.all(mine.map((e) => vpdive.fetchRoster(e.token).catch(() => [] as RosterEntry[])));
-        list = mine.filter((_, i) => rosters[i]!.some((r) => r.id === String(session.userId) && r.roles.some((x) => DP_ROLE.test(x))));
+        const dp: CalendarEvent[] = [];
+        for (const e of mine) {
+          const roster = await vpdive.fetchRoster(e.token).catch(() => [] as RosterEntry[]);
+          if (roster.some((r) => r.id === String(session.userId) && r.roles.some((x) => DP_ROLE.test(x)))) dp.push(e);
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        list = dp;
       }
       setEvents(list);
     } catch (e) {
@@ -63,20 +70,13 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
   }, [loadList]);
 
   const close = useCallback(async () => {
-    await closeRef.current();
+    const saved = await closeRef.current();
+    if (!saved && !window.confirm('Des modifications ne sont pas enregistrées. Fermer quand même ?')) return;
     onClose();
   }, [onClose]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [close]);
+  // Échap, bouton Retour, focus et verrou de défilement : hooks/useDialog.
+  const { ref: dialogRef } = useDialog({ onClose: () => void close(), label: 'dp' });
 
   // Aujourd'hui et à venir d'abord (la plus proche en tête), puis les passées, la plus récente d'abord.
   const { upcoming, past } = useMemo(() => {
@@ -91,6 +91,7 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
   return (
     <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade print:static print:bg-white print:p-0">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="dp-title"
@@ -226,7 +227,7 @@ function OutingWorkspace({
 }: {
   event: CalendarEvent;
   session: Session;
-  closeRef: React.RefObject<() => Promise<void>>;
+  closeRef: React.RefObject<() => Promise<boolean>>;
   onSessionLost: (e: unknown) => boolean;
 }) {
   const [roster, setRoster] = useState<RosterEntry[] | null>(null);
@@ -238,6 +239,9 @@ function OutingWorkspace({
   const [view, setView] = useState<'dive' | 'benevoles'>('dive');
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [conflict, setConflict] = useState<OutingDoc | null>(null);
+  /** Désinscrits depuis la dernière composition, retirés au chargement ; à dire au DP. */
+  const [departed, setDeparted] = useState<string[]>([]);
+  const [needsSave, setNeedsSave] = useState(false);
 
   const docRef = useRef<OutingDoc | null>(null);
   const revRef = useRef(0);
@@ -249,11 +253,15 @@ function OutingWorkspace({
     setLoadError(null);
     try {
       const [r, saved] = await Promise.all([vpdive.fetchRoster(event.token), appApi.getOuting(event.token)]);
-      const d = saved ?? newOuting(event, r, session.clubName);
+      // Une composition enregistrée est rapprochée des inscrits du jour : les désinscrits en sortent.
+      const sync = saved ? syncWithRoster(saved, r) : null;
+      const d = sync?.doc ?? newOuting(event, r, session.clubName);
       revRef.current = saved?.rev ?? 0;
       docRef.current = d;
       setRoster(r);
       setDoc(d);
+      setDeparted(sync?.departed ?? []);
+      if (sync?.departed.length) setNeedsSave(true);
       setDiveId(d.dives[0]?.id ?? null);
       setView('dive');
       setTab(d.dives[0]?.validated ? 'fiche' : 'palanquees');
@@ -304,11 +312,31 @@ function OutingWorkspace({
 
   // En fermant ou en changeant de sortie, ce qui n'est pas encore parti est enregistré.
   useEffect(() => {
-    closeRef.current = flush;
+    closeRef.current = async () => {
+      await flush();
+      return saveStateRef.current === 'saved';
+    };
     return () => {
       void flush();
     };
   }, [flush, closeRef]);
+
+  // Composition modifiée au chargement (désinscrits retirés) : à enregistrer comme une saisie.
+  useEffect(() => {
+    if (!needsSave) return;
+    setNeedsSave(false);
+    setSave('pending');
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => void flush(), 1000);
+  }, [needsSave, flush]);
+
+  // Fermer l'onglet avec des modifications en attente : le navigateur demande confirmation.
+  useEffect(() => {
+    if (saveState === 'saved') return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [saveState]);
 
   const update = (fn: (d: OutingDoc) => OutingDoc) => {
     const current = docRef.current;
@@ -373,6 +401,18 @@ function OutingWorkspace({
             className="btn btn-quiet h-9 text-sm border-warn/40 text-warn"
           >
             Charger sa version
+          </button>
+        </div>
+      )}
+
+      {departed.length > 0 && (
+        <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <span className="flex-1 min-w-0">
+            {departed.length > 1 ? 'Désinscrits' : 'Désinscrit'} depuis la composition : {departed.join(', ')}. {departed.length > 1 ? 'Retirés' : 'Retiré'} des palanquées, à revoir.
+          </span>
+          <button type="button" onClick={() => setDeparted([])} aria-label="Fermer" className="icon-btn w-9 h-9">
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}
