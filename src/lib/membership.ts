@@ -678,14 +678,15 @@ export interface Fix {
 }
 
 /**
- * Année de l'assurance à noter dans VPDive : l'année civile en cours, sans
- * dépasser la saison (VPDive refuse une année future : essayé le 9 octobre
- * 2026). Pour 2026/2027 : 2026 jusqu'en décembre, 2027 à partir de janvier.
+ * Année de l'assurance dans VPDive : la saison notée par son année de DÉBUT
+ * (2026 = 2026/2027, affichée ainsi dans VPDive), à l'inverse des saisons
+ * d'adhésion (années de fin). VPDive refuse 2027 en octobre 2026.
  */
-export const insuranceYearFor = (season: number, today: string) => Math.min(season, Number(today.slice(0, 4)));
+export const insuranceYearFor = (season: number) => season - 1;
+const insuranceSeason = (year: number) => `${year}/${year + 1}`;
 
 /** Les corrections rapides d'une personne (aucune si elle n'est pas reconnue avec certitude). */
-export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: number, lacking: string[] = [], today = new Date().toISOString().slice(0, 10)): Fix[] {
+export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: number, lacking: string[] = []): Fix[] {
   if (match.status !== 'sure' || !r) return [];
   const out: Fix[] = [];
   const label = seasonLabel(season);
@@ -710,9 +711,9 @@ export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: 
   const wanted = p.ffessm ? vpdiveInsurance(p.ffessm.insurance) : null;
   // Une autre assurance (DAN…) notée dans VPDive (« Autre ») reste : on ne remplace que vide ou FFESSM.
   const replaceable = !r.insurance || /loisir|piscine/i.test(r.insurance);
-  const year = insuranceYearFor(season, today);
+  const year = insuranceYearFor(season);
   if (wanted && replaceable && (r.insurance !== wanted || r.insuranceYear !== year)) {
-    out.push({ kind: 'insurance', before: r.insurance ? `${r.insurance}${r.insuranceYear ? ` (${r.insuranceYear})` : ''}` : 'aucune', after: `${wanted} (${year})`, insurance: wanted, insuranceYear: year });
+    out.push({ kind: 'insurance', before: r.insurance ? `${r.insurance}${r.insuranceYear ? ` (${insuranceSeason(r.insuranceYear)})` : ''}` : 'aucune', after: `${wanted} (${insuranceSeason(year)})`, insurance: wanted, insuranceYear: year });
   }
   if (lacking.length) out.push({ kind: 'brevets', before: r.levels.length ? `${r.levels.length} niveau${r.levels.length > 1 ? 'x' : ''}` : 'aucun niveau', after: `+ ${lacking.join(', ')}`, brevets: lacking });
   return out;

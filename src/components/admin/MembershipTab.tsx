@@ -98,7 +98,7 @@ const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
   season: { title: `Saison d’adhésion à ajouter`, help: 'Adhésion payée sur HelloAsso (geste d’août compris), saison absente de la fiche VPDive.' },
   licence: { title: 'Licence FFESSM : date de fin à mettre à jour', help: 'Même numéro, date ancienne. VPDive relit la FFESSM si la licence est vérifiée, sinon la date est saisie.' },
   'licence-add': { title: 'Licence FFESSM à ajouter', help: 'Licence prise par le club (export Mon Club), absente de la fiche VPDive.' },
-  insurance: { title: 'Assurance à reporter', help: 'Assurance FFESSM (export Mon Club) écrite dans la liste VPDive, avec l’année en cours (VPDive refuse une année future). Une autre assurance (DAN…) n’est pas remplacée.' },
+  insurance: { title: 'Assurance à reporter', help: 'Assurance FFESSM (export Mon Club) écrite dans la liste VPDive, avec la saison. Une autre assurance (DAN…) n’est pas remplacée.' },
   brevets: { title: 'Brevets à ajouter', help: 'Brevets délivrés par la FFESSM (export des brevets), absents des niveaux de la fiche VPDive.' },
 };
 const CASE_TITLE: Record<CaseKind, string> = {
