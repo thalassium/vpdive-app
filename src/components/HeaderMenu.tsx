@@ -10,7 +10,8 @@ export interface HeaderMenuItem {
 
 /**
  * Menu de l'en-tête (« Gestion sortie », « Admin ») : une icône, le libellé à
- * partir du grand écran, et la liste de ses écrans au clic.
+ * partir du grand écran, et la liste de ses écrans au clic. En rose, la couleur
+ * des écrans réservés à l'encadrement.
  */
 export function HeaderMenu({ icon, label, items }: { icon: ReactNode; label: string; items: HeaderMenuItem[] }) {
   const [open, setOpen] = useState(false);
@@ -44,14 +45,14 @@ export function HeaderMenu({ icon, label, items }: { icon: ReactNode; label: str
         aria-expanded={open}
         aria-label={label}
         title={label}
-        className={`btn btn-quiet h-9 px-2.5 text-sm ${open ? 'bg-raised' : ''}`}
+        className={`inline-flex items-center gap-2 h-9 px-2.5 rounded-lg bg-pink text-on-pink text-sm font-semibold transition-[filter] hover:brightness-95 ${open ? 'brightness-90' : ''}`}
       >
         {icon}
         <span className="hidden lg:inline">{label}</span>
-        <ChevronDown aria-hidden className="hidden lg:block w-4 h-4 text-muted" />
+        <ChevronDown aria-hidden className="hidden lg:block w-4 h-4" />
       </button>
       {open && (
-        <div role="menu" className="absolute right-0 top-full mt-2 w-[min(17rem,calc(100vw-2rem))] panel border border-field-border z-40 animate-fade overflow-hidden py-1">
+        <div role="menu" className="absolute right-0 top-full mt-2 w-[min(17rem,calc(100vw-2rem))] panel border border-field-border border-t-[3px] border-t-pink z-40 animate-fade overflow-hidden py-1">
           <p className="label px-4 pt-1.5 pb-1">{label}</p>
           {items.map((it) => (
             <button
