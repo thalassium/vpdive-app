@@ -57,7 +57,66 @@ export interface OutingDoc {
   volunteers?: Volunteers;
   /** DP, pilote, sécurité surface : id de rôle → inscrits. Absent sur les sorties enregistrées avant. */
   roles?: Roles;
+  /** Plongeurs hors VPDive ajoutés par le DP (baptêmes, invités…). */
+  guests?: Guest[];
+  /** Inscrits que le DP a désinscrits de VPDive depuis cet écran : affichés barrés. */
+  unregistered?: Unregistered[];
 }
+
+export interface Guest {
+  /** « ext-… » : jamais un identifiant VPDive. */
+  id: string;
+  firstname: string;
+  lastname: string;
+  baptism: boolean;
+  comment: string;
+}
+
+export interface Unregistered {
+  id: string;
+  name: string;
+  /** Rangé avec les encadrants ou avec les plongeurs. */
+  instructor: boolean;
+  by: string;
+  at: string;
+}
+
+/** Nouveau plongeur hors VPDive ; null sans prénom ni nom. */
+export function newGuest(input: Omit<Guest, 'id'>, id = `ext-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`): Guest | null {
+  const firstname = input.firstname.trim();
+  const lastname = input.lastname.trim();
+  if (!firstname && !lastname) return null;
+  return { id, firstname, lastname, baptism: input.baptism, comment: input.comment.trim() };
+}
+
+/** Le plongeur hors VPDive tel que l'écran DP lit un inscrit ; un baptême part débutant. */
+export function guestEntry(g: Guest): RosterEntry {
+  return {
+    id: g.id,
+    name: `${g.lastname.toUpperCase()} ${g.firstname}`.trim(),
+    firstname: g.firstname,
+    lastname: g.lastname,
+    levels: g.baptism ? ['Baptême'] : [],
+    display: g.baptism ? ['Baptême'] : [],
+    training: [],
+    roles: [],
+    age: null,
+    waitingList: false,
+    comment: g.comment,
+    medical: { until: null, valid: false },
+    outside: true,
+  };
+}
+
+/** Les inscrits VPDive, plus les plongeurs hors VPDive de la sortie. */
+export function withGuests(roster: RosterEntry[], doc: Pick<OutingDoc, 'guests'> | null): RosterEntry[] {
+  const guests = doc?.guests ?? [];
+  return guests.length ? [...roster, ...guests.map(guestEntry)] : roster;
+}
+
+/** Désinscrits depuis cet écran qui ne sont pas revenus dans la liste VPDive. */
+export const stillUnregistered = (doc: Pick<OutingDoc, 'unregistered'>, roster: RosterEntry[]) =>
+  (doc.unregistered ?? []).filter((u) => !roster.some((r) => r.id === u.id));
 
 /**
  * Rôles de la sortie, à part des bénévoles : chacun est tenu par un inscrit,

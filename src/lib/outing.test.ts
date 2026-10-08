@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayParticipants, defaultRoles, headerFromRoles, normalizeOuting, postsByPerson, rolesOf, setVolunteer, syncWithRoster, toggleRole, type OutingDoc, type Volunteers } from './outing';
+import { dayParticipants, defaultRoles, guestEntry, headerFromRoles, newGuest, normalizeOuting, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
 import { aptitudesFromLabels, type Diver } from './palanquees';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -132,4 +132,17 @@ test('fiche : lieu pré-rempli avec le titre effacé, accompagnants ajouté ; si
   assert.equal(fixed.header.accompagnants, '');
   const kept = { ...outing(), header: { ...outing().header, lieu: 'Grand Congloué' } };
   assert.equal(normalizeOuting(kept, { title: 'Sortie club' }), kept);
+});
+
+test('plongeurs hors VPDive : entrée de liste, baptême débutant, retirés avec la liste', () => {
+  assert.equal(newGuest({ firstname: ' ', lastname: '', baptism: false, comment: '' }), null);
+  const g = newGuest({ firstname: ' Léa ', lastname: 'Martin', baptism: true, comment: ' amie de Paul ' }, 'ext-1')!;
+  assert.deepEqual(g, { id: 'ext-1', firstname: 'Léa', lastname: 'Martin', baptism: true, comment: 'amie de Paul' });
+  const e = guestEntry(g);
+  assert.equal(e.name, 'MARTIN Léa');
+  assert.equal(e.outside, true);
+  assert.ok(aptitudesFromLabels(e.levels).beginner, 'un baptême plonge comme débutant');
+  assert.deepEqual(withGuests([], { guests: [g] }).map((r) => r.id), ['ext-1']);
+  assert.deepEqual(stillUnregistered({ unregistered: [{ id: 'x', name: 'X', instructor: false, by: 'DP', at: '' }] }, [e]).map((u) => u.id), ['x']);
+  assert.deepEqual(stillUnregistered({ unregistered: [{ id: 'ext-1', name: 'X', instructor: false, by: 'DP', at: '' }] }, [e]), [], 'revenu dans la liste : plus barré');
 });

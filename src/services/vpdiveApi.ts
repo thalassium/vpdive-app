@@ -204,6 +204,8 @@ export interface RosterEntry {
   material?: string[];
   /** Licences : numéro (FFESSM : « A-26-123456 »), fin de validité (AAAA-MM-JJ), validée par le club. */
   licences?: { number: string; until: string | null; valid: boolean }[];
+  /** Plongeur hors VPDive, ajouté par le DP dans l'appli (lib/outing.ts, `guests`). */
+  outside?: true;
 }
 
 /** Membre de l'équipe d'une sortie (DP, pilote, encadrant) qui n'est pas dans la liste des inscrits. */
@@ -819,6 +821,12 @@ class VpDiveClient {
 
   async unregister(eventToken: string): Promise<void> {
     await this.request(`/calendar/unregistered/${eventToken}`);
+  }
+
+  /** Désinscrit un autre inscrit (admin, DP) : même route, avec son identifiant VPDive. VPDive peut refuser (403). */
+  async unregisterMember(eventToken: string, userId: string): Promise<void> {
+    const res = await this.request(`/calendar/unregistered/${encodeURIComponent(eventToken)}/${encodeURIComponent(userId)}`);
+    if (res.success === false || res.error) throw new VpDiveError(str(res.message) || str(res.error) || 'VPDive a refusé la désinscription.', 0);
   }
 
   // ── Members ────────────────────────────────────────────────────

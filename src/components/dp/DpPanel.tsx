@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { vpdive, ymd, DP_ROLE, type CalendarEvent, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import { appApi, AppApiError, type AppRole } from '../../services/appApi';
-import { headerFromRoles, newOuting, nextDive, normalizeOuting, syncWithRoster, type Dive, type OutingDoc } from '../../lib/outing';
+import { headerFromRoles, newOuting, nextDive, normalizeOuting, syncWithRoster, withGuests, type Dive, type OutingDoc } from '../../lib/outing';
 import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
@@ -254,7 +254,7 @@ function OutingWorkspace({
     try {
       const [r, saved] = await Promise.all([vpdive.fetchRoster(event.token), appApi.getOuting(event.token)]);
       // Une composition enregistrée est rapprochée des inscrits du jour : les désinscrits en sortent.
-      const sync = saved ? syncWithRoster(normalizeOuting(saved, event), r) : null;
+      const sync = saved ? syncWithRoster(normalizeOuting(saved, event), withGuests(r, saved)) : null;
       const d = sync?.doc ?? newOuting(event, r, session.clubName);
       revRef.current = saved?.rev ?? 0;
       docRef.current = d;
@@ -343,7 +343,7 @@ function OutingWorkspace({
     if (!current || saveStateRef.current === 'conflict') return;
     // Contrôle continu : un plongeur décoché de « Qui plonge ? » quitte aussitôt les palanquées.
     const changed = fn(current);
-    const next = roster ? syncWithRoster(changed, roster).doc : changed;
+    const next = roster ? syncWithRoster(changed, withGuests(roster, changed)).doc : changed;
     docRef.current = next;
     setDoc(next);
     setSave('pending');
@@ -352,6 +352,25 @@ function OutingWorkspace({
   };
 
   const updateDive = (fn: (d: Dive) => Dive) => update((d) => ({ ...d, dives: d.dives.map((x) => (x.id === diveId ? fn(x) : x)) }));
+
+  /** Inscrits VPDive et plongeurs hors VPDive : tout l'écran les traite pareil. */
+  const guests = doc?.guests;
+  const people = useMemo(() => (roster ? withGuests(roster, { guests }) : null), [roster, guests]);
+
+  /**
+   * Désinscrit quelqu'un de la sortie sur VPDive, puis relit la liste pour s'en
+   * assurer. Il reste affiché barré (`unregistered`) tant qu'il ne s'est pas réinscrit.
+   */
+  const unregister = async (person: { id: string; name: string; instructor: boolean }) => {
+    await vpdive.unregisterMember(event.token, person.id);
+    const fresh = await vpdive.fetchRoster(event.token);
+    if (fresh.some((r) => r.id === person.id)) throw new Error(`VPDive n’a pas désinscrit ${person.name}.`);
+    setRoster(fresh);
+    update((d) => ({
+      ...d,
+      unregistered: [...(d.unregistered ?? []).filter((u) => u.id !== person.id), { ...person, by: me, at: new Date().toISOString() }],
+    }));
+  };
 
   if (loadError) {
     return (
@@ -367,7 +386,7 @@ function OutingWorkspace({
       </div>
     );
   }
-  if (!doc || !roster) return <p className="m-auto p-8 text-muted">Chargement de la sortie…</p>;
+  if (!doc || !roster || !people) return <p className="m-auto p-8 text-muted">Chargement de la sortie…</p>;
 
   const dive = doc.dives.find((d) => d.id === diveId) ?? doc.dives[0]!;
 
@@ -379,6 +398,7 @@ function OutingWorkspace({
           <p className="text-sm text-muted first-letter:uppercase">
             {new Date(event.start).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
             {event.location && ` · ${event.location}`} · {roster.length} inscrit{roster.length > 1 ? 's' : ''}
+            {people.length > roster.length && ` · ${people.length - roster.length} hors VPDive`}
           </p>
         </div>
         <SaveBadge state={saveState} doc={doc} onRetry={() => void flush()} />
@@ -475,7 +495,7 @@ function OutingWorkspace({
 
       {view === 'benevoles' ? (
         <VolunteersPanel
-          roster={roster}
+          roster={people}
           volunteers={doc.volunteers ?? {}}
           onChange={(volunteers) => update((d) => ({ ...d, volunteers }))}
         />
@@ -494,18 +514,20 @@ function OutingWorkspace({
         {tab === 'palanquees' || !dive.validated || !dive.plan ? (
           <PalanqueesEditor
             title={event.title}
-            roster={roster}
+            roster={people}
             doc={doc}
             dive={dive}
             onSettings={(settings) => update((d) => ({ ...d, settings }))}
             // Le rôle changé remplit son champ de l'en-tête de la fiche ; les deux autres gardent ce qui y est écrit (pilote extérieur…).
-            onRoles={(roles, role) => update((d) => ({ ...d, roles, header: { ...d.header, ...headerFromRoles(roster, roles, role) } }))}
+            onRoles={(roles, role) => update((d) => ({ ...d, roles, header: { ...d.header, ...headerFromRoles(people, roles, role) } }))}
             onPlan={(plan) => updateDive((d) => ({ ...d, plan }))}
             onValidate={() => {
               updateDive((d) => ({ ...d, validated: { by: me, at: new Date().toISOString() } }));
               setTab('fiche');
             }}
             onReopen={() => updateDive((d) => ({ ...d, validated: null }))}
+            onGuests={(list) => update((d) => ({ ...d, guests: list }))}
+            onUnregister={unregister}
           />
         ) : (
           <SafetySheet

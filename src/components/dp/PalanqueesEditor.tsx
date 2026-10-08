@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Lock, Pencil, Plus, Share2, ShieldCheck, Sparkles, Star, Trash2, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Loader2, Lock, Pencil, Plus, RotateCcw, Share2, ShieldCheck, Sparkles, Star, Trash2, UserMinus, UserPlus, UserX, X } from 'lucide-react';
 import type { RosterEntry } from '../../services/vpdiveApi';
 import { Avatar } from '../Avatar';
 import {
@@ -46,7 +46,7 @@ import {
   setType,
   trainingMenuFor,
 } from '../../lib/palanqueeEdit';
-import { DIVE_ROLES, dayParticipants, defaultRoles, rolesOf, toggleRole, type Dive, type DiveRole, type OutingDoc, type Roles } from '../../lib/outing';
+import { DIVE_ROLES, dayParticipants, defaultRoles, newGuest, rolesOf, stillUnregistered, toggleRole, type Dive, type DiveRole, type Guest, type OutingDoc, type Roles, type Unregistered } from '../../lib/outing';
 import { Menu } from '../Menu';
 
 interface Props {
@@ -60,6 +60,10 @@ interface Props {
   onPlan: (plan: Plan) => void;
   onValidate: () => void;
   onReopen: () => void;
+  /** Plongeurs hors VPDive de la sortie. */
+  onGuests: (guests: Guest[]) => void;
+  /** Désinscrit de VPDive ; rejette avec le message à afficher. */
+  onUnregister: (person: { id: string; name: string; instructor: boolean }) => Promise<void>;
 }
 
 const TYPES: PalanqueeType[] = ['exploration', 'teaching'];
@@ -104,7 +108,7 @@ function RoleBadges({ id }: { id: string }) {
  * palanquées : générées ou composées à la main, puis validées, ce qui fige la
  * composition et débloque la fiche de sécurité, où se fixent les profondeurs.
  */
-export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles, onPlan, onValidate, onReopen }: Props) {
+export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles, onPlan, onValidate, onReopen, onGuests, onUnregister }: Props) {
   const [copied, setCopied] = useState(false);
   const settings = doc.settings;
   const excluded = useMemo(() => new Set(settings.excluded), [settings.excluded]);
@@ -205,11 +209,12 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
     const instructor = isInstructor(d);
     const setLevel = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'levels', d.id, v) });
     const setTraining = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) });
-    // Sous le nom : mineur, liste d'attente, et le niveau tel que VPDive l'écrit (P2, PADI - AOW…).
-    const below = [d.minor && 'mineur', r.waitingList && 'liste d’attente', r.display.join(', ')].filter(Boolean).join(' · ');
+    // Sous le nom : mineur, liste d'attente, hors VPDive et son commentaire, et le niveau tel que VPDive l'écrit (P2, PADI - AOW…).
+    const below = [d.minor && 'mineur', r.waitingList && 'liste d’attente', r.outside && 'hors VPDive', r.display.join(', '), r.outside && r.comment].filter(Boolean).join(' · ');
     const hasRoles = (roleMap.get(d.id)?.length ?? 0) > 0;
     return (
-      <li key={d.id} className={`flex items-center gap-1.5 px-3 sm:px-3.5 py-2 ${out ? 'opacity-50' : ''}`}>
+      <li key={d.id} className="flex flex-wrap items-center gap-x-1.5 px-3 sm:px-3.5 py-2">
+        <div className={`flex items-center gap-1.5 w-full ${out ? 'opacity-50' : ''}`}>
         <label className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer">
           <input
             type="checkbox"
@@ -277,8 +282,32 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
           ]}
         />
         )}
+        </div>
+        {/* Décoché : on peut le désinscrire de VPDive. Hors VPDive : on peut le retirer. */}
+        {r.outside ? (
+          <div className="basis-full pl-[1.875rem] pt-1">
+            <button
+              type="button"
+              onClick={() => window.confirm(`Retirer ${d.name} de la sortie ?`) && onGuests((doc.guests ?? []).filter((g) => g.id !== d.id))}
+              className="btn btn-quiet h-8 px-2.5 text-sm hover:text-danger"
+            >
+              <Trash2 className="w-4 h-4" /> Retirer
+            </button>
+          </div>
+        ) : (
+          out && <UnregisterAction name={d.name} onConfirm={() => onUnregister({ id: d.id, name: d.name, instructor: isInstructor(d) })} />
+        )}
       </li>
     );
+  };
+
+  // Désinscrits depuis cet écran : barrés, à leur place (encadrants ou plongeurs).
+  const gone = stillUnregistered(doc, roster);
+  const goneRows = (instructor: boolean) => gone.filter((u) => u.instructor === instructor).map((u) => <UnregisteredRow key={u.id} u={u} />);
+  const hasChoices = Object.keys(settings.levels ?? {}).length + Object.keys(settings.training ?? {}).length > 0;
+  const reset = () => {
+    if (!window.confirm('Réinitialiser les aptitudes et formations choisies ? Chacun revient à ce que dit VPDive.')) return;
+    onSettings({ ...settings, levels: {}, training: {} });
   };
 
   return (
@@ -302,21 +331,31 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
       {/* 1. Qui plonge : encadrants du plus haut au plus bas, puis plongeurs ; validé par le DP avant les palanquées */}
       {!locked && !rosterOk && (
         <section>
-          <Heading n={1} hint={`${diving.length} à l’eau sur ${roster.length} inscrit${roster.length > 1 ? 's' : ''}`}>
+          <Heading n={1} hint={`${diving.length} à l’eau sur ${roster.length}`}>
             Qui plonge ?
           </Heading>
-          {roster.length === 0 ? (
+          {hasChoices && (
+            <div className="-mt-1 mb-3">
+              <ActionButton onClick={reset} icon={<RotateCcw className="w-4 h-4" />} title="Aptitudes et formations reviennent à celles de VPDive">
+                Réinitialiser
+              </ActionButton>
+            </div>
+          )}
+          {roster.length === 0 && gone.length === 0 ? (
             <p className="text-muted">Personne n’est encore inscrit à cette sortie.</p>
           ) : (
             <div className="space-y-4">
               <RosterGroup title="Encadrants" count={divers.filter(isInstructor).length} training={false}>
                 {divers.filter(isInstructor).sort(byRank).map(rosterRow)}
+                {goneRows(true)}
               </RosterGroup>
               <RosterGroup title="Plongeurs" count={divers.filter((d) => !isInstructor(d)).length}>
                 {divers.filter((d) => !isInstructor(d)).sort(byName).map(rosterRow)}
+                {goneRows(false)}
               </RosterGroup>
             </div>
           )}
+          <GuestForm onAdd={(g) => onGuests([...(doc.guests ?? []), g])} />
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
               type="button"
@@ -518,6 +557,112 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
   );
 }
 
+const hasRows = (children: ReactNode) => (Array.isArray(children) ? children.flat().length > 0 : !!children);
+
+/** Désinscrit de VPDive depuis cet écran : barré, avec qui l'a fait et quand. */
+function UnregisteredRow({ u }: { u: Unregistered }) {
+  return (
+    <li className="px-3 sm:px-3.5 py-2.5 text-muted">
+      <s className="font-medium">{u.name}</s>
+      <span className="block text-sm">
+        désinscrit de VPDive par {u.by} le {new Date(u.at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+      </span>
+    </li>
+  );
+}
+
+/** Désinscrire de VPDive, après confirmation ; un refus de VPDive s'affiche sur la ligne. */
+function UnregisterAction({ name, onConfirm }: { name: string; onConfirm: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async () => {
+    if (!window.confirm(`Désinscrire ${name} de la sortie sur VPDive ?\n\n${name} sera retiré(e) de la liste des inscrits.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onConfirm();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="basis-full pl-[1.875rem] pt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <button type="button" onClick={() => void run()} disabled={busy} className="btn btn-quiet h-8 px-2.5 text-sm hover:text-danger hover:border-danger/40">
+        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserMinus className="w-4 h-4" />} Désinscrire
+      </button>
+      {error && (
+        <span role="alert" className="text-sm text-danger">
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Ajouter un plongeur qui n'est pas sur VPDive (baptême, invité) : prénom, nom, baptême, commentaire. */
+function GuestForm({ onAdd }: { onAdd: (g: Guest) => void }) {
+  const empty = { firstname: '', lastname: '', baptism: false, comment: '' };
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(empty);
+  const guest = newGuest(form);
+  if (!open) {
+    return (
+      <div className="mt-3">
+        <ActionButton onClick={() => setOpen(true)} icon={<UserPlus className="w-4 h-4" />}>
+          Plongeur hors VPDive
+        </ActionButton>
+      </div>
+    );
+  }
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!guest) return;
+    onAdd(guest);
+    setForm(empty);
+    setOpen(false);
+  };
+  return (
+    <form onSubmit={submit} className="mt-3 card p-4 space-y-3">
+      <p className="font-semibold text-brand">Plongeur hors VPDive</p>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="block">
+          <span className="label block mb-1">Prénom</span>
+          <input value={form.firstname} onChange={(e) => setForm({ ...form, firstname: e.target.value })} className="field w-full" autoComplete="off" autoFocus />
+        </label>
+        <label className="block">
+          <span className="label block mb-1">Nom</span>
+          <input value={form.lastname} onChange={(e) => setForm({ ...form, lastname: e.target.value })} className="field w-full" autoComplete="off" />
+        </label>
+      </div>
+      <label className="inline-flex items-center gap-2.5 cursor-pointer">
+        <input type="checkbox" checked={form.baptism} onChange={(e) => setForm({ ...form, baptism: e.target.checked })} className="w-5 h-5 accent-[var(--fill)]" />
+        <span className="text-ink">Baptême</span>
+      </label>
+      <label className="block">
+        <span className="label block mb-1">Commentaire</span>
+        <input value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} className="field w-full" placeholder="Niveau, ami de…, matériel…" autoComplete="off" />
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="submit" disabled={!guest} className="btn btn-primary h-9 text-sm">
+          <Plus className="w-4 h-4" /> Ajouter
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setForm(empty);
+            setOpen(false);
+          }}
+          className="btn btn-quiet h-9 text-sm"
+        >
+          Annuler
+        </button>
+        {!form.baptism && guest && <span className="text-sm text-muted">Son aptitude se choisit ensuite dans la liste.</span>}
+      </div>
+    </form>
+  );
+}
+
 function RosterGroup({ title, count, training = true, children }: { title: string; count: number; training?: boolean; children: ReactNode }) {
   return (
     <div>
@@ -533,7 +678,7 @@ function RosterGroup({ title, count, training = true, children }: { title: strin
           </>
         )}
       </div>
-      {count ? <ul className="card border-l-4 border-l-brand divide-y divide-line">{children}</ul> : <p className="text-sm text-muted">Aucun.</p>}
+      {count || hasRows(children) ? <ul className="card border-l-4 border-l-brand divide-y divide-line">{children}</ul> : <p className="text-sm text-muted">Aucun.</p>}
     </div>
   );
 }
@@ -717,7 +862,6 @@ function GuideRow({
         ) : (
           <span className={`break-words line-clamp-2 sm:line-clamp-none sm:truncate ${g ? 'font-semibold text-ink' : ''}`}>{g ? g.name : teaching ? 'Aucun enseignant disponible' : 'Sans encadrant'}</span>
         )}
-        {g && <RoleBadges id={g.id} />}
         </div>
         <span className="block text-sm text-muted truncate">
           {g ? role : teaching ? 'Enseignant à choisir' : 'Plongeurs autonomes'}
@@ -756,7 +900,6 @@ function DiverRow({
       <span className="flex-1 min-w-0">
         <span className="flex items-center gap-1.5 min-w-0">
           <span className="break-words line-clamp-2 sm:line-clamp-none sm:truncate text-ink">{d.name}</span>
-          <RoleBadges id={d.id} />
         </span>
         <span className="block text-sm text-muted truncate">
           {d.training ? `en formation ${trainingLabel(d)} · ${describe(d)}` : describe(d)}
