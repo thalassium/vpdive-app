@@ -36,7 +36,7 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
         Deux personnes au plus par poste, parmi les {people.length} inscrits de la journée. Une même personne peut tenir plusieurs postes.
       </p>
 
-      <ul className="card divide-y divide-line">
+      <ul className="card border-l-4 border-l-brand divide-y divide-line">
         {VOLUNTEER_POSTS.map((post) => {
           const assigned = volunteers[post.id] ?? [];
           return (

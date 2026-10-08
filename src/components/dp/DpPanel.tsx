@@ -134,7 +134,7 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
           </aside>
 
           {/* Sortie choisie */}
-          <main className={`${selected ? 'flex' : 'hidden lg:flex'} flex-1 min-w-0 flex-col overflow-y-auto overscroll-contain print:overflow-visible`}>
+          <main className={`${selected ? 'flex' : 'hidden lg:flex'} flex-1 min-w-0 flex-col overflow-y-auto overscroll-contain bg-canvas print:bg-white print:overflow-visible`}>
             {selected ? (
               <OutingWorkspace key={selected.token} event={selected} session={session} closeRef={closeRef} onSessionLost={onSessionLost} />
             ) : (

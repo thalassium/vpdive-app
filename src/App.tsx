@@ -11,6 +11,7 @@ import { DpPanel } from './components/dp/DpPanel';
 import { AccountMenu, ROLE_LABEL, type ViewAsPick } from './components/AccountMenu';
 import { sameName } from './lib/fuzzy';
 import { Avatar } from './components/Avatar';
+import { Cromagnon } from './components/Cromagnon';
 import { CoursesView } from './components/views/CoursesView';
 import { MessagesView } from './components/views/MessagesView';
 import { ProfileView } from './components/views/ProfileView';
@@ -389,6 +390,8 @@ export default function App() {
         <svg aria-hidden className="absolute bottom-full inset-x-0 w-full h-6 text-band" viewBox="0 0 1440 24" preserveAspectRatio="none">
           <path fill="currentColor" d="M0 14 C 180 2 360 2 540 12 S 900 24 1080 12 S 1320 4 1440 10 V24 H0 Z" />
         </svg>
+        {/* Le Cromagnon navigue sur la vague du pied de page */}
+        <Cromagnon className="absolute bottom-full right-[6%] mb-1 w-40 sm:w-52 text-brand pointer-events-none" />
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
           <Logo tone="white" className="h-12 opacity-90" />
           <div className="text-center sm:text-right space-y-1">

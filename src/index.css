@@ -234,8 +234,9 @@
  * aujourd'hui) ; la forme dit le club.
  */
 @utility alpha {
-  clip-path: polygon(0 0, 100% 0, 78% 50%, 100% 100%, 0 100%);
-  padding-right: 0.85em;
+  /* Encoche de profondeur fixe (0,55 em), et autant de réserve à droite : le texte n'est jamais entamé, quelle que soit la largeur. */
+  clip-path: polygon(0 0, 100% 0, calc(100% - 0.55em) 50%, 100% 100%, 0 100%);
+  padding-right: 1em;
 }
 
 /*

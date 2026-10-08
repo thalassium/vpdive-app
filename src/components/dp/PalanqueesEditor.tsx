@@ -455,7 +455,7 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
   return (
     <section>
       <h3 className="text-lg font-semibold text-brand mb-2">Rôles de la sortie</h3>
-      <ul className="card divide-y divide-line">
+      <ul className="card border-l-4 border-l-brand divide-y divide-line">
         {DIVE_ROLES.map((role) => {
           const ids = roles[role.id] ?? [];
           return (
@@ -522,7 +522,7 @@ function RosterGroup({ title, count, children }: { title: string; count: number;
           </>
         )}
       </div>
-      {count ? <ul className="card divide-y divide-line">{children}</ul> : <p className="text-sm text-muted">Aucun.</p>}
+      {count ? <ul className="card border-l-4 border-l-brand divide-y divide-line">{children}</ul> : <p className="text-sm text-muted">Aucun.</p>}
     </div>
   );
 }
