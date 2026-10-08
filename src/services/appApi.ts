@@ -5,11 +5,11 @@
  */
 import { vpdive, SessionExpiredError } from './vpdiveApi';
 import type { OutingDoc } from '../lib/outing';
-import type { FfessmRow, HaItem, LinkChoice } from '../lib/membership';
+import type { FfessmBrevet, FfessmRow, HaItem, LinkChoice } from '../lib/membership';
 
-/** Dernier export FFESSM déposé, partagé entre admins. */
-export interface FfessmImport {
-  rows: FfessmRow[];
+/** Dernier export FFESSM déposé (licences ou brevets), partagé entre admins. */
+export interface FfessmImport<Row = FfessmRow> {
+  rows: Row[];
   period: string;
   by: string;
   at: string;
@@ -83,8 +83,11 @@ export const appApi = {
   /** Suivi des documents : membres ignorés (uct → nom, qui, quand), partagés entre admins. */
   /** Gestion des adhésions : articles HelloAsso de la saison (année de fin). */
   helloasso: (season: number) => call<{ items: HaItem[] }>(`action=helloasso&season=${season}`).then((r) => r.items),
-  ffessmImport: () => call<{ import: FfessmImport | null }>('action=ffessm').then((r) => r.import),
-  saveFfessmImport: (rows: FfessmRow[], period: string) => call<{ import: FfessmImport }>('action=ffessm', { method: 'POST', body: { rows, period } }).then((r) => r.import),
+  ffessmImport: () => call<{ import: FfessmImport | null }>('action=ffessm&kind=licences').then((r) => r.import),
+  saveFfessmImport: (rows: FfessmRow[], period: string) => call<{ import: FfessmImport }>('action=ffessm&kind=licences', { method: 'POST', body: { rows, period } }).then((r) => r.import),
+  ffessmBrevets: () => call<{ import: FfessmImport<FfessmBrevet> | null }>('action=ffessm&kind=brevets').then((r) => r.import),
+  saveFfessmBrevets: (rows: FfessmBrevet[], period: string) =>
+    call<{ import: FfessmImport<FfessmBrevet> }>('action=ffessm&kind=brevets', { method: 'POST', body: { rows, period } }).then((r) => r.import),
   memberLinks: () => call<{ links: Record<string, LinkChoice> }>('action=member_links').then((r) => r.links),
   setMemberLink: (key: string, uct: string | null) => call<{ links: Record<string, LinkChoice> }>('action=member_links', { method: 'POST', body: { key, uct } }).then((r) => r.links),
   docsIgnored: () => call<{ ignored: IgnoredDocs }>('action=docs_ignored').then((r) => r.ignored),

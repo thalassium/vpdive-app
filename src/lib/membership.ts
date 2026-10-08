@@ -170,6 +170,93 @@ export function parseFfessmCsv(text: string): { rows: FfessmRow[]; period: strin
   return { rows, period };
 }
 
+/** Un brevet délivré, d'après l'export « Liste des brevets » de Mon Club. */
+export interface FfessmBrevet {
+  /** Licence du plongeur breveté. */
+  licence: string;
+  name: string;
+  /** « Niveau 2 », « Plongeur Nitrox confirmé », « RIFA Plongée »… */
+  brevet: string;
+  obtainedAt: string;
+}
+
+/**
+ * L'export des brevets a la même forme que celui des licences : chaque valeur
+ * derrière son libellé (« Niveau », « Date Obtention »…). Le plongeur suit le
+ * libellé « Plongeur » : son n° de licence, sa civilité, son nom ; puis vient le
+ * moniteur. Les accents perdus à l'export (« confirm� ») redeviennent des « e ».
+ */
+export function parseFfessmBrevets(text: string): { rows: FfessmBrevet[]; period: string } {
+  const lines = text.replace(/^\ufeff/, '').split(/\r?\n/).filter((l) => l.trim());
+  const sep = (lines[0] ?? '').split(';').length > (lines[0] ?? '').split(',').length ? ';' : ',';
+  const rows: FfessmBrevet[] = [];
+  let period = '';
+  for (const line of lines) {
+    const cells = csvLine(line, sep).map((c) => c.replace(/\ufffd/g, 'e').trim());
+    const at = (name: string) => cells.findIndex((c) => label(c) === name);
+    period ||= cells.find((c) => /^du \d{2}\/\d{2}\/\d{4} au \d{2}\/\d{2}\/\d{4}$/i.test(c)) ?? '';
+    const diver = at('plongeur');
+    const level = at('niveau');
+    const licence = diver >= 0 ? (cells[diver + 1] ?? '') : '';
+    if (!/^[A-Z]-\d{2}-\d{4,}$/.test(licence) || level < 0) continue;
+    const got = at('date obtention');
+    rows.push({ licence, name: cells[diver + 3] ?? '', brevet: cells[level + 1] ?? '', obtainedAt: got >= 0 ? ymdOf(cells[got + 1] ?? '') : '' });
+  }
+  return { rows, period };
+}
+
+/** Brevets délivrés, par n° de licence. */
+export const brevetsByLicence = (rows: FfessmBrevet[]): Record<string, string[]> => {
+  const out: Record<string, string[]> = {};
+  for (const r of rows) (out[r.licence] ??= []).includes(r.brevet) || out[r.licence]!.push(r.brevet);
+  return out;
+};
+
+const plain = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+/** Codes VPDive d'un brevet FFESSM (« Niveau 2 » → P2/N2, « Plongeur Nitrox confirmé » → PNC…) ; [] si inconnu. */
+export function brevetCodes(brevet: string): string[] {
+  const b = plain(brevet);
+  const n = /niveau\s*(\d)/.exec(b);
+  if (n && !/photo|video|bio|souterrain|tir|apnee|archeo|nageur|pecheur/.test(b)) return [`P${n[1]}`, `N${n[1]}`];
+  if (/nitrox/.test(b) && /moniteur/.test(b)) return [/confirm/.test(b) ? 'MNC' : 'MN'];
+  if (/nitrox/.test(b)) return [/confirm/.test(b) ? 'PNC' : 'PN'];
+  const pa = /autonomie\s*(\d+)/.exec(b);
+  if (pa) return [`PA${pa[1]}`];
+  const pe = /encadre\s*(\d+)/.exec(b);
+  if (pe) return [`PE${pe[1]}`];
+  if (/rifa/.test(b)) return ['RIFA-P', 'RIFAP'];
+  if (/plongeur (d.)?or\b/.test(b)) return ['POR'];
+  if (/plongeur (d.)?argent/.test(b)) return ['PAR'];
+  if (/plongeur (de )?bronze/.test(b)) return ['PBR'];
+  return [];
+}
+
+/** Les codes d'un niveau VPDive : ce qui est entre parenthèses (« (P2-N2) (P2) » → P2-N2, P2, N2). */
+const vpdiveCodes = (name: string): string[] =>
+  [...name.matchAll(/\(([^()]+)\)/g)].flatMap((m) => {
+    const code = m[1]!.trim().toUpperCase();
+    return [code, ...code.split(/[\s-]+/)];
+  });
+
+/** VPDive a-t-il ce brevet FFESSM ? Par code ; à défaut, tous les mots du brevet dans un nom de niveau. */
+export function hasBrevet(levels: string[], brevet: string): boolean {
+  const codes = brevetCodes(brevet);
+  if (codes.length) {
+    const mine = new Set(levels.flatMap(vpdiveCodes));
+    return codes.some((c) => mine.has(c));
+  }
+  const words = plain(brevet).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !/^(plongeur|plongee|des|les)$/.test(w));
+  return levels.some((l) => {
+    const p = plain(l);
+    return words.every((w) => p.includes(w));
+  });
+}
+
 // ── Personnes de la saison (HelloAsso + FFESSM) ──────────────────
 
 export interface Person {
@@ -414,13 +501,10 @@ export function brevetsView(p: Person, r: VpRecord | null, brevets: Record<strin
   const fed = p.ffessm ? (brevets[p.ffessm.licence] ?? []) : [];
   const ffessm: Cell = fed.length ? { mark: 'ok', text: fed.join(', ') } : NA;
   if (!r || !fed.length) return { helloasso, ffessm, vpdive: r ? NA : { mark: 'na', text: 'fiche à trouver' } };
-  const mine = new Set(r.levels.map(levelKey));
-  const lacking = fed.filter((b) => !mine.has(levelKey(b)));
+  const lacking = fed.filter((b) => !hasBrevet(r.levels, b));
   const vpdive: Cell = !lacking.length ? { mark: 'ok', text: 'à jour' } : lacking.length === fed.length ? { mark: 'missing', text: `absents : ${lacking.join(', ')}` } : { mark: 'diff', text: `manque ${lacking.join(', ')}` };
   return { helloasso, ffessm, vpdive };
 }
-/** Nom de brevet comparable d'une source à l'autre (accents, ponctuation). */
-const levelKey = (s: string) => normalizeName(s).replace(/\s+/g, '');
 
 export interface PersonView {
   licence: ItemView;

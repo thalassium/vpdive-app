@@ -5,16 +5,19 @@ import { MemberSearch } from '../dp/MemberSearch';
 import { vpdive } from '../../services/vpdiveApi';
 import { appApi, type FfessmImport } from '../../services/appApi';
 import {
+  brevetsByLicence,
   buildPeople,
   candidatesFor,
   federationIssue,
   matchPerson,
   needsVpdiveFix,
+  parseFfessmBrevets,
   parseFfessmCsv,
   seasonLabel,
   seasonOf,
   viewOf,
   type Cell,
+  type FfessmBrevet,
   type HaItem,
   type ItemView,
   type PersonView,
@@ -74,6 +77,8 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
   const [items, setItems] = useState<HaItem[] | null>(null);
   const [haError, setHaError] = useState<string | null>(null);
   const [ffessm, setFfessm] = useState<FfessmImport | null | undefined>(undefined);
+  const [brevetsImport, setBrevetsImport] = useState<FfessmImport<FfessmBrevet> | null | undefined>(undefined);
+  const brevets = useMemo(() => (brevetsImport ? brevetsByLicence(brevetsImport.rows) : null), [brevetsImport]);
   const [directory, setDirectory] = useState<VpMember[] | null>(null);
   const [links, setLinks] = useState<Record<string, LinkChoice> | null>(null);
   const [records, setRecords] = useState<Record<string, VpRecord>>({});
@@ -88,6 +93,7 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
   // Une fois : export FFESSM, membres VPDive, rapprochements choisis.
   useEffect(() => {
     appApi.ffessmImport().then(setFfessm, (e) => lost.current(e) || setLoadError(message(e)));
+    appApi.ffessmBrevets().then(setBrevetsImport, (e) => lost.current(e) || setLoadError(message(e)));
     appApi.memberLinks().then(setLinks, (e) => lost.current(e) || setLoadError(message(e)));
     vpdive.fetchMemberDirectory().then(setDirectory, (e) => lost.current(e) || setLoadError(message(e)));
   }, []);
@@ -169,9 +175,9 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
       const match = matchPerson(p, directory, records, links[p.key]);
       const record = match.member ? (records[match.member.id] ?? null) : null;
       const cands = links[p.key] ? [] : candidatesFor(p, directory);
-      return { p, match, record, view: viewOf(p, record, season, null), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
+      return { p, match, record, view: viewOf(p, record, season, brevets), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
     });
-  }, [people, directory, links, records, season]);
+  }, [people, directory, links, records, season, brevets]);
 
   const counts = useMemo(
     () => ({
@@ -216,7 +222,24 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
           Saison <strong className="font-semibold">{seasonLabel(season)}</strong>
           <span className="text-muted"> · ✅ conforme · ❌ absent · ⚠️ différent</span>
         </p>
-        <FfessmImportBox current={ffessm} onImported={setFfessm} onSessionLost={onSessionLost} />
+        <div className="space-y-1.5">
+          <FfessmImportBox
+            what="licences"
+            current={ffessm}
+            parse={parseFfessmCsv}
+            save={appApi.saveFfessmImport}
+            onImported={setFfessm}
+            onSessionLost={onSessionLost}
+          />
+          <FfessmImportBox
+            what="brevets"
+            current={brevetsImport}
+            parse={parseFfessmBrevets}
+            save={appApi.saveFfessmBrevets}
+            onImported={setBrevetsImport}
+            onSessionLost={onSessionLost}
+          />
+        </div>
       </div>
 
       {(loadError || haError) && (
@@ -458,8 +481,22 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
   );
 }
 
-/** Dépôt de l'export « Liste des licences » de Mon Club (CSV), lu ici puis partagé avec les autres admins. */
-function FfessmImportBox({ current, onImported, onSessionLost }: { current: FfessmImport | null | undefined; onImported: (i: FfessmImport) => void; onSessionLost: (e: unknown) => boolean }) {
+/** Dépôt d'un export de Mon Club (« Liste des licences » ou « Liste des brevets », CSV), lu ici puis partagé avec les autres admins. */
+function FfessmImportBox<Row>({
+  what,
+  current,
+  parse,
+  save,
+  onImported,
+  onSessionLost,
+}: {
+  what: 'licences' | 'brevets';
+  current: FfessmImport<Row> | null | undefined;
+  parse: (text: string) => { rows: Row[]; period: string };
+  save: (rows: Row[], period: string) => Promise<FfessmImport<Row>>;
+  onImported: (i: FfessmImport<Row>) => void;
+  onSessionLost: (e: unknown) => boolean;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -468,9 +505,9 @@ function FfessmImportBox({ current, onImported, onSessionLost }: { current: Ffes
     setBusy(true);
     setError(null);
     try {
-      const { rows, period } = parseFfessmCsv(await file.text());
-      if (!rows.length) throw new Error('Aucune licence trouvée : est-ce bien l’export « Liste des licences » de Mon Club (CSV) ?');
-      onImported(await appApi.saveFfessmImport(rows, period));
+      const { rows, period } = parse(await file.text());
+      if (!rows.length) throw new Error(`Rien trouvé : est-ce bien l’export « Liste des ${what} » de Mon Club (CSV) ?`);
+      onImported(await save(rows, period));
     } catch (e) {
       if (!onSessionLost(e)) setError(message(e));
     } finally {
@@ -482,14 +519,14 @@ function FfessmImportBox({ current, onImported, onSessionLost }: { current: Ffes
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
       <span className="text-muted">
         {current === undefined
-          ? 'Export FFESSM…'
+          ? `Export des ${what}…`
           : current
-            ? `Export FFESSM : ${current.rows.length} licences${current.period ? `, ${current.period.toLowerCase()}` : ''} · déposé par ${current.by} le ${frDay(current.at)}`
-            : 'Aucun export FFESSM déposé'}
+            ? `FFESSM, ${what} : ${current.rows.length}${current.period ? `, ${current.period.toLowerCase()}` : ''} · déposé par ${current.by} le ${frDay(current.at)}`
+            : `FFESSM, ${what} : aucun export déposé`}
       </span>
       <input ref={input} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
       <button type="button" onClick={() => input.current?.click()} disabled={busy} className="btn btn-quiet h-9 text-sm">
-        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />} {current ? 'Nouvel export' : 'Déposer l’export'}
+        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />} {current ? 'Nouvel export' : `Déposer les ${what}`}
       </button>
       {error && (
         <span role="alert" className="basis-full text-danger inline-flex items-center gap-1.5">

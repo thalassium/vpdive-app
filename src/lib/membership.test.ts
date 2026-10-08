@@ -8,6 +8,9 @@ import {
   licenceView,
   needsVpdiveFix,
   viewOf,
+  brevetsByLicence,
+  hasBrevet,
+  parseFfessmBrevets,
   matchPerson,
   parseFfessmCsv,
   seasonOf,
@@ -126,11 +129,28 @@ test('adhésion : saison absente ❌, statut Invité ⚠️, à jour ✅ ; breve
   assert.equal(adhesionView(lea!, rec({}), 2027).vpdive.mark, 'missing');
   assert.equal(adhesionView(lea!, rec({ seasons: ['2027'], member: false }), 2027).vpdive.mark, 'diff');
   assert.equal(adhesionView(lea!, rec({ seasons: ['2027'] }), 2027).vpdive.mark, 'ok');
-  const brevets = { 'A-1-12345': ['Niveau 2', 'Nitrox'] };
-  assert.equal(brevetsView(lea!, rec({ levels: ['niveau 2', 'NITROX'] }), brevets).vpdive.mark, 'ok');
-  assert.equal(brevetsView(lea!, rec({ levels: ['Niveau 2'] }), brevets).vpdive.text, 'manque Nitrox');
+  const brevets = { 'A-1-12345': ['Niveau 2', 'Plongeur Nitrox'] };
+  assert.equal(brevetsView(lea!, rec({ levels: ['P - Plongeur(se) Niveau 2 (P2-N2) (P2) F.F.E.S.S.M.', 'P - Plongeur Nitrox (base) (PN) F.F.E.S.S.M.'] }), brevets).vpdive.mark, 'ok');
+  assert.equal(brevetsView(lea!, rec({ levels: ['P - Plongeur(se) Niveau 2 (P2-N2)'] }), brevets).vpdive.text, 'manque Plongeur Nitrox');
   assert.equal(brevetsView(lea!, rec({}), brevets).vpdive.mark, 'missing');
   assert.equal(brevetsView(lea!, rec({}), null).ffessm.text, 'export à déposer');
   const v = viewOf(lea!, rec({ seasons: ['2027'] }), 2027, null);
   assert.equal(needsVpdiveFix(v), true, 'licence absente de VPDive');
+});
+
+test('export des brevets : plongeur, brevet, date ; comparaison par code avec les niveaux VPDive', () => {
+  const csv = [
+    'textBox34,textBox35,textBox1,textBox13,textBox4,textBox16,textBox7,textBox9,textBox12,textBox22,textBox11,textBox19,textBox24',
+    'Liste des brevets,Du 08/10/2025 au 08/10/2026,Date Obtention,12/05/2026,Niveau,Plongeur Nitrox confirm\ufffd,Plongeur,A-21-942895,Mme,DI SANTO Carla,Moniteur,A-03-000864,MONITEUR Jean',
+  ].join('\n');
+  const { rows, period } = parseFfessmBrevets(csv);
+  assert.equal(period, 'Du 08/10/2025 au 08/10/2026');
+  assert.deepEqual(rows, [{ licence: 'A-21-942895', name: 'DI SANTO Carla', brevet: 'Plongeur Nitrox confirme', obtainedAt: '2026-05-12' }]);
+  assert.deepEqual(brevetsByLicence([...rows, ...rows]), { 'A-21-942895': ['Plongeur Nitrox confirme'] });
+  assert.ok(hasBrevet(['P - Plongeur Nitrox Confirmé (PNC) F.F.E.S.S.M.'], 'Plongeur Nitrox confirme'));
+  assert.ok(!hasBrevet(['P - Plongeur Nitrox (base) (PN) F.F.E.S.S.M.'], 'Plongeur Nitrox confirme'));
+  assert.ok(hasBrevet(['P - Réaction et intervention face à un accident - Plongée (RIFA-P) F.F.E.S.S.M.'], 'RIFA Plongee'));
+  assert.ok(hasBrevet(['P - Plongeur(se) Niveau 1 (P1-N1) (P1) F.F.E.S.S.M.'], 'Niveau 1'));
+  assert.ok(!hasBrevet(['TSC - Tir sur cible - Tireur Niveau 1 (T1) F.F.E.S.S.M.'], 'Niveau 1'));
+  assert.ok(hasBrevet(['P - Plongeur Autonome 40 mètres (PA40)'], 'Plongeur en autonomie 40 metres'));
 });

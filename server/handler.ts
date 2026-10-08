@@ -10,8 +10,8 @@
  *   GET  ?action=docs_ignored             admin : membres ignorés du suivi des documents
  *   POST ?action=docs_ignored {uct, name, ignore}  admin : ignorer / ne plus ignorer
  *   GET  ?action=helloasso&season=2027    admin : adhésions HelloAsso de la saison (server/helloasso.ts)
- *   GET  ?action=ffessm                   admin : dernier export FFESSM déposé
- *   POST ?action=ffessm  {rows, period}   admin : déposer l'export « Liste des licences » de Mon Club (lu dans l'appli)
+ *   GET  ?action=ffessm&kind=licences|brevets         admin : dernier export FFESSM déposé
+ *   POST ?action=ffessm&kind=licences|brevets {rows, period}  admin : déposer un export de Mon Club (lu dans l'appli)
  *   GET  ?action=member_links             admin : rapprochements choisis à la main (personne → membre VPDive)
  *   POST ?action=member_links {key, uct}  admin : choisir (uct, ou 'none' : pas dans VPDive) ; uct null pour oublier
  *
@@ -35,7 +35,8 @@
  *   club:<id>:outing:<event>         fiche de la sortie
  *   club:<id>:outing:<event>:lock    verrou le temps d'un enregistrement
  *   club:<id>:docs-ignored           suivi des documents
- *   club:<id>:ffessm                 export FFESSM déposé (gestion des adhésions)
+ *   club:<id>:ffessm                 export FFESSM des licences déposé (gestion des adhésions)
+ *   club:<id>:ffessm-brevets         export FFESSM des brevets déposé
  *   club:<id>:member-links           rapprochements choisis à la main
  *   app:helloasso-token              jeton HelloAsso en cours
  */
@@ -76,7 +77,7 @@ const outingKey = (c: Caller, event: string) => `club:${c.clubId}:outing:${event
 /** Membres que les admins ont choisi d'ignorer dans le suivi des documents. */
 const docsIgnoredKey = (c: Caller) => `club:${c.clubId}:docs-ignored`;
 export type IgnoredDoc = Record<string, { name: string; by: string; at: string }>;
-const ffessmKey = (c: Caller) => `club:${c.clubId}:ffessm`;
+const ffessmKey = (c: Caller, kind: string) => `club:${c.clubId}:ffessm${kind === 'brevets' ? '-brevets' : ''}`;
 const linksKey = (c: Caller) => `club:${c.clubId}:member-links`;
 export type MemberLinks = Record<string, { uct: string; by: string; at: string }>;
 
@@ -279,14 +280,15 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
 
     if (action === 'ffessm') {
       if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
-      if (request.method === 'GET') return json({ import: await store.get(ffessmKey(caller)) });
+      const kind = url.searchParams.get('kind') === 'brevets' ? 'brevets' : 'licences';
+      if (request.method === 'GET') return json({ import: await store.get(ffessmKey(caller, kind)) });
       if (request.method === 'POST') {
         const text = await request.text();
         if (text.length > MAX_DOC_BYTES) throw new HttpError(413, 'Export trop volumineux.');
         const body = parseBody(text) as { rows?: unknown; period?: unknown } | null;
         if (!Array.isArray(body?.rows) || body.rows.length > 3000) throw new HttpError(400, 'Export illisible.');
         const doc = { rows: body.rows, period: String(body.period ?? '').slice(0, 80), by: caller.name || caller.email, at: new Date().toISOString() };
-        await store.set(ffessmKey(caller), doc);
+        await store.set(ffessmKey(caller, kind), doc);
         return json({ import: doc });
       }
     }
