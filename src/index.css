@@ -278,6 +278,9 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    /* La place de la barre de défilement reste réservée : quand une fenêtre bloque le
+       défilement de la page, rien ne se décale sur le côté. */
+    scrollbar-gutter: stable;
   }
   body {
     background-color: var(--canvas);

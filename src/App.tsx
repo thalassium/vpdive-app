@@ -16,15 +16,37 @@ import { messaging } from './services/messaging';
 import { vpdive, ymd, SessionExpiredError, DP_ROLE, type CalendarEvent, type MeteoSlot, type Session } from './services/vpdiveApi';
 import { appApi, type Me } from './services/appApi';
 
-// Chargés à la demande : l'agenda et la fiche de réservation restent dans le paquet principal, le reste n'arrive qu'à l'ouverture.
-const DpPanel = lazy(() => import('./components/dp/DpPanel').then((m) => ({ default: m.DpPanel })));
-const MaterialPanel = lazy(() => import('./components/admin/MaterialPanel').then((m) => ({ default: m.MaterialPanel })));
-const DocsPanel = lazy(() => import('./components/admin/DocsPanel').then((m) => ({ default: m.DocsPanel })));
-const StatsPanel = lazy(() => import('./components/admin/StatsPanel').then((m) => ({ default: m.StatsPanel })));
-const WeatherPanel = lazy(() => import('./components/admin/WeatherPanel').then((m) => ({ default: m.WeatherPanel })));
-const MembersPanel = lazy(() => import('./components/MembersPanel').then((m) => ({ default: m.MembersPanel })));
-const MessagesView = lazy(() => import('./components/views/MessagesView').then((m) => ({ default: m.MessagesView })));
-const ProfileView = lazy(() => import('./components/views/ProfileView').then((m) => ({ default: m.ProfileView })));
+// Hors du paquet principal : l'agenda et la fiche de réservation s'affichent tout de suite, le reste
+// est téléchargé en tâche de fond peu après la connexion (preloadScreens), pour s'ouvrir sans attente.
+const screens = {
+  dp: () => import('./components/dp/DpPanel'),
+  material: () => import('./components/admin/MaterialPanel'),
+  docs: () => import('./components/admin/DocsPanel'),
+  stats: () => import('./components/admin/StatsPanel'),
+  weather: () => import('./components/admin/WeatherPanel'),
+  members: () => import('./components/MembersPanel'),
+  messages: () => import('./components/views/MessagesView'),
+  profile: () => import('./components/views/ProfileView'),
+};
+const DpPanel = lazy(() => screens.dp().then((m) => ({ default: m.DpPanel })));
+const MaterialPanel = lazy(() => screens.material().then((m) => ({ default: m.MaterialPanel })));
+const DocsPanel = lazy(() => screens.docs().then((m) => ({ default: m.DocsPanel })));
+const StatsPanel = lazy(() => screens.stats().then((m) => ({ default: m.StatsPanel })));
+const WeatherPanel = lazy(() => screens.weather().then((m) => ({ default: m.WeatherPanel })));
+const MembersPanel = lazy(() => screens.members().then((m) => ({ default: m.MembersPanel })));
+const MessagesView = lazy(() => screens.messages().then((m) => ({ default: m.MessagesView })));
+const ProfileView = lazy(() => screens.profile().then((m) => ({ default: m.ProfileView })));
+
+/** Télécharge les écrans quand la page est au repos (les menus et onglets s'ouvrent alors sans cadre de chargement). */
+function preloadScreens(): () => void {
+  const run = () => Object.values(screens).forEach((load) => void load().catch(() => {}));
+  if ('requestIdleCallback' in window) {
+    const id = window.requestIdleCallback(run, { timeout: 4000 });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = setTimeout(run, 2000);
+  return () => clearTimeout(id);
+}
 
 const thisMonth = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
@@ -176,6 +198,9 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
       if (id === loadId.current) setIsLoading(false);
     }
   }, [month, handleSessionLost]);
+
+  // Les autres écrans arrivent en tâche de fond, une fois l'agenda affiché.
+  useEffect(() => preloadScreens(), []);
 
   useEffect(() => {
     loadEvents();
