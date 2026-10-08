@@ -78,7 +78,7 @@ const diplomas = (d: Diver) => {
 const shownLevel = (d: Diver) => (d.training ? `${trainingLabel(d)} · ${describe(d)}` : describe(d));
 const byName = (a: Diver, b: Diver) => a.name.localeCompare(b.name, 'fr');
 /** Colonnes Apt. et F# de « Qui plonge ? » : même largeur pour les menus et leurs titres, tout tient sur 375 px. */
-const APT_COL = 'w-[5.5rem] sm:w-28 shrink-0 justify-between';
+const APT_COL = 'w-[6rem] sm:w-28 shrink-0 justify-between';
 const FN_COL = 'w-[4.25rem] sm:w-24 shrink-0 justify-between';
 /** Encadrants du plus haut au plus bas : E4, E3, E2, E1, puis GP. */
 const GUIDE_ORDER: Record<string, number> = { E4: 4, E3: 3, GP: 2, E1: 1 };
@@ -373,7 +373,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
               </Heading>
             )}
             {/* Sur téléphone, les actions occupent toute la ligne et se la partagent */}
-            <div className="flex w-full sm:w-auto items-center gap-2">
+            <div className="flex flex-wrap w-full sm:w-auto items-center gap-2">
               {!locked && (
                 <ActionButton onClick={generate} icon={<Sparkles className="w-4 h-4" />}>
                   Refaire
@@ -462,14 +462,14 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
           return (
             <li key={role.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
               <span className="w-full sm:w-44 shrink-0 font-semibold text-ink">{role.label}</span>
-              <span className="flex-1 flex flex-wrap items-center gap-2">
+              <span className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
                 {ids.map((id) => {
                   const person = byId.get(id);
                   const name = person?.name ?? 'Inscrit retiré';
                   return (
-                    <span key={id} className="inline-flex items-center gap-2 h-9 pl-1 pr-1 rounded-lg border border-field-border bg-tint text-brand font-semibold">
+                    <span key={id} className="inline-flex max-w-full min-w-0 items-center gap-2 h-9 pl-1 pr-1 rounded-lg border border-field-border bg-tint text-brand font-semibold">
                       <Avatar name={name} picture={person?.picture} size="sm" initials={false} />
-                      {name}
+                      <span className="truncate">{name}</span>
                       <button
                         type="button"
                         onClick={() => onRoles(toggleRole(roles, role.id, id), role.id)}
@@ -569,7 +569,7 @@ function PalanqueeCard({
   return (
     <article className={`card border-l-4 overflow-hidden ${issues.length ? 'border-l-danger' : 'border-l-brand'}`}>
       {/* En-tête : numéro, type, prérogative en code */}
-      <header className={`flex items-center justify-between gap-3 px-4 py-3 border-b border-line ${issues.length ? 'bg-danger-soft' : ''}`}>
+      <header className={`flex flex-wrap items-center justify-between gap-3 gap-y-1 px-4 py-3 border-b border-line ${issues.length ? 'bg-danger-soft' : ''}`}>
         <div className="flex items-center gap-2 min-w-0">
           {/* Numéro de palanquée sur un pavillon Alpha : le repère du club */}
           <span className="alpha h-8 shrink-0 pl-2 bg-pink text-on-pink text-sm font-bold tabular-nums inline-flex items-center">P{index}</span>
@@ -610,7 +610,7 @@ function PalanqueeCard({
             </button>
           )}
         </div>
-        <span className={`code text-lg shrink-0 ${legal ? '' : 'text-danger'}`}>{prerogativeLabel(p)}</span>
+        <span className={`code text-lg shrink-0 ml-auto ${legal ? '' : 'text-danger'}`}>{prerogativeLabel(p)}</span>
       </header>
 
       {/* Plongeurs, avec leur prérogative ; celui qui fixe celle de la palanquée est signalé */}
@@ -680,7 +680,7 @@ function GuideRow({
         <Star className={`w-3 h-3 text-pink ${g ? 'fill-current' : ''}`} />
         {g ? guideLabel(g, p) : role}
       </span>
-      {g && <Avatar name={g.name} picture={g.picture} size="sm" initials={false} />}
+      {g && <Avatar name={g.name} picture={g.picture} size="sm" initials={false} className="hidden sm:block" />}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
         {editable ? (
@@ -689,7 +689,7 @@ function GuideRow({
             triggerClassName={`max-w-full inline-flex items-center gap-1 text-left ${g ? 'font-semibold text-ink' : teaching ? 'font-semibold text-danger' : 'font-medium text-muted'}`}
             trigger={
               <>
-                <span className="truncate">{g ? g.name : teaching ? 'Choisir l’enseignant…' : 'Ajouter un encadrant…'}</span>
+                <span className="break-words line-clamp-2 sm:line-clamp-none sm:truncate">{g ? g.name : teaching ? 'Choisir l’enseignant…' : 'Ajouter un encadrant…'}</span>
                 <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-60" />
               </>
             }
@@ -705,7 +705,7 @@ function GuideRow({
             ]}
           />
         ) : (
-          <span className={`block truncate ${g ? 'font-semibold text-ink' : ''}`}>{g ? g.name : teaching ? 'Aucun enseignant disponible' : 'Sans encadrant'}</span>
+          <span className={`break-words line-clamp-2 sm:line-clamp-none sm:truncate ${g ? 'font-semibold text-ink' : ''}`}>{g ? g.name : teaching ? 'Aucun enseignant disponible' : 'Sans encadrant'}</span>
         )}
         {g && <RoleBadges id={g.id} />}
         </div>
@@ -742,10 +742,10 @@ function DiverRow({
       <span className={chipCls} title={limiting ? 'Fixe la prérogative de la palanquée' : undefined}>
         {own}
       </span>
-      <Avatar name={d.name} picture={d.picture} size="sm" initials={false} />
+      <Avatar name={d.name} picture={d.picture} size="sm" initials={false} className="hidden sm:block" />
       <span className="flex-1 min-w-0">
         <span className="flex items-center gap-1.5 min-w-0">
-          <span className="truncate text-ink">{d.name}</span>
+          <span className="break-words line-clamp-2 sm:line-clamp-none sm:truncate text-ink">{d.name}</span>
           <RoleBadges id={d.id} />
         </span>
         <span className="block text-sm text-muted truncate">

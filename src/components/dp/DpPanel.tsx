@@ -103,8 +103,10 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
             </button>
           )}
           <ClipboardList className="w-6 h-6 text-brand shrink-0" />
-          <h2 id="dp-title" className="text-xl font-semibold text-brand flex-1">
-            Directeur de plongée
+          <h2 id="dp-title" className="text-xl font-semibold text-brand flex-1 min-w-0">
+            {/* Sur téléphone, le libellé du menu : le titre complet passerait sur deux lignes. */}
+            <span className="sm:hidden">DP</span>
+            <span className="hidden sm:inline">Directeur de plongée</span>
           </h2>
           <ThemeToggle />
           <button onClick={close} aria-label="Fermer" className="icon-btn -mr-2">

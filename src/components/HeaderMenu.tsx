@@ -52,7 +52,12 @@ export function HeaderMenu({ icon, label, items }: { icon: ReactNode; label: str
         <ChevronDown aria-hidden className="hidden lg:block w-4 h-4" />
       </button>
       {open && (
-        <div role="menu" className="absolute right-0 top-full mt-2 w-[min(17rem,calc(100vw-2rem))] panel border border-field-border border-t-[3px] border-t-pink z-40 animate-fade overflow-hidden py-1">
+        // Téléphone : toute la largeur sous l'en-tête, le bouton n'étant pas au bord droit ;
+        // au-delà, sous le bouton, aligné à sa droite.
+        <div
+          role="menu"
+          className="fixed inset-x-3 top-[4.5rem] sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[17rem] max-h-[calc(100dvh-6rem)] overflow-y-auto panel border border-field-border border-t-[3px] border-t-pink z-40 animate-fade py-1"
+        >
           <p className="label px-4 pt-1.5 pb-1">{label}</p>
           {items.map((it) => (
             <button

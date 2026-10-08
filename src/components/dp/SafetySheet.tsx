@@ -101,38 +101,41 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
                   {kindLabel(p)} · <span className="code print:text-black">{prerogativeLabel(p)}</span>
                 </span>
               </header>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-sm print:text-xs text-muted">
-                    <th className="px-3 py-1.5 font-semibold w-24" />
-                    <th className="py-1.5 font-semibold">Nom</th>
-                    <th className="py-1.5 font-semibold">Prénom</th>
-                    <th className="py-1.5 font-semibold">Apt</th>
-                    <th className="py-1.5 pr-3 font-semibold w-20">Gaz</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.label} className="border-t border-line print:border-black/30">
-                      <th className="px-3 py-1.5 text-left text-sm print:text-xs font-semibold text-muted whitespace-nowrap">{r.label}</th>
-                      <td className="py-1.5 pr-2 font-medium text-ink uppercase">{r.d ? lastNameOf(r.d) : ''}</td>
-                      <td className="py-1.5 pr-2 text-ink">{r.d ? firstNameOf(r.d) : ''}</td>
-                      <td className="py-1.5 pr-2 font-semibold tabular-nums">{r.d ? sheetApt(r.d, p, r.slot) : ''}</td>
-                      <td className="py-1 pr-3">
-                        {r.d && (
-                          <input
-                            value={dive.gas[r.d.id] ?? ''}
-                            onChange={(e) => onGas(r.d!.id, e.target.value)}
-                            placeholder="air"
-                            aria-label={`Gaz de ${r.d.name}`}
-                            className="field w-full h-9 px-2 text-sm print:border-0 print:p-0"
-                          />
-                        )}
-                      </td>
+              {/* Sur téléphone, la table défile plutôt que d'être rognée ; à l'impression, rien ne change. */}
+              <div className="overflow-x-auto print:overflow-visible">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-sm print:text-xs text-muted">
+                      <th className="px-3 py-1.5 font-semibold w-24" />
+                      <th className="py-1.5 font-semibold">Nom</th>
+                      <th className="py-1.5 font-semibold">Prénom</th>
+                      <th className="py-1.5 font-semibold">Apt</th>
+                      <th className="py-1.5 pr-3 font-semibold w-20">Gaz</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.label} className="border-t border-line print:border-black/30">
+                        <th className="px-3 py-1.5 text-left text-sm print:text-xs font-semibold text-muted whitespace-nowrap">{r.label}</th>
+                        <td className="py-1.5 pr-2 font-medium text-ink uppercase">{r.d ? lastNameOf(r.d) : ''}</td>
+                        <td className="py-1.5 pr-2 text-ink">{r.d ? firstNameOf(r.d) : ''}</td>
+                        <td className="py-1.5 pr-2 font-semibold tabular-nums">{r.d ? sheetApt(r.d, p, r.slot) : ''}</td>
+                        <td className="py-1 pr-3">
+                          {r.d && (
+                            <input
+                              value={dive.gas[r.d.id] ?? ''}
+                              onChange={(e) => onGas(r.d!.id, e.target.value)}
+                              placeholder="air"
+                              aria-label={`Gaz de ${r.d.name}`}
+                              className="field w-full h-9 px-2 text-sm print:border-0 print:p-0"
+                            />
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               <table className="w-full text-sm border-t-2 border-line print:border-black">
                 <thead>
                   <tr className="text-left text-sm print:text-xs text-muted">

@@ -14,6 +14,8 @@ interface Props {
 }
 
 const VPDIVE_MEMBERS_URL = 'https://septentrion-env.vpdive.com/app/members';
+const ROLES_HELP =
+  'Admin : accès aux écrans Membres et DP. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli par défaut ; le leur retirer ici ne change rien sur vpdive.com.';
 const roleRank: Record<AppRole, number> = { superadmin: 0, admin: 1, member: 2 };
 const byName = (a: MemberMatch, b: MemberMatch) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
 
@@ -137,16 +139,12 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Rechercher un membre…"
               aria-label="Rechercher un membre"
-              autoFocus
+              // Sur téléphone, le clavier ouvert d'office masquerait presque toute la liste.
+              autoFocus={!window.matchMedia?.('(pointer: coarse)').matches}
               className="field w-full pl-11 pr-4 text-base"
             />
           </div>
-          {canEdit && (
-            <p className="mt-3 text-sm text-muted leading-relaxed">
-              Admin : accès aux écrans Membres et DP. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli
-              par défaut ; le leur retirer ici ne change rien sur vpdive.com.
-            </p>
-          )}
+          {canEdit && <p className="hidden sm:block mt-3 text-sm text-muted leading-relaxed">{ROLES_HELP}</p>}
         </header>
 
         {roleError && (
@@ -169,6 +167,8 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
               </button>
             </div>
           )}
+          {/* Sur téléphone, l'aide sur les rôles défile avec la liste au lieu d'alourdir l'en-tête. */}
+          {canEdit && <p className="sm:hidden px-1 pb-3 text-sm text-muted leading-relaxed">{ROLES_HELP}</p>}
           {members && !query.trim() && <Duplicates groups={duplicates} />}
           {members && shown.length === 0 && <p className="py-10 text-center text-muted">Aucun membre ne correspond.</p>}
           {groups.map(({ label, list }) =>
@@ -294,18 +294,18 @@ function MemberRow({
         <button type="button" onClick={onToggle} aria-expanded={open} className="flex-1 min-w-0 flex items-center gap-3 text-left">
           <Avatar name={member.name} picture={member.picture} />
           <span className="min-w-0">
-            <span className="flex items-center gap-1.5 text-ink font-medium truncate">
-              {member.name}
-              {isMe && <span className="text-muted font-normal">(vous)</span>}
+            <span className="flex items-center gap-1.5 text-ink font-medium">
+              <span className="truncate">{member.name}</span>
+              {isMe && <span className="shrink-0 text-muted font-normal">(vous)</span>}
             </span>
             {note && <span className="block text-sm text-muted truncate">{note}</span>}
           </span>
           <ChevronDown className={`w-4 h-4 text-muted shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
         {canEdit ? (
-          <span className="flex items-center gap-3 shrink-0">
-            <Switch label="Admin" checked={role !== 'member'} disabled={busy || isMe || locked || role === 'superadmin'} onChange={(v) => onRole({ admin: v })} />
-            <Switch label="Super-admin" checked={role === 'superadmin'} locked={locked} disabled={busy || isMe || locked} onChange={(v) => onRole({ superAdmin: v })} />
+          <span className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <Switch label="Admin" short="Admin" checked={role !== 'member'} disabled={busy || isMe || locked || role === 'superadmin'} onChange={(v) => onRole({ admin: v })} />
+            <Switch label="Super-admin" short="Super" checked={role === 'superadmin'} locked={locked} disabled={busy || isMe || locked} onChange={(v) => onRole({ superAdmin: v })} />
           </span>
         ) : (
           role !== 'member' && (
@@ -337,7 +337,22 @@ function MemberRow({
   );
 }
 
-function Switch({ label, checked, disabled, locked, onChange }: { label: string; checked: boolean; disabled?: boolean; locked?: boolean; onChange: (v: boolean) => void }) {
+function Switch({
+  label,
+  short,
+  checked,
+  disabled,
+  locked,
+  onChange,
+}: {
+  label: string;
+  /** Libellé court, posé sous l'interrupteur sur téléphone. */
+  short: string;
+  checked: boolean;
+  disabled?: boolean;
+  locked?: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
     <button
       type="button"
@@ -346,13 +361,17 @@ function Switch({ label, checked, disabled, locked, onChange }: { label: string;
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink disabled:opacity-50 disabled:cursor-not-allowed"
+      className="inline-flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1.5 text-sm font-semibold text-ink disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <span className={`w-9 h-5 rounded-full relative transition-colors ${checked ? 'bg-fill' : 'bg-line'}`} aria-hidden>
         <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${checked ? 'left-[1.125rem]' : 'left-0.5'}`} />
       </span>
+      <span aria-hidden className="sm:hidden inline-flex items-center gap-0.5 text-xs leading-none">
+        {short}
+        {locked && <Lock className="w-3 h-3 text-muted" />}
+      </span>
       <span className="hidden sm:inline">{label}</span>
-      {locked && <Lock className="w-3 h-3 text-muted" />}
+      {locked && <Lock className="hidden sm:block w-3 h-3 text-muted" />}
     </button>
   );
 }

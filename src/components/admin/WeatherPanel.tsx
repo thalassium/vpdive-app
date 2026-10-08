@@ -105,7 +105,7 @@ function SlotRow({ s, active, onSelect }: { s: Slot; active: boolean; onSelect: 
               {s.wind}
               <span className="text-base font-medium"> nd</span>
             </span>
-            <span className="block mt-1 text-sm text-ink/80 tabular-nums truncate">
+            <span className="block mt-1 text-sm max-sm:leading-snug text-ink/80 tabular-nums">
               {compass(s.windDir)} · raf. {s.gusts} · F{beaufort(s.wind)}
             </span>
           </span>
@@ -341,7 +341,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                         >
                           <Dot lvl={w ? level(w) : null} />
                           <span className="flex-1 min-w-0 sm:flex sm:items-baseline sm:gap-3">
-                            <span className="block sm:inline truncate sm:max-w-[45%] sm:shrink-0">
+                            <span className="line-clamp-2 sm:inline sm:truncate sm:max-w-[45%] sm:shrink-0">
                               <span className="font-semibold text-brand tabular-nums whitespace-nowrap">
                                 {date}
                                 {!e.allDay && ` ${p2(when.getHours())}:${p2(when.getMinutes())}`}

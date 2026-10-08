@@ -400,7 +400,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                                 onClick={() => setGear((prev) => ({ ...prev, [m.id]: !prev[m.id] }))}
                                 label={`${m.name}, ${m.price > 0 ? formatEuro(m.price) : 'inclus'}`}
                               >
-                                <span className="block text-base font-medium leading-snug">{m.name}</span>
+                                <span className="block text-base font-medium leading-snug break-words hyphens-auto">{m.name}</span>
                                 <span className={`block text-sm tabular-nums mt-1 ${checked ? 'text-brand font-semibold' : 'text-muted'}`}>
                                   {m.price > 0 ? `+${formatEuro(m.price)}` : 'Inclus'}
                                   {checked && qty > 1 ? ` × ${qty}` : ''}
@@ -509,14 +509,14 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           {/* Sticky footer: total + confirm, always within thumb reach */}
           {showForm && (
             <div className="shrink-0 border-t border-line bg-surface px-5 sm:px-6 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] flex items-center gap-4">
-              <div className="min-w-0">
+              <div className="shrink-0">
                 <span className="text-sm text-muted block">Total estimé</span>
                 <span className="text-xl font-semibold tabular-nums text-brand leading-none">{formatEuro(total)}</span>
               </div>
               <button
                 type="submit"
                 disabled={busy || roleRequired || !!sizeMissing || pricesLoading}
-                className="btn btn-primary h-11 flex-1 sm:flex-none sm:ml-auto px-6 text-base"
+                className="btn btn-primary h-auto min-h-11 py-2 min-w-0 whitespace-normal leading-tight text-center flex-1 sm:flex-none sm:ml-auto px-6 text-base"
               >
                 {busy
                   ? editing

@@ -42,14 +42,14 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
           return (
             <li key={post.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
               <span className="w-44 shrink-0 font-semibold text-ink">{post.label}</span>
-              <span className="flex-1 flex flex-wrap items-center gap-2">
+              <span className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
                 {Array.from({ length: MAX_PER_POST }, (_, slot) => {
                   // La seconde place n'apparaît qu'une fois la première remplie.
                   if (slot > assigned.length) return null;
                   const id = assigned[slot];
                   const person = id ? byId.get(id) : undefined;
                   return (
-                    <span key={slot} className="inline-flex items-center">
+                    <span key={slot} className="inline-flex max-w-full min-w-0 items-center">
                       <Menu
                         ariaLabel={`${post.label} : ${slot === 0 ? 'première' : 'seconde'} personne`}
                         triggerClassName={`btn btn-quiet h-10 text-base min-w-48 justify-between ${id ? 'border-brand bg-tint' : 'border-dashed text-muted'}`}

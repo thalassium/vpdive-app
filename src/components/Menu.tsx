@@ -40,19 +40,27 @@ interface Props {
  */
 export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disabled, columns }: Props) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left: number; minWidth: number; up: boolean } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; minWidth: number; maxHeight: number; up: boolean } | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
 
+  // Toujours entier à l'écran : calé sur sa largeur et sa hauteur réelles, ouvert du côté
+  // qui a le plus de place, et défilant à l'intérieur s'il ne tient pas.
   const place = useCallback(() => {
     const r = button.current?.getBoundingClientRect();
     if (!r) return;
-    const height = Math.min(panel.current?.offsetHeight ?? 320, window.innerHeight * 0.6);
-    const up = window.innerHeight - r.bottom < height + 12 && r.top > height + 12;
-    const minWidth = Math.min(Math.max(r.width, columns ? 380 : 200), window.innerWidth - 16);
-    const left = Math.min(Math.max(8, r.left), window.innerWidth - minWidth - 8);
-    setPos({ top: up ? r.top - 4 : r.bottom + 4, left, minWidth, up });
-  }, []);
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const minWidth = Math.min(Math.max(r.width, columns ? 380 : 200), vw - 16);
+    const width = Math.min(Math.max(panel.current?.offsetWidth ?? minWidth, minWidth), vw - 16);
+    const left = Math.min(Math.max(8, r.left), vw - width - 8);
+    const below = vh - r.bottom - 12;
+    const above = r.top - 12;
+    const want = Math.min(panel.current?.scrollHeight ?? 320, vh * 0.6);
+    const up = below < want && above > below;
+    const maxHeight = Math.max(120, Math.min(vh * 0.6, up ? above : below));
+    setPos({ top: up ? r.top - 4 : r.bottom + 4, left, minWidth, maxHeight, up });
+  }, [columns]);
 
   useLayoutEffect(() => {
     if (open) place();
@@ -125,9 +133,11 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
               left: pos?.left ?? -9999,
               top: pos?.top ?? -9999,
               minWidth: pos?.minWidth,
+              maxWidth: 'calc(100vw - 16px)',
+              maxHeight: pos?.maxHeight,
               transform: pos?.up ? 'translateY(-100%)' : undefined,
             }}
-            className={`z-[70] max-h-[60vh] overflow-y-auto overscroll-contain panel rounded-lg border border-field-border text-ink py-1 animate-fade ${
+            className={`z-[70] overflow-y-auto overscroll-contain panel rounded-lg border border-field-border text-ink py-1 animate-fade ${
               columns ? 'grid grid-cols-2 divide-x divide-line' : ''
             }`}
           >

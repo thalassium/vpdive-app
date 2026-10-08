@@ -152,7 +152,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                 key={mode}
                 onClick={() => setViewMode(mode)}
                 aria-pressed={viewMode === mode}
-                className={`h-9 px-4 rounded-md text-sm font-medium transition-colors ${
+                className={`h-9 px-3 min-[375px]:px-4 rounded-md text-sm font-medium transition-colors ${
                   viewMode === mode ? 'bg-tint text-brand' : 'text-muted hover:text-ink'
                 }`}
               >
@@ -163,12 +163,12 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
           <button
             onClick={() => setOnlyMine((v) => !v)}
             aria-pressed={onlyMine}
-            className={`btn btn-quiet h-11 flex-1 sm:flex-none text-sm ${
+            className={`btn btn-quiet h-11 min-w-0 px-3 min-[375px]:px-4 flex-1 sm:flex-none text-sm ${
               onlyMine ? 'bg-ok-soft border-ok text-ok hover:bg-ok-soft' : ''
             }`}
           >
-            {onlyMine && <Check className="w-4 h-4" strokeWidth={2.5} />}
-            Mes sorties
+            {onlyMine && <Check className="w-4 h-4 shrink-0" strokeWidth={2.5} />}
+            <span className="truncate">Mes sorties</span>
           </button>
           <button
             onClick={onRefresh}
