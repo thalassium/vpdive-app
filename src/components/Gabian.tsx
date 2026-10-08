@@ -14,9 +14,22 @@
 const PINK = 'var(--color-pink)';
 const BODY = 'var(--surface)';
 
-export function Gabian({ className = '', title, open = false, animate = false }: { className?: string; title?: string; open?: boolean; animate?: boolean }) {
+export function Gabian({
+  className = '',
+  title,
+  open = false,
+  animate = false,
+  crop,
+}: {
+  className?: string;
+  title?: string;
+  open?: boolean;
+  animate?: boolean;
+  /** « head » : la tête et le bec seulement (icône d'onglet, trop petite pour l'oiseau entier). */
+  crop?: 'head';
+}) {
   return (
-    <svg viewBox="0 0 220 200" className={`text-brand ${className}`} role={title ? 'img' : undefined} aria-hidden={title ? undefined : true} aria-label={title}>
+    <svg viewBox={crop === 'head' ? '16 14 108 108' : '0 0 220 200'} className={`text-brand ${className}`} role={title ? 'img' : undefined} aria-hidden={title ? undefined : true} aria-label={title}>
       <g stroke="currentColor" strokeWidth={3.2} strokeLinejoin="round" strokeLinecap="round">
         {/* Pattes, derrière le corps */}
         <path d="M108 146 L104 182 M104 182 L92 188 M104 182 L106 190 M104 182 L114 188" fill="none" stroke={PINK} strokeWidth={4.5} />
