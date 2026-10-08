@@ -55,8 +55,8 @@ import { normalizeName } from '../../lib/fuzzy';
 const READ_GAP_MS = 500;
 const MAX_FAILURES = 3;
 const CACHE_TTL_MS = 6 * 3600_000;
-// v3 : la fiche garde aussi les niveaux (brevets) et l'identifiant / la vérification FFESSM des licences.
-const cacheKey = (uct: string) => `member-record:v3:${uct}`;
+// v4 : l’assurance est lue dans le choix de la liste (insurance_choice), comme sur le site VPDive.
+export const cacheKey = (uct: string) => `member-record:v4:${uct}`;
 function readCache(uct: string): VpRecord | null {
   try {
     const v = JSON.parse(sessionStorage.getItem(cacheKey(uct)) ?? 'null') as { at: number; record: VpRecord } | null;
@@ -609,7 +609,13 @@ export function MembershipTab({
                 Appliquer dans VPDive ({selected.length})
               </button>
               {refreshButton}
-              <span className="text-sm text-muted">Chaque fiche est relue après l’écriture, et le lot s’arrête au premier problème. La fiche d’avant est gardée dans le journal.</span>
+              <span className="text-sm text-muted">
+                {progress
+                  ? 'Lecture des fiches VPDive en cours : le bouton s’active quand elle est finie.'
+                  : !selected.length
+                    ? 'Cochez les corrections à écrire.'
+                    : 'Chaque fiche est relue après l’écriture, et le lot s’arrête au premier problème. La fiche d’avant est gardée dans le journal.'}
+              </span>
             </>
           )}
         </div>

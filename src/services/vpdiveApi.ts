@@ -489,7 +489,8 @@ export function infoOf(u: Json): MemberInfo {
     country: countryName(str(u.country).trim()),
     birthday: day(u.birthday),
     birthPlace: [birthCity && (birthZip ? `${birthCity} (${birthZip})` : birthCity), birthCountry].filter(Boolean).join(', '),
-    insurance: str(u.insurance).trim(),
+    // Comme le site VPDive : le choix de la liste (« Assurance Loisir 1 »…) d'abord, le texte libre sinon (« Autre »).
+    insurance: (str(u.insurance_choice).trim() && str(u.insurance_choice).trim() !== 'Autre' ? str(u.insurance_choice) : str(u.insurance)).trim(),
     insuranceYear: num(u.insurance_year),
     honorabilityAt: day(u.honorability_authorized_at),
     memberSince: day(uct.dateConfirmation) || day(uct.createdAt),

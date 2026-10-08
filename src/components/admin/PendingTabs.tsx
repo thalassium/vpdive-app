@@ -4,6 +4,7 @@ import { Avatar } from '../Avatar';
 import { GabianLoader } from '../Gabian';
 import { vpdive, type PendingValidation } from '../../services/vpdiveApi';
 import { appApi, type RegistrationRequest } from '../../services/appApi';
+import { cacheKey } from './MembershipTab';
 
 /*
  * Les deux onglets « à traiter d'abord » de la gestion des adhésions : tant
@@ -16,7 +17,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** Après une validation, la fiche du membre gardée en session est périmée. */
 function forgetMember(uct: string) {
   try {
-    sessionStorage.removeItem(`member-record:v2:${uct}`);
+    sessionStorage.removeItem(cacheKey(uct));
     sessionStorage.removeItem(`docs-status:${uct}`);
   } catch {
     // Stockage indisponible : rien à oublier.
