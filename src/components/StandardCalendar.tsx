@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, Wind, RefreshCw, AlertCircle, Check } from 'lucide-react';
 import { ymd, type CalendarEvent, type MeteoSlot } from '../services/vpdiveApi';
 
@@ -78,9 +78,8 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
   /** Month cell showing all its outings instead of the first three. */
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [onlyMine, setOnlyMine] = useState(false);
-  /** Jour tapé dans la grille sur téléphone : la liste y défile et le surligne un instant. */
-  const [flashDay, setFlashDay] = useState<string | null>(null);
-  const flashTimer = useRef<number | undefined>(undefined);
+  /** Téléphone, vue Calendrier : le jour tapé, dont les sorties s'affichent juste sous la grille. */
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   const year = month.getFullYear();
   const m = month.getMonth();
@@ -104,14 +103,15 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
     return out;
   }, [month, m]);
 
-  /** Sur téléphone, taper un jour de la grille fait défiler la liste du mois jusqu'à lui. */
-  const jumpTo = (date: string) => {
-    setFlashDay(date);
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    document.getElementById(`day-${date}`)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
-    window.clearTimeout(flashTimer.current);
-    flashTimer.current = window.setTimeout(() => setFlashDay(null), 1500);
-  };
+  // Jour montré sous la grille sur téléphone : aujourd'hui s'il est dans le mois, sinon la première sortie du mois.
+  useEffect(() => {
+    const visible = (d: string) => Number(d.slice(5, 7)) - 1 === m && Number(d.slice(0, 4)) === year;
+    setSelectedDay((cur) => {
+      if (cur && visible(cur)) return cur;
+      if (visible(todayStr)) return todayStr;
+      return Object.keys(byDay).filter(visible).sort()[0] ?? null;
+    });
+  }, [m, year, byDay, todayStr]);
 
   // Current month: the list starts the day before (older outings are history); other months show in full.
   const isCurrentMonth = inMonth(todayStr);
@@ -124,12 +124,10 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
   const monthTotal = events.filter((e) => inMonth(eventDay(e))).length;
   const registeredCount = events.filter((e) => e.registered && inMonth(eventDay(e))).length;
   const shownCount = listDays.reduce((n, d) => n + (byDay[d]?.length ?? 0), 0);
-  // Sous la grille sur téléphone : tout le mois, pas seulement à partir de la veille.
-  const monthDays = Object.keys(byDay).filter(inMonth).sort();
   const firstLoad = isLoading && events.length === 0;
   const empty = <p className="py-14 text-center text-muted">{isCurrentMonth ? 'Plus aucune' : 'Aucune'} {onlyMine ? 'inscription' : 'sortie'} ce mois-ci.</p>;
   const agenda = (dates: string[]) => (
-    <AgendaList dates={dates} byDay={byDay} meteoData={meteoData} todayStr={todayStr} flashDay={flashDay} onOpenEvent={onOpenEvent} />
+    <AgendaList dates={dates} byDay={byDay} meteoData={meteoData} todayStr={todayStr} onOpenEvent={onOpenEvent} />
   );
 
   return (
@@ -208,7 +206,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
       {viewMode === 'month' ? (
         <>
           <div className="mt-6 card overflow-hidden">
-            <div className="grid grid-cols-7 border-b border-line text-center label py-2 sm:py-3">
+            <div className="grid grid-cols-7 border-b border-line text-center label py-3">
               {['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map((d) => (
                 <div key={d}>
                   <span className="sm:hidden">{d.slice(0, 1).toUpperCase()}</span>
@@ -222,29 +220,28 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                 const dayEvents = byDay[day.date] ?? [];
                 const wind = daytimeWind(meteoData[day.date]);
                 const isToday = day.date === todayStr;
-                const isFlash = day.date === flashDay;
+                const isSelected = day.date === selectedDay;
 
                 return (
                   <div
                     key={day.date}
-                    className={`relative min-h-11 sm:min-h-[132px] p-1 sm:p-2 flex flex-col border-line ${i % 7 !== 6 ? 'border-r' : ''} ${
+                    className={`relative min-h-[60px] sm:min-h-[132px] p-1.5 sm:p-2 flex flex-col border-line ${i % 7 !== 6 ? 'border-r' : ''} ${
                       i < days.length - 7 ? 'border-b' : ''
-                    } ${!day.inMonth ? 'bg-canvas/70' : day.weekend ? 'bg-raised/60' : ''}`}
+                    } ${!day.inMonth ? 'bg-canvas/70' : day.weekend ? 'bg-raised/60' : ''} ${isSelected ? 'max-sm:bg-tint' : ''}`}
                   >
-                    {/* Téléphone : un jour qui a des sorties mène à sa place dans la liste du mois, sous la grille. */}
-                    {dayEvents.length > 0 && (
-                      <button
-                        className="sm:hidden absolute inset-0"
-                        onClick={() => jumpTo(day.date)}
-                        aria-label={`${dayLabel(day.date)} : ${plural(dayEvents.length, 'sortie')}`}
-                      />
-                    )}
+                    {/* Téléphone : toute la case choisit le jour, ses sorties s'affichent sous la grille */}
+                    <button
+                      className="sm:hidden absolute inset-0"
+                      onClick={() => setSelectedDay(day.date)}
+                      aria-label={`${dayLabel(day.date)} : ${dayEvents.length} sortie${dayEvents.length > 1 ? 's' : ''}`}
+                      aria-pressed={isSelected}
+                    />
 
                     <div className="flex items-center justify-between max-sm:justify-center">
                       <span
                         className={`text-sm tabular-nums w-7 h-7 flex items-center justify-center rounded-full ${
                           isToday ? 'bg-pink text-on-pink font-bold' : day.inMonth ? 'text-ink font-medium' : 'text-muted'
-                        } ${isFlash ? 'ring-2 ring-brand' : ''}`}
+                        }`}
                       >
                         {day.day}
                       </span>
@@ -261,11 +258,11 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
 
                     {/* Téléphone : une puce par sortie, à la couleur de l'activité, cerclée de vert si inscrit */}
                     {dayEvents.length > 0 && (
-                      <div aria-hidden className="sm:hidden mt-0.5 flex items-center justify-center gap-1">
+                      <div aria-hidden className="sm:hidden mt-1.5 flex items-center justify-center gap-1">
                         {dayEvents.slice(0, 3).map((ev) => (
                           <span
                             key={ev.token}
-                            className={`w-1.5 h-1.5 rounded-full ${ev.registered ? 'ring-2 ring-green ring-offset-1 ring-offset-surface' : ''}`}
+                            className={`w-2 h-2 rounded-full ${ev.registered ? 'ring-2 ring-green ring-offset-1 ring-offset-surface' : ''}`}
                             style={{ backgroundColor: ev.color }}
                           />
                         ))}
@@ -292,8 +289,21 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
             </div>
           </div>
 
-          {/* Téléphone : la liste de tout le mois sous la grille ; un tap sur un jour y fait défiler */}
-          <div className="sm:hidden mt-4">{firstLoad ? <Skeletons /> : monthDays.length ? agenda(monthDays) : !error && empty}</div>
+          {/* Téléphone : les sorties du jour choisi, juste sous la grille, en lignes compactes */}
+          {selectedDay && (
+            <section className="sm:hidden mt-5" aria-live="polite">
+              <DayHeading date={selectedDay} wind={daytimeWind(meteoData[selectedDay])} today={selectedDay === todayStr} />
+              {(byDay[selectedDay] ?? []).length ? (
+                <div className="card divide-y divide-line overflow-hidden">
+                  {(byDay[selectedDay] ?? []).map((ev) => (
+                    <EventRow key={ev.token} ev={ev} onClick={() => onOpenEvent(ev)} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted px-1">Aucune sortie ce jour-là.</p>
+              )}
+            </section>
+          )}
         </>
       ) : (
         <div className="mt-6">
@@ -327,14 +337,12 @@ function AgendaList({
   byDay,
   meteoData,
   todayStr,
-  flashDay,
   onOpenEvent,
 }: {
   dates: string[];
   byDay: Record<string, CalendarEvent[]>;
   meteoData: Record<string, MeteoSlot[]>;
   todayStr: string;
-  flashDay: string | null;
   onOpenEvent: (ev: CalendarEvent) => void;
 }) {
   return (
@@ -346,9 +354,8 @@ function AgendaList({
         return (
           <section
             key={date}
-            id={`day-${date}`}
             aria-label={dayLabel(date)}
-            className={`scroll-mt-28 grid grid-cols-[3.25rem_1fr] sm:grid-cols-[4rem_1fr] transition-colors duration-700 ${flashDay === date ? 'bg-tint' : ''}`}
+            className="grid grid-cols-[3.25rem_1fr] sm:grid-cols-[4rem_1fr]"
           >
             <div className="flex flex-col items-center gap-1 pt-2.5 pb-2 border-r border-line">
               <span className="text-sm text-muted leading-none">{d.toLocaleDateString('fr-FR', { weekday: 'short' })}</span>
@@ -374,6 +381,27 @@ function AgendaList({
           </section>
         );
       })}
+    </div>
+  );
+}
+
+/** Le jour choisi dans la grille, au-dessus de ses sorties (téléphone). */
+function DayHeading({ date, wind, today }: { date: string; wind: ReturnType<typeof daytimeWind>; today?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-2 mb-2 px-1">
+      <h2 className="text-lg font-semibold text-brand first-letter:uppercase flex items-center gap-2">
+        {dayLabel(date)}
+        {today && <span className="rounded-md bg-pink text-on-pink text-sm font-semibold px-2 py-0.5">Aujourd’hui</span>}
+      </h2>
+      {wind && (
+        <span
+          title={`Vent max en journée, rafales ${wind.gusts} nd`}
+          className={`inline-flex items-center gap-1.5 text-sm tabular-nums px-2.5 py-1 rounded-md ${wind.strong ? 'bg-warn-soft text-warn font-semibold' : 'text-muted'}`}
+        >
+          <Wind className="w-4 h-4" /> {wind.max} nd {wind.dir}
+          {wind.strong && <WindWarning />}
+        </span>
+      )}
     </div>
   );
 }
