@@ -107,7 +107,7 @@ const CASE_TITLE: Record<CaseKind, string> = {
   absent: 'Pas de fiche VPDive',
   guest: 'Statut Invité à passer en Membre',
   'licence-other': 'Autre numéro de licence dans VPDive',
-  'not-taken': 'Licence payée, pas prise à la FFESSM',
+  'not-taken': 'Licence FFESSM payée sur HelloAsso, à ajouter dans Mon Club / FFESSM',
   unpaid: 'Licence prise sans paiement HelloAsso',
   'season-unpaid': 'Saison sans adhésion HelloAsso',
   'no-licence': 'Ni licence ni Pass payés au club',
