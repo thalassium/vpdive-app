@@ -372,15 +372,16 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
                 Palanquées
               </Heading>
             )}
-            <div className="flex items-center gap-2">
+            {/* Sur téléphone, les actions occupent toute la ligne et se la partagent */}
+            <div className="flex w-full sm:w-auto items-center gap-2">
               {!locked && (
                 <ActionButton onClick={generate} icon={<Sparkles className="w-4 h-4" />}>
                   Refaire
                 </ActionButton>
               )}
               {!locked && (
-                <ActionButton onClick={() => onPlan(addPalanquee(plan, diving))} icon={<Plus className="w-4 h-4" />}>
-                  Nouvelle palanquée
+                <ActionButton onClick={() => onPlan(addPalanquee(plan, diving))} icon={<Plus className="w-4 h-4" />} title="Nouvelle palanquée">
+                  Palanquée
                 </ActionButton>
               )}
               <ActionButton onClick={share} icon={copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}>
@@ -856,12 +857,13 @@ export function Heading({ n, hint, children }: { n: number; hint?: string; child
   );
 }
 
-export function ActionButton({ onClick, icon, children }: { onClick: () => void; icon: ReactNode; children: ReactNode }) {
+export function ActionButton({ onClick, icon, title, children }: { onClick: () => void; icon: ReactNode; title?: string; children: ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="btn btn-quiet h-9 text-sm"
+      title={title}
+      className="btn btn-quiet h-9 px-2.5 sm:px-4 gap-1.5 sm:gap-2 text-sm flex-auto sm:flex-none"
     >
       {icon}
       {children}
