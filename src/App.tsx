@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, Settings, UserRound, Users } from 'lucide-react';
+import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, Settings, UserRound, Users, Wind } from 'lucide-react';
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
@@ -10,6 +10,7 @@ import { MembersPanel } from './components/MembersPanel';
 import { DpPanel } from './components/dp/DpPanel';
 import { MaterialPanel } from './components/admin/MaterialPanel';
 import { DocsPanel } from './components/admin/DocsPanel';
+import { WeatherPanel } from './components/admin/WeatherPanel';
 import { CaptainHat, HeaderMenu } from './components/HeaderMenu';
 import { AccountMenu, ROLE_LABEL, type ViewAsPick } from './components/AccountMenu';
 import { sameName } from './lib/fuzzy';
@@ -46,7 +47,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [meteo, setMeteo] = useState<Record<string, MeteoSlot[]>>({});
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
-  const [panel, setPanel] = useState<'dp' | 'material' | 'members' | 'docs' | null>(null);
+  const [panel, setPanel] = useState<'dp' | 'weather' | 'material' | 'members' | 'docs' | null>(null);
   const [dpEvent, setDpEvent] = useState<CalendarEvent | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [isDp, setIsDp] = useState(false);
@@ -275,6 +276,7 @@ export default function App() {
                   label="Gestion sortie"
                   items={[
                     { icon: <ClipboardList className="w-4 h-4" />, label: 'DP', hint: 'Palanquées et fiches de sécurité', onClick: () => setPanel('dp') },
+                    { icon: <Wind className="w-4 h-4" />, label: 'Météo', hint: 'Vent, rafales, vagues, houle', onClick: () => setPanel('weather') },
                     ...(isAdmin
                       ? [{ icon: <Package className="w-4 h-4" />, label: 'Matériel', hint: 'Gilets, combinaisons, bouteilles', onClick: () => setPanel('material') }]
                       : []),
@@ -409,6 +411,7 @@ export default function App() {
         />
       )}
       {panel === 'members' && isAdmin && me && <MembersPanel me={{ ...me, role }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
+      {panel === 'weather' && canDp && <WeatherPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
       {panel === 'material' && isAdmin && <MaterialPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
       {panel === 'docs' && isAdmin && me && (
         <DocsPanel me={{ uct: me.uct, name: displayName, picture: picture ?? '' }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />
