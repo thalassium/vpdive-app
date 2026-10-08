@@ -206,6 +206,13 @@ export interface RosterEntry {
   licences?: { number: string; until: string | null; valid: boolean }[];
   /** Plongeur hors VPDive, ajouté par le DP dans l'appli (lib/outing.ts, `guests`). */
   outside?: true;
+  /** Membre VPDive ajouté par le DP sans s'être inscrit (lib/outing.ts, `members`). */
+  added?: true;
+  /**
+   * Ce que les routes d'admin `registered/*` attendent comme `user` : `uct_socket`
+   * pour un membre, `socket` pour un invité sans compte (comme le fait VPDive).
+   */
+  socket?: string;
 }
 
 /** Membre de l'équipe d'une sortie (DP, pilote, encadrant) qui n'est pas dans la liste des inscrits. */
@@ -823,9 +830,18 @@ class VpDiveClient {
     await this.request(`/calendar/unregistered/${eventToken}`);
   }
 
-  /** Désinscrit un autre inscrit (admin, DP) : même route, avec son identifiant VPDive. VPDive peut refuser (403). */
-  async unregisterMember(eventToken: string, userId: string): Promise<void> {
-    const res = await this.request(`/calendar/unregistered/${encodeURIComponent(eventToken)}/${encodeURIComponent(userId)}`);
+  /** Passe un inscrit de la liste d'attente à la liste principale (admin), même si la sortie est complète. */
+  async switchWaitingList(eventToken: string, socket: string): Promise<void> {
+    const res = await this.request('/calendar/registered/switch-list', { method: 'POST', body: { event: eventToken, user: socket } });
+    if (res.success === false || res.error) throw new VpDiveError(str(res.message) || str(res.error) || 'VPDive a refusé le changement de liste.', 0);
+  }
+
+  /**
+   * Supprime l'inscription d'un autre (admin) : « Supprimer l'inscription » de
+   * VPDive. (`/calendar/unregistered/{event}/{user}` ne vaut que pour un compte rattaché.)
+   */
+  async deleteRegistration(eventToken: string, socket: string): Promise<void> {
+    const res = await this.request('/calendar/registered/delete', { method: 'POST', body: { event: eventToken, user: socket } });
     if (res.success === false || res.error) throw new VpDiveError(str(res.message) || str(res.error) || 'VPDive a refusé la désinscription.', 0);
   }
 
@@ -1105,6 +1121,7 @@ class VpDiveClient {
           picture: pictureUrl(str(u.profile_picture)),
           email: str(u.email).trim(),
           uct: str(u.uct_token).trim(),
+          socket: str(u.is_ghost === true || u.is_guest === true ? u.socket : u.uct_socket).trim(),
           material: (Array.isArray(u.material) ? u.material : []).map((m) => str(m).trim()).filter(Boolean),
           licences: values(u.licences).map((l) => ({
             number: str(l.licence).trim(),

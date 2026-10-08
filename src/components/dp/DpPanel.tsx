@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
-import { vpdive, ymd, DP_ROLE, type CalendarEvent, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { vpdive, ymd, DP_ROLE, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import { appApi, AppApiError, type AppRole } from '../../services/appApi';
-import { headerFromRoles, newOuting, nextDive, normalizeOuting, syncWithRoster, withGuests, type Dive, type OutingDoc } from '../../lib/outing';
+import { addedMemberId, adoptRegistrations, defaultRoles, headerFromRoles, newOuting, nextDive, normalizeOuting, syncWithRoster, toggleDiving, withGuests, type AddedMember, type Dive, type DiveRole, type OutingDoc } from '../../lib/outing';
 import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
@@ -139,7 +139,7 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
           {/* Sortie choisie */}
           <main className={`${selected ? 'flex' : 'hidden lg:flex'} flex-1 min-w-0 flex-col overflow-y-auto overscroll-contain bg-canvas print:bg-white print:overflow-visible`}>
             {selected ? (
-              <OutingWorkspace key={selected.token} event={selected} session={session} closeRef={closeRef} onSessionLost={onSessionLost} />
+              <OutingWorkspace key={selected.token} event={selected} session={session} canPromote={role !== 'member'} closeRef={closeRef} onSessionLost={onSessionLost} />
             ) : (
               <p className="m-auto p-8 text-muted">Choisissez une sortie.</p>
             )}
@@ -222,11 +222,14 @@ type SaveState = 'saved' | 'pending' | 'saving' | 'error' | 'conflict';
 function OutingWorkspace({
   event,
   session,
+  canPromote,
   closeRef,
   onSessionLost,
 }: {
   event: CalendarEvent;
   session: Session;
+  /** Admin : peut inscrire quelqu'un de la liste d'attente. */
+  canPromote: boolean;
   closeRef: React.RefObject<() => Promise<boolean>>;
   onSessionLost: (e: unknown) => boolean;
 }) {
@@ -254,7 +257,9 @@ function OutingWorkspace({
     try {
       const [r, saved] = await Promise.all([vpdive.fetchRoster(event.token), appApi.getOuting(event.token)]);
       // Une composition enregistrée est rapprochée des inscrits du jour : les désinscrits en sortent.
-      const sync = saved ? syncWithRoster(normalizeOuting(saved, event), withGuests(r, saved)) : null;
+      // Un membre ajouté qui s'est inscrit depuis devient l'inscrit VPDive.
+      const base = saved ? adoptRegistrations(normalizeOuting(saved, event), r) : null;
+      const sync = base ? syncWithRoster(base, withGuests(r, base)) : null;
       const d = sync?.doc ?? newOuting(event, r, session.clubName);
       revRef.current = saved?.rev ?? 0;
       docRef.current = d;
@@ -353,16 +358,24 @@ function OutingWorkspace({
 
   const updateDive = (fn: (d: Dive) => Dive) => update((d) => ({ ...d, dives: d.dives.map((x) => (x.id === diveId ? fn(x) : x)) }));
 
-  /** Inscrits VPDive et plongeurs hors VPDive : tout l'écran les traite pareil. */
+  /** Inscrits VPDive, membres ajoutés et plongeurs hors VPDive : tout l'écran les traite pareil. */
   const guests = doc?.guests;
-  const people = useMemo(() => (roster ? withGuests(roster, { guests }) : null), [roster, guests]);
+  const members = doc?.members;
+  const people = useMemo(() => (roster ? withGuests(roster, { guests, members }) : null), [roster, guests, members]);
+
+  /** L'identifiant d'inscription que VPDive attend pour ses routes d'admin. */
+  const socketOf = (id: string, name: string) => {
+    const socket = roster?.find((r) => r.id === id)?.socket;
+    if (!socket) throw new Error(`Inscription de ${name} introuvable sur VPDive : rechargez la sortie.`);
+    return socket;
+  };
 
   /**
    * Désinscrit quelqu'un de la sortie sur VPDive, puis relit la liste pour s'en
    * assurer. Il reste affiché barré (`unregistered`) tant qu'il ne s'est pas réinscrit.
    */
   const unregister = async (person: { id: string; name: string; instructor: boolean }) => {
-    await vpdive.unregisterMember(event.token, person.id);
+    await vpdive.deleteRegistration(event.token, socketOf(person.id, person.name));
     const fresh = await vpdive.fetchRoster(event.token);
     if (fresh.some((r) => r.id === person.id)) throw new Error(`VPDive n’a pas désinscrit ${person.name}.`);
     setRoster(fresh);
@@ -370,6 +383,50 @@ function OutingWorkspace({
       ...d,
       unregistered: [...(d.unregistered ?? []).filter((u) => u.id !== person.id), { ...person, by: me, at: new Date().toISOString() }],
     }));
+  };
+
+  /** Liste d'attente → inscrit sur VPDive (même au-delà de la jauge), puis coché « plonge ». */
+  const promote = async (person: { id: string; name: string }) => {
+    await vpdive.switchWaitingList(event.token, socketOf(person.id, person.name));
+    const fresh = await vpdive.fetchRoster(event.token);
+    const now = fresh.find((r) => r.id === person.id);
+    if (!now || now.waitingList) throw new Error(`VPDive n’a pas inscrit ${person.name}.`);
+    setRoster(fresh);
+    update((d) => ({ ...d, settings: toggleDiving(d.settings, person.id, true) }));
+  };
+
+  /**
+   * Ajoute un membre VPDive qui ne s'est pas inscrit (DP, pilote, sécu désignés),
+   * avec les rôles choisis. Ses niveaux viennent de sa fiche ; il ne plonge pas
+   * tant qu'on ne le coche pas. Rien n'est inscrit sur VPDive.
+   */
+  const addMember = async (m: MemberMatch, chosen: DiveRole[]) => {
+    const existing = people?.find((r) => r.uct === m.id);
+    let id = existing?.id ?? addedMemberId(m.id);
+    let added: AddedMember | null = null;
+    if (!existing) {
+      const profile = await vpdive.memberProfile(m.id).catch((e) => {
+        if (e instanceof SessionExpiredError) throw e;
+        return null;
+      });
+      added = { id, uct: m.id, name: m.name, picture: m.picture, levels: profile?.labels ?? [], display: profile ? [...profile.teaching, ...profile.levels] : [] };
+    }
+    id = added?.id ?? id;
+    update((d) => {
+      const list = added ? withGuests(roster ?? [], { ...d, members: [...(d.members ?? []), added] }) : withGuests(roster ?? [], d);
+      let roles = d.roles ?? defaultRoles(roster ?? []);
+      const header = { ...d.header };
+      for (const role of chosen) {
+        if (!(roles[role] ?? []).includes(id)) roles = { ...roles, [role]: [...(roles[role] ?? []), id] };
+        Object.assign(header, headerFromRoles(list, roles, role));
+      }
+      return {
+        ...d,
+        roles,
+        header,
+        ...(added ? { members: [...(d.members ?? []), added], settings: toggleDiving(d.settings, id, false) } : {}),
+      };
+    });
   };
 
   if (loadError) {
@@ -496,7 +553,6 @@ function OutingWorkspace({
       {view === 'benevoles' ? (
         <VolunteersPanel
           roster={people}
-          taken={doc.settings.fromWaitingList}
           volunteers={doc.volunteers ?? {}}
           onChange={(volunteers) => update((d) => ({ ...d, volunteers }))}
         />
@@ -528,7 +584,10 @@ function OutingWorkspace({
             }}
             onReopen={() => updateDive((d) => ({ ...d, validated: null }))}
             onGuests={(list) => update((d) => ({ ...d, guests: list }))}
+            onMembers={(list) => update((d) => ({ ...d, members: list }))}
             onUnregister={unregister}
+            onPromote={canPromote ? promote : undefined}
+            onAddMember={addMember}
           />
         ) : (
           <SafetySheet

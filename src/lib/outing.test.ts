@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayParticipants, defaultRoles, guestEntry, headerFromRoles, newGuest, normalizeOuting, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
+import { addedMemberId, adoptRegistrations, dayParticipants, defaultRoles, guestEntry, memberEntry, headerFromRoles, newGuest, normalizeOuting, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
 import { aptitudesFromLabels, type Diver } from './palanquees';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -147,19 +147,31 @@ test('plongeurs hors VPDive : entrée de liste, baptême débutant, retirés ave
   assert.deepEqual(stillUnregistered({ unregistered: [{ id: 'ext-1', name: 'X', instructor: false, by: 'DP', at: '' }] }, [e]), [], 'revenu dans la liste : plus barré');
 });
 
-test('liste d’attente : hors de l’eau tant que le DP ne l’a pas prise, même arrivée après la fiche', () => {
+test('liste d’attente : toujours hors de l’eau, même arrivée après la fiche ; décocher un inscrit', () => {
   const r = (id: string, waitingList = false) => ({ id, name: id, firstname: id, lastname: '', levels: ['E3'], display: [], training: [], roles: [], age: 40, waitingList, comment: '', medical: { until: null, valid: true } }) as RosterEntry;
   const roster = [r('a'), r('w', true)];
   const settings = { excluded: [] as string[] };
-  assert.deepEqual([...outOfWater(roster, settings)], ['w'], 'en attente, non décoché : hors de l’eau');
-  const taken = toggleDiving(settings, roster[1]!, true);
-  assert.deepEqual(taken.fromWaitingList, ['w']);
-  assert.equal(outOfWater(roster, taken).size, 0);
-  // Pris par le DP : il reste encadrant après le contrôle continu.
+  assert.deepEqual([...outOfWater(roster, settings)], ['w']);
   const g: Diver = { ...aptitudesFromLabels(['E3']), id: 'w', name: 'w', labels: ['E3'] };
-  const doc = { settings: taken, header: {} as OutingDoc['header'], dives: [{ id: 'd', label: 'P1', plan: { palanquees: [{ id: 'p', kind: 'guided' as const, guide: g, extra: null, members: [{ ...g, id: 'a', name: 'a' }] }], unassigned: [] }, validated: null, sheets: {}, gas: {} }] };
-  assert.equal(syncWithRoster(doc, roster).doc.dives[0]!.plan!.palanquees[0]!.guide?.id, 'w');
-  assert.equal(syncWithRoster({ ...doc, settings }, roster).doc.dives[0]!.plan!.palanquees[0]!.guide, null, 'non pris : retiré');
-  assert.deepEqual(toggleDiving(taken, roster[1]!, false).fromWaitingList, []);
-  assert.deepEqual(toggleDiving(settings, roster[0]!, false).excluded, ['a']);
+  const doc = { settings, header: {} as OutingDoc['header'], dives: [{ id: 'd', label: 'P1', plan: { palanquees: [{ id: 'p', kind: 'guided' as const, guide: g, extra: null, members: [{ ...g, id: 'a', name: 'a' }] }], unassigned: [] }, validated: null, sheets: {}, gas: {} }] };
+  assert.equal(syncWithRoster(doc, roster).doc.dives[0]!.plan!.palanquees[0]!.guide, null, 'en attente : retiré des palanquées');
+  assert.deepEqual(toggleDiving(settings, 'a', false).excluded, ['a']);
+  assert.deepEqual(toggleDiving({ excluded: ['a'] }, 'a', true).excluded, []);
+});
+
+test('membre ajouté sans inscription : dans la liste, puis remplacé par son inscription', () => {
+  const m = { id: addedMemberId('U1'), uct: 'U1', name: 'GINS Niels', picture: '', levels: ['E3'], display: ['MF1'] };
+  const e = memberEntry(m);
+  assert.equal(e.firstname, 'Niels');
+  assert.equal(e.lastname, 'GINS');
+  assert.equal(e.added, true);
+  assert.deepEqual(withGuests([], { members: [m] }).map((x) => x.id), ['uct:U1']);
+  const doc = { settings: { excluded: ['uct:U1'] }, header: {} as OutingDoc['header'], dives: [], roles: { dp: ['uct:U1'] }, members: [m] } as OutingDoc;
+  const registered = { id: '42', uct: 'U1', name: 'GINS Niels', firstname: 'Niels', lastname: 'GINS', levels: ['E3'], display: [], training: [], roles: [], age: 30, waitingList: false, comment: '', medical: { until: null, valid: true } } as RosterEntry;
+  assert.deepEqual(withGuests([registered], doc).map((x) => x.id), ['42'], 'inscrit : plus de doublon');
+  const adopted = adoptRegistrations(doc, [registered]);
+  assert.deepEqual(adopted.roles, { dp: ['42'] });
+  assert.deepEqual(adopted.settings.excluded, ['42']);
+  assert.deepEqual(adopted.members, []);
+  assert.equal(adoptRegistrations(doc, []), doc, 'pas inscrit : inchangé');
 });

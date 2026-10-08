@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Loader2, Lock, Pencil, Plus, RotateCcw, Share2, ShieldCheck, Sparkles, Star, Trash2, UserMinus, UserPlus, UserX, X } from 'lucide-react';
-import type { RosterEntry } from '../../services/vpdiveApi';
+import type { MemberMatch, RosterEntry } from '../../services/vpdiveApi';
+import { MemberSearch } from './MemberSearch';
 import { Avatar } from '../Avatar';
 import {
   TYPE_LABEL,
@@ -46,7 +47,7 @@ import {
   setType,
   trainingMenuFor,
 } from '../../lib/palanqueeEdit';
-import { DIVE_ROLES, dayParticipants, defaultRoles, newGuest, outOfWater, rolesOf, stillUnregistered, toggleDiving, toggleRole, type Dive, type DiveRole, type Guest, type OutingDoc, type Roles, type Unregistered } from '../../lib/outing';
+import { DIVE_ROLES, dayParticipants, defaultRoles, newGuest, outOfWater, rolesOf, stillUnregistered, toggleDiving, toggleRole, type AddedMember, type Dive, type DiveRole, type Guest, type OutingDoc, type Roles, type Unregistered } from '../../lib/outing';
 import { Menu } from '../Menu';
 
 interface Props {
@@ -62,8 +63,14 @@ interface Props {
   onReopen: () => void;
   /** Plongeurs hors VPDive de la sortie. */
   onGuests: (guests: Guest[]) => void;
+  /** Membres VPDive ajoutés sans inscription. */
+  onMembers: (members: AddedMember[]) => void;
   /** Désinscrit de VPDive ; rejette avec le message à afficher. */
   onUnregister: (person: { id: string; name: string; instructor: boolean }) => Promise<void>;
+  /** Liste d'attente → inscrit sur VPDive (admin seulement ; absent sinon). */
+  onPromote?: (person: { id: string; name: string }) => Promise<void>;
+  /** Ajoute un membre VPDive non inscrit, avec des rôles. */
+  onAddMember: (m: MemberMatch, roles: DiveRole[]) => Promise<void>;
 }
 
 const TYPES: PalanqueeType[] = ['exploration', 'teaching'];
@@ -108,8 +115,10 @@ function RoleBadges({ id }: { id: string }) {
  * palanquées : générées ou composées à la main, puis validées, ce qui fige la
  * composition et débloque la fiche de sécurité, où se fixent les profondeurs.
  */
-export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles, onPlan, onValidate, onReopen, onGuests, onUnregister }: Props) {
+export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles, onPlan, onValidate, onReopen, onGuests, onMembers, onUnregister, onPromote, onAddMember }: Props) {
   const [copied, setCopied] = useState(false);
+  /** Inscription depuis la liste d'attente en cours ('busy') ou refusée (message). */
+  const [promoting, setPromoting] = useState<Record<string, string>>({});
   const settings = doc.settings;
   // Décochés, et liste d'attente VPDive que le DP n'a pas prise.
   const excluded = useMemo(() => outOfWater(roster, settings), [roster, settings]);
@@ -211,7 +220,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
     const setLevel = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'levels', d.id, v) });
     const setTraining = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) });
     // Sous le nom : mineur, liste d'attente, hors VPDive et son commentaire, et le niveau tel que VPDive l'écrit (P2, PADI - AOW…).
-    const below = [d.minor && 'mineur', r.waitingList && 'liste d’attente', r.outside && 'hors VPDive', r.display.join(', '), r.outside && r.comment].filter(Boolean).join(' · ');
+    const below = [d.minor && 'mineur', r.added && 'non inscrit, ajouté par le DP', r.outside && 'hors VPDive', r.display.join(', '), r.outside && r.comment].filter(Boolean).join(' · ');
     const hasRoles = (roleMap.get(d.id)?.length ?? 0) > 0;
     return (
       <li key={d.id} className="flex flex-wrap items-center gap-x-1.5 px-3 sm:px-3.5 py-2">
@@ -220,8 +229,10 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
           <input
             type="checkbox"
             checked={!out}
-            onChange={() => onSettings(toggleDiving(settings, r, out))}
-            className="w-5 h-5 accent-[var(--fill)] shrink-0"
+            disabled={r.waitingList && (!onPromote || promoting[d.id] === 'busy')}
+            title={r.waitingList ? (onPromote ? 'Cocher l’inscrit sur VPDive' : 'Seul un admin peut inscrire depuis la liste d’attente') : undefined}
+            onChange={() => (r.waitingList ? void promote(d) : onSettings(toggleDiving(settings, d.id, out)))}
+            className="w-5 h-5 accent-[var(--fill)] shrink-0 disabled:cursor-not-allowed"
           />
           <Avatar name={d.name} picture={d.picture} size="sm" initials={false} className="hidden sm:block" />
           <span className="min-w-0 flex-1">
@@ -285,11 +296,19 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
         )}
         </div>
         {/* Décoché : on peut le désinscrire de VPDive. Hors VPDive : on peut le retirer. */}
-        {r.outside ? (
+        {promoting[d.id] && promoting[d.id] !== 'busy' && (
+          <p role="alert" className="basis-full pl-[1.875rem] pt-1 text-sm text-danger">
+            {promoting[d.id]}
+          </p>
+        )}
+        {r.outside || r.added ? (
           <div className="basis-full pl-[1.875rem] pt-1">
             <button
               type="button"
-              onClick={() => window.confirm(`Retirer ${d.name} de la sortie ?`) && onGuests((doc.guests ?? []).filter((g) => g.id !== d.id))}
+              onClick={() =>
+                window.confirm(`Retirer ${d.name} de la sortie ?`) &&
+                (r.outside ? onGuests((doc.guests ?? []).filter((g) => g.id !== d.id)) : onMembers((doc.members ?? []).filter((m) => m.id !== d.id)))
+              }
               className="btn btn-quiet h-8 px-2.5 text-sm hover:text-danger"
             >
               <Trash2 className="w-4 h-4" /> Retirer
@@ -301,6 +320,20 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
       </li>
     );
   };
+
+  /** Liste d'attente → inscrit sur VPDive, après confirmation. */
+  const promote = async (d: Diver) => {
+    if (!onPromote || !window.confirm(`Inscrire ${d.name} sur VPDive ?\n\n${d.name} passe de la liste d’attente aux inscrits, même si la sortie est complète.`)) return;
+    setPromoting((p) => ({ ...p, [d.id]: 'busy' }));
+    try {
+      await onPromote({ id: d.id, name: d.name });
+      setPromoting(({ [d.id]: _, ...rest }) => rest);
+    } catch (e) {
+      setPromoting((p) => ({ ...p, [d.id]: e instanceof Error ? e.message : String(e) }));
+    }
+  };
+  const waiting = new Set(roster.filter((r) => r.waitingList).map((r) => r.id));
+  const listed = divers.filter((d) => !waiting.has(d.id));
 
   // Désinscrits depuis cet écran : barrés, à leur place (encadrants ou plongeurs).
   const gone = stillUnregistered(doc, roster);
@@ -327,7 +360,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
         </div>
       )}
 
-      <RolesSection roster={roster} roles={roles} excluded={excluded} taken={settings.fromWaitingList} onRoles={onRoles} />
+      <RolesSection roster={roster} roles={roles} excluded={excluded} onRoles={onRoles} onAddMember={onAddMember} />
 
       {/* 1. Qui plonge : encadrants du plus haut au plus bas, puis plongeurs ; validé par le DP avant les palanquées */}
       {!locked && !rosterOk && (
@@ -346,14 +379,19 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             <p className="text-muted">Personne n’est encore inscrit à cette sortie.</p>
           ) : (
             <div className="space-y-4">
-              <RosterGroup title="Encadrants" count={divers.filter(isInstructor).length} training={false}>
-                {divers.filter(isInstructor).sort(byRank).map(rosterRow)}
+              <RosterGroup title="Encadrants" count={listed.filter(isInstructor).length} training={false}>
+                {listed.filter(isInstructor).sort(byRank).map(rosterRow)}
                 {goneRows(true)}
               </RosterGroup>
-              <RosterGroup title="Plongeurs" count={divers.filter((d) => !isInstructor(d)).length}>
-                {divers.filter((d) => !isInstructor(d)).sort(byName).map(rosterRow)}
+              <RosterGroup title="Plongeurs" count={listed.filter((d) => !isInstructor(d)).length}>
+                {listed.filter((d) => !isInstructor(d)).sort(byName).map(rosterRow)}
                 {goneRows(false)}
               </RosterGroup>
+              {waiting.size > 0 && (
+                <RosterGroup title="Liste d’attente" count={waiting.size}>
+                  {divers.filter((d) => waiting.has(d.id)).sort(byName).map(rosterRow)}
+                </RosterGroup>
+              )}
             </div>
           )}
           <GuestForm onAdd={(g) => onGuests([...(doc.guests ?? []), g])} />
@@ -500,8 +538,20 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
  * Rôles de la sortie : DP, pilote, sécurité surface. N'importe quel inscrit de la
  * journée, encadrant ou non, qu'il plonge ou non ; un même inscrit peut en cumuler.
  */
-function RolesSection({ roster, roles, excluded, taken, onRoles }: { roster: RosterEntry[]; roles: Roles; excluded: Set<string>; taken?: string[]; onRoles: (roles: Roles, role: DiveRole) => void }) {
-  const people = dayParticipants(roster, taken).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+function RolesSection({
+  roster,
+  roles,
+  excluded,
+  onRoles,
+  onAddMember,
+}: {
+  roster: RosterEntry[];
+  roles: Roles;
+  excluded: Set<string>;
+  onRoles: (roles: Roles, role: DiveRole) => void;
+  onAddMember: (m: MemberMatch, roles: DiveRole[]) => Promise<void>;
+}) {
+  const people = dayParticipants(roster).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   const byId = new Map(roster.map((r) => [r.id, r]));
   return (
     <section>
@@ -554,7 +604,98 @@ function RolesSection({ roster, roles, excluded, taken, onRoles }: { roster: Ros
           );
         })}
       </ul>
+      <AddMember onAdd={onAddMember} onSite={roster.map((r) => r.uct ?? '').filter(Boolean)} />
     </section>
+  );
+}
+
+/**
+ * Ajouter un membre VPDive qui ne s'est pas inscrit (DP, pilote, sécu désignés
+ * par le club) : on le cherche par son nom, on coche ses rôles. Il n'est pas
+ * inscrit sur VPDive ; s'il s'inscrit ensuite, il prend la place de cet ajout.
+ */
+function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[]) => Promise<void>; onSite: string[] }) {
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<MemberMatch | null>(null);
+  const [chosen, setChosen] = useState<DiveRole[]>(['dp']);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const close = () => {
+    setOpen(false);
+    setPicked(null);
+    setChosen(['dp']);
+    setError(null);
+  };
+  if (!open) {
+    return (
+      <div className="mt-2">
+        <ActionButton onClick={() => setOpen(true)} icon={<UserPlus className="w-4 h-4" />} title="Un membre du club qui ne s'est pas inscrit">
+          Membre non inscrit
+        </ActionButton>
+      </div>
+    );
+  }
+  const add = async () => {
+    if (!picked) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onAdd(picked, chosen);
+      close();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-2 card p-4 space-y-3">
+      <p className="font-semibold text-brand">Membre non inscrit</p>
+      {picked ? (
+        <div className="flex items-center gap-2.5">
+          <Avatar name={picked.name} picture={picked.picture} size="sm" initials={false} />
+          <span className="flex-1 min-w-0 truncate font-medium text-ink">{picked.name}</span>
+          <button type="button" onClick={() => setPicked(null)} className="btn btn-quiet h-8 px-2.5 text-sm">
+            Changer
+          </button>
+        </div>
+      ) : (
+        <MemberSearch onPick={setPicked} exclude={onSite} />
+      )}
+      <fieldset>
+        <legend className="label mb-1.5">Rôles</legend>
+        <div className="flex flex-wrap gap-2">
+          {DIVE_ROLES.map((role) => {
+            const on = chosen.includes(role.id);
+            return (
+              <button
+                key={role.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setChosen((c) => (on ? c.filter((x) => x !== role.id) : [...c, role.id]))}
+                className={`btn h-9 text-sm ${on ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
+              >
+                {on && <Check className="w-4 h-4" />} {role.label}
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
+      <p className="text-sm text-muted">Ajouté à la sortie dans l’appli seulement : il n’est pas inscrit sur VPDive et ne plonge pas tant qu’on ne le coche pas.</p>
+      {error && (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => void add()} disabled={!picked || busy} className="btn btn-primary h-9 text-sm">
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Ajouter
+        </button>
+        <button type="button" onClick={close} className="btn btn-quiet h-9 text-sm">
+          Annuler
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -59,6 +59,8 @@ export interface OutingDoc {
   roles?: Roles;
   /** Plongeurs hors VPDive ajoutés par le DP (baptêmes, invités…). */
   guests?: Guest[];
+  /** Membres VPDive ajoutés par le DP sans qu'ils se soient inscrits (DP, pilote, sécu désignés…). */
+  members?: AddedMember[];
   /** Inscrits que le DP a désinscrits de VPDive depuis cet écran : affichés barrés. */
   unregistered?: Unregistered[];
 }
@@ -79,6 +81,57 @@ export interface Unregistered {
   instructor: boolean;
   by: string;
   at: string;
+}
+
+export interface AddedMember {
+  /** « uct:<jeton d'adhésion> » : remplacé par l'identifiant VPDive s'il s'inscrit (adoptRegistrations). */
+  id: string;
+  uct: string;
+  name: string;
+  picture: string;
+  /** Codes de niveau (P4, E3…) et niveaux tels que VPDive les écrit, lus sur sa fiche à l'ajout. */
+  levels: string[];
+  display: string[];
+}
+
+export const addedMemberId = (uct: string) => `uct:${uct}`;
+
+/** Le membre ajouté tel que l'écran DP lit un inscrit. */
+export function memberEntry(m: AddedMember): RosterEntry {
+  // « NOM COMPOSÉ Prénom » : les mots tout en capitales forment le nom.
+  const words = m.name.trim().split(/\s+/).filter(Boolean);
+  const cut = words.findIndex((w) => w !== w.toUpperCase());
+  return {
+    id: m.id,
+    name: m.name,
+    firstname: cut < 0 ? '' : words.slice(cut).join(' '),
+    lastname: (cut < 0 ? words : words.slice(0, cut)).join(' '),
+    levels: m.levels,
+    display: m.display,
+    training: [],
+    roles: [],
+    age: null,
+    waitingList: false,
+    comment: '',
+    medical: { until: null, valid: false },
+    ...(m.picture ? { picture: m.picture } : {}),
+    uct: m.uct,
+    added: true,
+  };
+}
+
+/**
+ * Un membre ajouté qui s'est inscrit depuis : il devient l'inscrit VPDive,
+ * avec ses rôles, sa place et ses réglages (son identifiant est remplacé partout).
+ */
+export function adoptRegistrations(doc: OutingDoc, roster: RosterEntry[]): OutingDoc {
+  const members = doc.members ?? [];
+  const byUct = new Map(roster.filter((r) => r.uct).map((r) => [r.uct!, r.id]));
+  const adopted = members.filter((m) => byUct.has(m.uct));
+  if (!adopted.length) return doc;
+  let text = JSON.stringify({ ...doc, members: members.filter((m) => !byUct.has(m.uct)) });
+  for (const m of adopted) text = text.split(JSON.stringify(m.id)).join(JSON.stringify(byUct.get(m.uct)));
+  return JSON.parse(text) as OutingDoc;
 }
 
 /** Nouveau plongeur hors VPDive ; null sans prénom ni nom. */
@@ -108,10 +161,11 @@ export function guestEntry(g: Guest): RosterEntry {
   };
 }
 
-/** Les inscrits VPDive, plus les plongeurs hors VPDive de la sortie. */
-export function withGuests(roster: RosterEntry[], doc: Pick<OutingDoc, 'guests'> | null): RosterEntry[] {
+/** Les inscrits VPDive, plus les membres ajoutés par le DP et les plongeurs hors VPDive de la sortie. */
+export function withGuests(roster: RosterEntry[], doc: Pick<OutingDoc, 'guests' | 'members'> | null): RosterEntry[] {
   const guests = doc?.guests ?? [];
-  return guests.length ? [...roster, ...guests.map(guestEntry)] : roster;
+  const members = (doc?.members ?? []).filter((m) => !roster.some((r) => r.id === m.id || (r.uct && r.uct === m.uct)));
+  return guests.length || members.length ? [...roster, ...members.map(memberEntry), ...guests.map(guestEntry)] : roster;
 }
 
 /** Désinscrits depuis cet écran qui ne sont pas revenus dans la liste VPDive. */
@@ -184,25 +238,22 @@ export type Volunteers = Partial<Record<VolunteerPost, string[]>>;
 /** Deux personnes au plus par poste ; une même personne peut tenir plusieurs postes. */
 export const MAX_PER_POST = 2;
 
-/** Ceux qu'on peut désigner : les inscrits de la journée, hors liste d'attente sauf ceux que le DP a pris. */
-export const dayParticipants = (roster: RosterEntry[], taken: string[] = []) => roster.filter((r) => !r.waitingList || taken.includes(r.id));
+/** Ceux qu'on peut désigner : les inscrits de la journée, hors liste d'attente. */
+export const dayParticipants = (roster: RosterEntry[]) => roster.filter((r) => !r.waitingList);
 
 /**
- * Qui ne plonge pas : décoché par le DP, ou en liste d'attente sur VPDive sans
- * que le DP l'ait pris. La liste d'attente compte donc toujours, même pour
- * quelqu'un qui s'y est mis après la création de la fiche.
+ * Qui ne plonge pas : décoché par le DP, ou en liste d'attente sur VPDive. La
+ * liste d'attente compte toujours, même pour quelqu'un qui s'y est mis après
+ * la création de la fiche ; pour le faire plonger, on l'inscrit sur VPDive.
  */
 export function outOfWater(roster: RosterEntry[], settings: OutingDoc['settings']): Set<string> {
-  const taken = new Set(settings.fromWaitingList ?? []);
-  return new Set([...settings.excluded, ...roster.filter((r) => r.waitingList && !taken.has(r.id)).map((r) => r.id)]);
+  return new Set([...settings.excluded, ...roster.filter((r) => r.waitingList).map((r) => r.id)]);
 }
 
-/** Coche ou décoche quelqu'un dans « Qui plonge ? » ; en liste d'attente, c'est le prendre ou non. */
-export function toggleDiving(settings: OutingDoc['settings'], r: Pick<RosterEntry, 'id' | 'waitingList'>, diving: boolean): OutingDoc['settings'] {
-  const excluded = settings.excluded.filter((x) => x !== r.id);
-  const taken = (settings.fromWaitingList ?? []).filter((x) => x !== r.id);
-  if (r.waitingList) return { ...settings, excluded, fromWaitingList: diving ? [...taken, r.id] : taken };
-  return { ...settings, excluded: diving ? excluded : [...excluded, r.id], ...(settings.fromWaitingList ? { fromWaitingList: taken } : {}) };
+/** Coche ou décoche un inscrit dans « Qui plonge ? ». */
+export function toggleDiving(settings: OutingDoc['settings'], id: string, diving: boolean): OutingDoc['settings'] {
+  const excluded = settings.excluded.filter((x) => x !== id);
+  return { ...settings, excluded: diving ? excluded : [...excluded, id] };
 }
 
 /**
@@ -289,7 +340,7 @@ export function nextDive(doc: OutingDoc): Dive {
  * Rien ne change : les mêmes plongées (même objet) sont rendues.
  */
 export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: OutingDoc; departed: string[] } {
-  const present = new Set(dayParticipants(roster, doc.settings.fromWaitingList).map((r) => r.id));
+  const present = new Set(dayParticipants(roster).map((r) => r.id));
   const listed = new Set(roster.map((r) => r.id));
   const excluded = outOfWater(roster, doc.settings);
   const gone = new Map<string, string>();
@@ -334,16 +385,12 @@ export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: Ou
     if (ids?.length) volunteers[id] = ids;
   }
 
-  const unchanged = dives.every((d, i) => d === doc.dives[i]) && sameIds(roles, doc.roles) && sameIds(volunteers, doc.volunteers) && doc.settings.excluded.every((id) => listed.has(id)) && (doc.settings.fromWaitingList ?? []).every((id) => present.has(id));
+  const unchanged = dives.every((d, i) => d === doc.dives[i]) && sameIds(roles, doc.roles) && sameIds(volunteers, doc.volunteers) && doc.settings.excluded.every((id) => listed.has(id));
   if (unchanged) return { doc, departed: [] };
   return {
     doc: {
       ...doc,
-      settings: {
-        ...doc.settings,
-        excluded: doc.settings.excluded.filter((id) => listed.has(id)),
-        ...(doc.settings.fromWaitingList ? { fromWaitingList: doc.settings.fromWaitingList.filter((id) => present.has(id)) } : {}),
-      },
+      settings: { ...doc.settings, excluded: doc.settings.excluded.filter((id) => listed.has(id)) },
       dives,
       ...(doc.roles ? { roles } : {}),
       ...(doc.volunteers ? { volunteers } : {}),
