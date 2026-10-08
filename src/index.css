@@ -225,6 +225,29 @@
   @apply text-sm font-semibold text-muted;
 }
 
+/*
+ * Identité : deux motifs, pris à la mer, utilisés avec parcimonie.
+ *
+ * Le pavillon Alpha (« plongeur en immersion, tenez-vous à distance ») donne
+ * sa queue fourchue aux repères : onglet actif, « Aujourd'hui », numéro de
+ * palanquée. La couleur dit le rôle (marine pour la navigation, rose pour
+ * aujourd'hui) ; la forme dit le club.
+ */
+@utility alpha {
+  clip-path: polygon(0 0, 100% 0, 78% 50%, 100% 100%, 0 100%);
+  padding-right: 0.85em;
+}
+
+/*
+ * L'isobathe : une courbe de niveau fine, comme sur la carte marine du fond,
+ * sous les titres de page à la place d'un trait droit. Couleur : bg-* (masque).
+ */
+@utility isobath {
+  height: 8px;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='8' viewBox='0 0 120 8'%3E%3Cpath d='M0 4 C 15 0.5, 30 0.5, 45 4 S 75 7.5, 90 4 S 110 1, 120 4' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") repeat-x left center / 120px 8px;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='8' viewBox='0 0 120 8'%3E%3Cpath d='M0 4 C 15 0.5, 30 0.5, 45 4 S 75 7.5, 90 4 S 110 1, 120 4' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") repeat-x left center / 120px 8px;
+}
+
 @utility card {
   @apply rounded-xl bg-surface border border-line;
 }

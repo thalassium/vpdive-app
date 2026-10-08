@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, ClipboardList, Eye } from 'lucide-react';
+import { ExternalLink, ClipboardList, Eye, CalendarDays, GraduationCap, MessageCircle, UserRound } from 'lucide-react';
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
@@ -10,10 +10,27 @@ import { MembersPanel } from './components/MembersPanel';
 import { DpPanel } from './components/dp/DpPanel';
 import { AccountMenu, ROLE_LABEL, type ViewAsPick } from './components/AccountMenu';
 import { sameName } from './lib/fuzzy';
+import { Avatar } from './components/Avatar';
+import { CoursesView } from './components/views/CoursesView';
+import { MessagesView } from './components/views/MessagesView';
+import { ProfileView } from './components/views/ProfileView';
 import { vpdive, ymd, SessionExpiredError, DP_ROLE, type CalendarEvent, type MeteoSlot, type Session } from './services/vpdiveApi';
 import { appApi, type Me } from './services/appApi';
 
 const thisMonth = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+/** Les quatre onglets ; l'onglet actif est dans l'adresse (#cours…) pour que le retour du téléphone marche. */
+type Tab = 'agenda' | 'cours' | 'messages' | 'profil';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'agenda', label: 'Calendrier' },
+  { id: 'cours', label: 'Cours' },
+  { id: 'messages', label: 'Messagerie' },
+  { id: 'profil', label: 'Profil' },
+];
+const tabFromHash = (): Tab => {
+  const h = window.location.hash.replace('#', '');
+  return TABS.some((t) => t.id === h) ? (h as Tab) : 'agenda';
+};
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(() => vpdive.getSession());
@@ -30,6 +47,8 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [isDp, setIsDp] = useState(false);
   const [picture, setPicture] = useState<string | undefined>(() => vpdive.getSession()?.picture);
+  const [tab, setTabState] = useState<Tab>(tabFromHash);
+  const [unread, setUnread] = useState(0);
   /**
    * « Voir en tant que » (super-admin) : les droits d'un autre membre, simulés
    * dans le navigateur. Son rôle dans l'appli, et les sorties où il est DP
@@ -154,6 +173,32 @@ export default function App() {
     setPanel(null);
   };
 
+  useEffect(() => {
+    const onHash = () => setTabState(tabFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const goTo = (t: Tab) => {
+    if (t === tab) return window.scrollTo({ top: 0 });
+    window.location.hash = t === 'agenda' ? '' : t;
+    window.scrollTo({ top: 0 });
+  };
+
+  // Pastille de la messagerie : conversations non lues, relues toutes les minutes. Sans messagerie VPDive, pas de pastille.
+  const refreshUnread = useCallback(() => {
+    if (!vpdive.getSession()) return;
+    vpdive.fetchConversations().then(
+      (list) => setUnread(list.filter((c) => !c.read).length),
+      () => setUnread(0),
+    );
+  }, []);
+  useEffect(() => {
+    if (!session) return;
+    refreshUnread();
+    const id = window.setInterval(refreshUnread, 60_000);
+    return () => window.clearInterval(id);
+  }, [session, refreshUnread]);
+
   // Weather is a bonus: if Open-Meteo is down the agenda still works, just without wind badges.
   useEffect(() => {
     if (!session) return;
@@ -196,11 +241,29 @@ export default function App() {
               <Logo className="h-12 sm:h-14" />
             </a>
 
+            {/* Ordinateur et tablette : les onglets dans l'en-tête */}
+            <nav aria-label="Navigation" className="hidden sm:flex items-stretch self-stretch gap-1">
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => goTo(t.id)}
+                  aria-current={tab === t.id ? 'page' : undefined}
+                  className={`relative inline-flex items-center gap-2 px-3 text-sm font-semibold transition-colors ${tab === t.id ? 'text-brand' : 'text-muted hover:text-ink'}`}
+                >
+                  <TabIcon tab={t.id} picture={picture} name={displayName} />
+                  <span className="hidden md:inline">{t.label}</span>
+                  {t.id === 'messages' && unread > 0 && <UnreadBadge count={unread} />}
+                  {tab === t.id && <span aria-hidden className="alpha absolute left-3 bottom-0 w-6 h-1.5 bg-brand" />}
+                </button>
+              ))}
+            </nav>
+
             <div className="flex items-center gap-1 sm:gap-2 min-w-0">
-              <span className="hidden md:inline-flex items-center gap-2 text-sm text-muted mr-2">
-                <span className={`w-2 h-2 rounded-full ${error ? 'bg-danger' : connected ? 'bg-green' : 'bg-line'}`} />
-                {error ? 'VPDive injoignable' : connected ? 'VPDive connecté' : 'Synchronisation…'}
-              </span>
+              <span
+                title={error ? 'VPDive injoignable' : connected ? 'VPDive connecté' : 'Synchronisation…'}
+                className={`hidden lg:block w-2 h-2 mr-1 rounded-full ${error ? 'bg-danger' : connected ? 'bg-green' : 'bg-line'}`}
+              />
 
               {canDp && (
                 <NavButton label="DP" title="Directeur de plongée : palanquées et fiches de sécurité" onClick={() => setPanel('dp')}>
@@ -244,18 +307,48 @@ export default function App() {
         )}
       </header>
 
-      <main className={`flex-1 ${printPanel}`}>
-        <StandardCalendar
-          month={month}
-          onMonthChange={setMonth}
-          events={events}
-          meteoData={meteo}
-          isLoading={isLoading}
-          error={error}
-          onRefresh={loadEvents}
-          onOpenEvent={setActiveEvent}
-        />
+      <main className={`flex-1 pb-20 sm:pb-0 ${printPanel}`}>
+        {tab === 'agenda' && (
+          <StandardCalendar
+            month={month}
+            onMonthChange={setMonth}
+            events={events}
+            meteoData={meteo}
+            isLoading={isLoading}
+            error={error}
+            onRefresh={loadEvents}
+            onOpenEvent={setActiveEvent}
+          />
+        )}
+        {tab === 'cours' && <CoursesView onOpenEvent={setActiveEvent} onSessionLost={handleSessionLost} />}
+        {tab === 'messages' && <MessagesView onSessionLost={handleSessionLost} onRead={refreshUnread} />}
+        {tab === 'profil' && (
+          <ProfileView session={session} me={me} picture={picture} onOpenEvent={setActiveEvent} onLogout={handleLogout} onSessionLost={handleSessionLost} />
+        )}
       </main>
+
+      {/* Téléphone : la barre d'onglets en bas, à portée de pouce */}
+      <nav
+        aria-label="Navigation"
+        className={`sm:hidden fixed bottom-0 inset-x-0 z-30 bg-surface border-t border-line grid grid-cols-4 pb-[env(safe-area-inset-bottom)] ${printPanel}`}
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => goTo(t.id)}
+            aria-current={tab === t.id ? 'page' : undefined}
+            className={`relative flex flex-col items-center justify-center gap-0.5 h-16 text-xs font-medium ${tab === t.id ? 'text-brand font-semibold' : 'text-muted'}`}
+          >
+            {tab === t.id && <span aria-hidden className="alpha absolute top-0 left-1/2 -translate-x-1/2 w-7 h-1.5 bg-brand" />}
+            <span className="relative">
+              <TabIcon tab={t.id} picture={picture} name={displayName} large />
+              {t.id === 'messages' && unread > 0 && <UnreadBadge count={unread} floating />}
+            </span>
+            {t.label}
+          </button>
+        ))}
+      </nav>
 
       {activeEvent && !panel && (
         <EventBookingModal
@@ -291,7 +384,7 @@ export default function App() {
       )}
       {panel === 'members' && isAdmin && me && <MembersPanel me={{ ...me, role }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
 
-      <footer className={`relative bg-band text-on-band px-4 py-8 mt-16 ${printPanel}`}>
+      <footer className={`relative bg-band text-on-band px-4 pt-8 pb-28 sm:pb-8 mt-16 ${printPanel}`}>
         {/* Le bandeau marine sort de l'eau par une vague, au lieu d'une coupure droite */}
         <svg aria-hidden className="absolute bottom-full inset-x-0 w-full h-6 text-band" viewBox="0 0 1440 24" preserveAspectRatio="none">
           <path fill="currentColor" d="M0 14 C 180 2 360 2 540 12 S 900 24 1080 12 S 1320 4 1440 10 V24 H0 Z" />
@@ -307,6 +400,26 @@ export default function App() {
         </div>
       </footer>
     </div>
+  );
+}
+
+function TabIcon({ tab, picture, name, large }: { tab: Tab; picture?: string; name: string; large?: boolean }) {
+  const cls = large ? 'w-6 h-6' : 'w-5 h-5';
+  if (tab === 'agenda') return <CalendarDays className={cls} />;
+  if (tab === 'cours') return <GraduationCap className={cls} />;
+  if (tab === 'messages') return <MessageCircle className={cls} />;
+  // Profil : la photo du membre quand VPDive en a une.
+  return picture ? <Avatar name={name} picture={picture} size="sm" className={large ? 'w-6 h-6' : 'w-5 h-5'} /> : <UserRound className={cls} />;
+}
+
+function UnreadBadge({ count, floating }: { count: number; floating?: boolean }) {
+  return (
+    <span
+      aria-label={`${count} non lu${count > 1 ? 's' : ''}`}
+      className={`min-w-5 h-5 px-1 rounded-full bg-pink text-on-pink text-xs font-bold tabular-nums inline-flex items-center justify-center ${floating ? 'absolute -top-1.5 -right-3' : ''}`}
+    >
+      {count > 9 ? '9+' : count}
+    </span>
   );
 }
 

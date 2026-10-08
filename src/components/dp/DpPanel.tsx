@@ -187,7 +187,7 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
                       <span className="block text-sm font-bold tabular-nums text-brand">{shortDate(d)}</span>
                       <span className="block text-sm text-muted tabular-nums">
                         {isToday ? (
-                          <span className="inline-block rounded-md bg-pink text-on-pink px-1.5 text-xs font-semibold">Aujourd’hui</span>
+                          <span className="alpha inline-block bg-pink text-on-pink pl-1.5 text-xs font-semibold">Aujourd’hui</span>
                         ) : e.allDay ? (
                           'Journée'
                         ) : (

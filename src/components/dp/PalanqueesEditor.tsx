@@ -570,7 +570,8 @@ function PalanqueeCard({
       {/* En-tête : numéro, type, prérogative en code */}
       <header className={`flex items-center justify-between gap-3 px-4 py-3 border-b border-line ${issues.length ? 'bg-danger-soft' : ''}`}>
         <div className="flex items-center gap-2 min-w-0">
-          <span className="w-8 h-8 shrink-0 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">P{index}</span>
+          {/* Numéro de palanquée sur un pavillon Alpha : le repère du club */}
+          <span className="alpha h-8 shrink-0 pl-2 bg-pink text-on-pink text-sm font-bold tabular-nums inline-flex items-center">P{index}</span>
           <span className="min-w-0">
             {locked || hasStudent(p) ? (
               <span className="block font-semibold text-ink" title={locked ? undefined : 'Un élève en formation (FN#) : palanquée de formation'}>

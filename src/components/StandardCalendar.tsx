@@ -332,7 +332,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
  * colonne de date par jour, puis une ligne par sortie (heure, titre, un seul
  * état). Le lieu et le détail sont dans la fiche, à un tap.
  */
-function AgendaList({
+export function AgendaList({
   dates,
   byDay,
   meteoData,
@@ -391,7 +391,7 @@ function DayHeading({ date, wind, today }: { date: string; wind: ReturnType<type
     <div className="flex items-center justify-between gap-2 mb-2 px-1">
       <h2 className="text-lg font-semibold text-brand first-letter:uppercase flex items-center gap-2">
         {dayLabel(date)}
-        {today && <span className="rounded-md bg-pink text-on-pink text-sm font-semibold px-2 py-0.5">Aujourd’hui</span>}
+        {today && <span className="alpha bg-pink text-on-pink text-sm font-semibold pl-2 py-0.5">Aujourd’hui</span>}
       </h2>
       {wind && (
         <span
@@ -433,7 +433,7 @@ function rowStatus(ev: CalendarEvent): { text: string; tone: 'ok' | 'warn' | 'mu
 }
 
 /** Une sortie, une ligne : heure, titre (deux lignes au plus), un état. Le tap ouvre la fiche. */
-function EventRow({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) {
+export function EventRow({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) {
   const status = rowStatus(ev);
   return (
     <button
