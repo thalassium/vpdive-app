@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Award, CalendarDays, ChevronDown, ExternalLink, FileText, FolderOpen, IdCard, ImageIcon, LogOut } from 'lucide-react';
-import { vpdive, ymd, type CalendarEvent, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { Award, ChevronDown, ExternalLink, FileText, FolderOpen, IdCard, ImageIcon, LogOut } from 'lucide-react';
+import { vpdive, ymd, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import type { Me } from '../../services/appApi';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
-import { EventRow } from '../StandardCalendar';
 
 /** Ma page profil sur VPDive : informations, documents, niveaux. */
 const VPDIVE_URL = 'https://septentrion-env.vpdive.com/app/profile';
@@ -18,8 +17,6 @@ interface Quals {
 }
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const dayLabel = (date: string) =>
-  new Date(`${date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 /** « 2027-03-12 » → « 12/03/2027 ». */
 const frDate = (d: string) => d.split('-').reverse().join('/');
 
@@ -52,19 +49,15 @@ export function ProfileView({
   session,
   me,
   picture,
-  onOpenEvent,
   onLogout,
   onSessionLost,
 }: {
   session: Session;
   me: Me | null;
   picture?: string;
-  onOpenEvent: (ev: CalendarEvent) => void;
   onLogout: () => void;
   onSessionLost: (e: unknown) => boolean;
 }) {
-  const [upcoming, setUpcoming] = useState<CalendarEvent[] | null>(null);
-  const [eventsError, setEventsError] = useState<string | null>(null);
   /** undefined : en cours ; null : rien trouvé. */
   const [quals, setQuals] = useState<Quals | null | undefined>(undefined);
   const [qualsError, setQualsError] = useState<string | null>(null);
@@ -80,30 +73,12 @@ export function ProfileView({
   const load = useCallback(async () => {
     const id = ++request.current;
     const stale = () => id !== request.current;
-    setUpcoming(null);
-    setEventsError(null);
     setQuals(undefined);
     setQualsError(null);
     setDocuments(undefined);
     setInfo(undefined);
 
-    // 1. Mes inscriptions à venir.
-    let mine: CalendarEvent[] = [];
-    let eventsFailed: string | null = null;
-    try {
-      const to = new Date();
-      to.setDate(to.getDate() + 90);
-      const events = await vpdive.fetchEvents(ymd(new Date()), ymd(to));
-      if (stale()) return;
-      mine = events.filter((ev) => ev.registered);
-      setUpcoming(mine);
-    } catch (e) {
-      if (stale() || onSessionLost(e)) return;
-      eventsFailed = errorText(e);
-      setEventsError(eventsFailed);
-    }
-
-    // 2. Ma fiche VPDive (« Mon profil ») : niveaux et documents déposés. À défaut, la fiche
+    // Ma fiche VPDive (« Mon profil ») : niveaux et documents déposés. À défaut, la fiche
     //    membre (admins), puis la liste des inscrits d'une sortie pour les niveaux.
     let found: Quals | null = null;
     if (meUct) {
@@ -128,12 +103,16 @@ export function ProfileView({
       setDocuments(null);
       setInfo(null);
     }
-    const first = mine[0];
-    if (!hasAny(found) && first && userId !== null) {
+    // Dernier recours pour les niveaux : la liste des inscrits de ma prochaine sortie.
+    if (!hasAny(found) && userId !== null) {
       try {
-        const roster = await vpdive.fetchRoster(first.token);
-        const entry = roster.find((r) => r.id === String(userId));
-        if (entry) found = fromRoster(entry);
+        const to = new Date();
+        to.setDate(to.getDate() + 90);
+        const first = (await vpdive.fetchEvents(ymd(new Date()), ymd(to))).find((ev) => ev.registered);
+        if (first) {
+          const entry = (await vpdive.fetchRoster(first.token)).find((r) => r.id === String(userId));
+          if (entry) found = fromRoster(entry);
+        }
       } catch (e) {
         if (stale() || onSessionLost(e)) return;
         setQualsError(errorText(e));
@@ -141,10 +120,6 @@ export function ProfileView({
       }
     }
     if (stale()) return;
-    if (!hasAny(found) && eventsFailed) {
-      setQualsError(eventsFailed);
-      return;
-    }
     setQuals(hasAny(found) ? found : null);
   }, [meUct, userId, onSessionLost]);
 
@@ -157,15 +132,6 @@ export function ProfileView({
 
   const name = `${session.firstName} ${session.lastName}`.trim() || me?.name || session.email;
   const roleLabel = me?.role === 'superadmin' ? 'Super-admin' : me?.role === 'admin' ? 'Admin' : null;
-
-  // Inscriptions groupées par jour, dans l'ordre.
-  const byDay: [string, CalendarEvent[]][] = [];
-  for (const ev of upcoming ?? []) {
-    const day = ymd(new Date(ev.start));
-    const last = byDay[byDay.length - 1];
-    if (last && last[0] === day) last[1].push(ev);
-    else byDay.push([day, [ev]]);
-  }
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -186,43 +152,8 @@ export function ProfileView({
       </div>
 
       <div className="mt-6 space-y-3">
-        {/* Mes sorties : ouverte d'emblée, c'est ce qu'on vient voir */}
-        <Box icon={<CalendarDays className="w-5 h-5" />} title="Mes sorties" count={upcoming?.length} defaultOpen>
-          {eventsError ? (
-            <div className="p-4">
-              <ErrorLine text={eventsError} onRetry={load} />
-            </div>
-          ) : upcoming === null ? (
-            <Skeleton rows={2} />
-          ) : upcoming.length === 0 ? (
-            <div className="p-4">
-              <p className="text-muted">Aucune inscription à venir. Les sorties se réservent depuis le calendrier.</p>
-              <button
-                type="button"
-                className="btn btn-quiet mt-3"
-                onClick={() => {
-                  window.location.hash = '';
-                }}
-              >
-                Voir le calendrier
-              </button>
-            </div>
-          ) : (
-            <div className="divide-y divide-line">
-              {byDay.map(([day, events]) => (
-                <div key={day}>
-                  <h3 className="label px-4 pt-3 pb-1 first-letter:uppercase">{dayLabel(day)}</h3>
-                  {events.map((ev) => (
-                    <EventRow key={ev.token} ev={ev} onClick={() => onOpenEvent(ev)} />
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-        </Box>
-
         {/* Mes infos : ce que VPDive sait de moi ; se modifie sur VPDive */}
-        <Box icon={<IdCard className="w-5 h-5" />} title="Mes infos">
+        <Box icon={<IdCard className="w-5 h-5" />} title="Mes infos" defaultOpen>
           {info === undefined ? (
             <Skeleton rows={2} />
           ) : info === null ? (

@@ -329,7 +329,7 @@ export default function App() {
             <p className="max-w-5xl mx-auto px-4 sm:px-6 py-8 text-muted">Chargement…</p>
           ))}
         {tab === 'profil' && (
-          <ProfileView session={session} me={me} picture={picture} onOpenEvent={setActiveEvent} onLogout={handleLogout} onSessionLost={handleSessionLost} />
+          <ProfileView session={session} me={me} picture={picture} onLogout={handleLogout} onSessionLost={handleSessionLost} />
         )}
       </main>
 
