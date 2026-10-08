@@ -5,6 +5,7 @@ import { SPOTS, forecastAt, type Spot } from '../../services/marineWeather';
 import { SEUILS, beaufort, compass, level, metres, windColor, worstIn, type Level, type Slot } from '../../lib/marine';
 import { ThemeToggle } from '../ThemeToggle';
 import { useDialog } from '../../hooks/useDialog';
+import { GabianLoader } from '../Gabian';
 
 const WeatherMap = lazy(() => import('./WeatherMap'));
 
@@ -404,7 +405,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                       <Failure text={forecastError} onRetry={() => setAttempt((n) => n + 1)} />
                     </div>
                   ) : !slots ? (
-                    <p className="py-10 text-center text-muted">Chargement de la prévision…</p>
+                    <GabianLoader label="Chargement de la prévision…" />
                   ) : daySlots.length === 0 ? (
                     <p className="py-10 text-center text-muted">Prévision indisponible pour ce jour.</p>
                   ) : (

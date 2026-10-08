@@ -7,6 +7,7 @@ import { normalizeName, rankByName } from '../lib/fuzzy';
 import { findDuplicates, type DuplicateGroup } from '../lib/duplicates';
 import { ThemeToggle } from './ThemeToggle';
 import { useDialog } from '../hooks/useDialog';
+import { GabianLoader } from './Gabian';
 
 interface Props {
   me: Me;
@@ -187,7 +188,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
         )}
 
         <div className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-4 py-3">
-          {!members && !error && <p className="py-10 text-center text-muted">Chargement des membres depuis VPDive…</p>}
+          {!members && !error && <GabianLoader label="Chargement des membres depuis VPDive…" />}
           {error && (
             <div role="alert" className="m-2 p-4 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2.5">
               <AlertTriangle className="w-5 h-5 shrink-0" />

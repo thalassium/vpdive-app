@@ -7,6 +7,7 @@ import { Avatar } from '../Avatar';
 import { Menu } from '../Menu';
 import { ThemeToggle } from '../ThemeToggle';
 import { useDialog } from '../../hooks/useDialog';
+import { GabianLoader } from '../Gabian';
 
 /** « sam. 11 oct. » */
 const dayLabel = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -105,7 +106,7 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
 
           <main className="flex-1 min-w-0 flex flex-col overflow-y-auto overscroll-contain bg-canvas">
             <div className="p-4 sm:p-5 space-y-4">
-              {!events && !listError && <p className="py-10 text-center text-muted">Chargement des sorties…</p>}
+              {!events && !listError && <GabianLoader label="Chargement des sorties…" />}
               {listError && <Failure text={listError} onRetry={loadList} />}
               {events && events.length === 0 && <p className="md:hidden py-10 text-center text-muted">Aucune sortie dans les semaines qui viennent.</p>}
 

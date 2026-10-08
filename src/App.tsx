@@ -11,6 +11,7 @@ import { AccountMenu, ROLE_LABEL, type ViewAsPick } from './components/AccountMe
 import { sameName } from './lib/fuzzy';
 import { Avatar } from './components/Avatar';
 import { Cromagnon } from './components/Cromagnon';
+import { GabianLoader } from './components/Gabian';
 import { CoursesView } from './components/views/CoursesView';
 import { messaging } from './services/messaging';
 import { vpdive, ymd, SessionExpiredError, DP_ROLE, type CalendarEvent, type MeteoSlot, type Session } from './services/vpdiveApi';
@@ -448,7 +449,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
       </header>
 
       <main className={`flex-1 pb-20 sm:pb-0 ${printPanel}`}>
-        <Suspense fallback={<p className="max-w-5xl mx-auto px-4 sm:px-6 py-8 text-muted">Chargement…</p>}>
+        <Suspense fallback={<GabianLoader className="py-16" />}>
           {tab === 'agenda' && (
             <StandardCalendar
               month={month}
@@ -473,7 +474,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                 </button>
               </div>
             ) : (
-              <p className="max-w-5xl mx-auto px-4 sm:px-6 py-8 text-muted">Chargement…</p>
+              <GabianLoader className="py-16" />
             ))}
           {tab === 'profil' && <ProfileView session={session} me={me} picture={picture} onLogout={onLogout} onSessionLost={handleSessionLost} />}
         </Suspense>
@@ -573,7 +574,9 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
 function PanelFallback() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim">
-      <p className="bg-surface rounded-xl px-6 py-4 text-muted">Chargement…</p>
+      <div className="bg-surface rounded-xl px-8">
+        <GabianLoader className="py-6" />
+      </div>
     </div>
   );
 }

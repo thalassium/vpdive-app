@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { AlertCircle, ArrowRight } from 'lucide-react';
 import { vpdive, type Session } from '../services/vpdiveApi';
 import { Logo } from './Brand';
-import { Cromagnon } from './Cromagnon';
+import { Gabian } from './Gabian';
 import { ThemeToggle } from './ThemeToggle';
 import { SeaBackdrop } from './SeaBackdrop';
 
@@ -45,11 +45,11 @@ export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
         <div className="w-full max-w-sm">
           <Logo className="h-16 mx-auto mb-6" />
 
-          {/* Le Cromagnon, posé sur la carte de connexion comme sur l'eau */}
-          <Cromagnon title="Le Cromagnon, bateau du club" className="block w-56 mx-auto -mb-px text-brand" />
+          {/* Le gabian, posé sur la carte de connexion comme sur un quai */}
+          <Gabian title="Un gabian, le goéland de Marseille" className="block w-40 h-auto mx-auto -mb-[3px]" />
           <div className="card p-6 sm:p-8">
-            <h1 className="text-xl font-semibold text-brand">Agenda des sorties</h1>
-            <p className="text-muted mt-1 mb-6">Connectez-vous avec votre compte VPDive</p>
+            <h1 className="text-xl font-semibold text-brand">Gabian</h1>
+            <p className="text-muted mt-1 mb-6">Les sorties du club. Connectez-vous avec votre compte VPDive.</p>
 
             {notice && !error && (
               <div className="mb-4 p-3.5 rounded-xl bg-warn-soft text-warn text-base flex items-start gap-2">

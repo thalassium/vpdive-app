@@ -275,6 +275,25 @@
   @apply rounded-xl bg-surface shadow-lift;
 }
 
+/* Le gabian qui crie (GabianLoader) : la mandibule s'ouvre deux fois, puis une pause. */
+@keyframes gabian-cry {
+  0%, 46%, 100% {
+    transform: rotate(0deg);
+  }
+  10%, 18% {
+    transform: rotate(-24deg);
+  }
+  26% {
+    transform: rotate(-6deg);
+  }
+  34% {
+    transform: rotate(-20deg);
+  }
+}
+.gabian-cry {
+  animation: gabian-cry 1.6s ease-in-out infinite;
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;

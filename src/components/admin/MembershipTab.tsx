@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { AlertTriangle, ExternalLink, FileUp, Loader2, RefreshCw, Search, Settings, UserX, X } from 'lucide-react';
 import { BrevetMapView } from './BrevetMapView';
 import { Avatar } from '../Avatar';
+import { GabianLoader } from '../Gabian';
 import { MemberSearch } from '../dp/MemberSearch';
 import { vpdive } from '../../services/vpdiveApi';
 import { appApi, type FfessmImport } from '../../services/appApi';
@@ -346,7 +347,7 @@ export function MembershipTab({
         </div>
         {errors}
         {loading ? (
-          !haError && !loadError && <p className="py-12 text-center text-muted">Lecture de HelloAsso et des membres VPDive…</p>
+          !haError && !loadError && <GabianLoader label="Lecture de HelloAsso et des membres VPDive…" />
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-3">
@@ -419,7 +420,7 @@ export function MembershipTab({
         {errors}
         {progressBar}
         {loading ? (
-          !haError && !loadError && <p className="py-12 text-center text-muted">Lecture de HelloAsso et des membres VPDive…</p>
+          !haError && !loadError && <GabianLoader label="Lecture de HelloAsso et des membres VPDive…" />
         ) : groups.length === 0 ? (
           <p className="py-10 text-center text-muted">{progress ? 'Lecture des fiches en cours…' : 'Aucune correction rapide à faire.'}</p>
         ) : (
@@ -479,7 +480,7 @@ export function MembershipTab({
       {errors}
       {progressBar}
       {loading ? (
-        !haError && !loadError && <p className="py-12 text-center text-muted">Lecture de HelloAsso et des membres VPDive…</p>
+        !haError && !loadError && <GabianLoader label="Lecture de HelloAsso et des membres VPDive…" />
       ) : caseGroups.length === 0 ? (
         <p className="py-10 text-center text-muted">{progress ? 'Lecture des fiches en cours…' : 'Rien à arbitrer.'}</p>
       ) : (

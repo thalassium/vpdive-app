@@ -8,6 +8,7 @@ import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
 import { ThemeToggle } from '../ThemeToggle';
 import { useDialog } from '../../hooks/useDialog';
+import { GabianLoader } from '../Gabian';
 
 interface Props {
   session: Session;
@@ -118,7 +119,7 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
         <div className="flex-1 min-h-0 flex">
           {/* Sorties */}
           <aside className={`${selected ? 'hidden lg:flex' : 'flex'} flex-col w-full lg:w-80 shrink-0 border-r border-line overflow-y-auto print:hidden`}>
-            {!events && !listError && <p className="p-6 text-muted">Chargement des sorties…</p>}
+            {!events && !listError && <GabianLoader label="Chargement des sorties…" />}
             {listError && (
               <div role="alert" className="m-4 p-4 rounded-xl bg-danger-soft text-danger text-base">
                 {listError}{' '}
@@ -445,7 +446,7 @@ function OutingWorkspace({
       </div>
     );
   }
-  if (!doc || !roster || !people) return <p className="m-auto p-8 text-muted">Chargement de la sortie…</p>;
+  if (!doc || !roster || !people) return <GabianLoader label="Chargement de la sortie…" className="m-auto" />;
 
   const dive = doc.dives.find((d) => d.id === diveId) ?? doc.dives[0]!;
 

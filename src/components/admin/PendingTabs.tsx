@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, ExternalLink, FileText, Loader2, UserCheck, UserPlus, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
+import { GabianLoader } from '../Gabian';
 import { vpdive, type PendingValidation } from '../../services/vpdiveApi';
 import { appApi, type RegistrationRequest } from '../../services/appApi';
 
@@ -59,7 +60,7 @@ export function RegistrationRequestsTab({
   const [busy, setBusy] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
   if (error) return <Failure error={error} onRetry={onReload} />;
-  if (!requests) return <Empty>Lecture des demandes d’inscription sur VPDive…</Empty>;
+  if (!requests) return <GabianLoader label="Lecture des demandes d’inscription sur VPDive…" />;
   if (!requests.length) return <Empty>Aucune demande d’inscription en attente.</Empty>;
 
   const decide = async (r: RegistrationRequest, decision: 'member' | 'guest' | 'refuse') => {
@@ -140,7 +141,7 @@ export function PendingDocumentsTab({
   const [busy, setBusy] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
   if (error) return <Failure error={error} onRetry={onReload} />;
-  if (!items) return <Empty>Lecture des documents en attente sur VPDive…</Empty>;
+  if (!items) return <GabianLoader label="Lecture des documents en attente sur VPDive…" />;
   if (!items.length) return <Empty>Aucun document en attente de validation.</Empty>;
 
   const keyOf = (v: PendingValidation) => `${v.member}|${v.type}|${v.entityId}`;

@@ -6,6 +6,7 @@ import { computeStats, dateFr, isDiveActivity, monthSeries, monthShort, presetRa
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
 import { useDialog } from '../../hooks/useDialog';
+import { GabianLoader } from '../Gabian';
 
 /**
  * Statistiques de la saison (super-admin) : sorties, plongeurs, niveaux,
@@ -255,7 +256,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
             )}
 
             {!stats ? (
-              !error && <p className="py-16 text-center text-muted">Lecture de l’agenda…</p>
+              !error && <GabianLoader label="Lecture de l’agenda…" className="py-16" />
             ) : stats.outings === 0 ? (
               <p className="py-16 text-center text-muted">Aucune sortie sur cette période.</p>
             ) : (

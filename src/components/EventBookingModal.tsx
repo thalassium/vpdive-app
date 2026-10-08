@@ -4,6 +4,7 @@ import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption, type
 import { ThemeToggle } from './ThemeToggle';
 import { BuddyField } from './BuddyField';
 import { useDialog } from '../hooks/useDialog';
+import { GabianLoader } from './Gabian';
 import { BOTTLES, DEFAULT_BOTTLE, SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Bottle, type Size, type SizedKind } from '../lib/gear';
 import { asksFor, canSupervise, classifyRoles, cleanRoleLabel, entryFromRole, roleKeyFor, volunteerTotal, type Entry, type InstructorMode } from '../lib/registration';
 
@@ -325,7 +326,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
         <form onSubmit={submit} className="flex-1 flex flex-col min-h-0">
           {/* Scrollable body */}
           <div className="flex-1 overflow-y-auto overscroll-contain px-5 sm:px-6 py-5 space-y-6">
-            {!detail && !loadError && <p className="py-10 text-center text-muted">Chargement de la sortie depuis VPDive…</p>}
+            {!detail && !loadError && <GabianLoader label="Chargement de la sortie depuis VPDive…" />}
             {loadError && (
               <div role="alert" className="p-4 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2.5">
                 <AlertCircle className="w-5 h-5 shrink-0" />
