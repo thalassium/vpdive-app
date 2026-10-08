@@ -300,7 +300,7 @@ function seenLabel(iso: string): string {
 const MEMBER_CACHE_MS = 6 * 3600_000;
 function readMemberCache(uct: string): boolean | null {
   try {
-    const raw = sessionStorage.getItem(`club-member:${uct}`);
+    const raw = sessionStorage.getItem(`club-member-v2:${uct}`);
     if (!raw) return null;
     const { at, ok } = JSON.parse(raw) as { at: number; ok: boolean };
     return Date.now() - at < MEMBER_CACHE_MS && typeof ok === 'boolean' ? ok : null;
@@ -310,7 +310,7 @@ function readMemberCache(uct: string): boolean | null {
 }
 function writeMemberCache(uct: string, ok: boolean) {
   try {
-    sessionStorage.setItem(`club-member:${uct}`, JSON.stringify({ at: Date.now(), ok }));
+    sessionStorage.setItem(`club-member-v2:${uct}`, JSON.stringify({ at: Date.now(), ok }));
   } catch {
     // Stockage indisponible : la fiche sera relue la prochaine fois.
   }

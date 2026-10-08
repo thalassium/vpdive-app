@@ -824,14 +824,13 @@ class VpDiveClient {
    * fédération, lues sur sa fiche (/user?uct_token=…).
    */
   /**
-   * Compte au statut « Membre » du club ? Lu sur la fiche du membre, celle de la
-   * page « Mon profil » (is_member_of_club) ; faux pour un compte en attente,
-   * désinscrit ou jamais adhérent.
+   * Compte au statut « Membre » du club (et non « Invité ») ? C'est le drapeau
+   * allMembers de son adhésion : is_member_of_club vaut vrai pour les invités aussi.
    */
   async isClubMember(uct: string): Promise<boolean> {
     const res = await this.request(`/user/member/${encodeURIComponent(uct)}`);
     const data = obj(obj(res)?.data) ?? obj(res);
-    return data?.is_member_of_club === true;
+    return obj(data?.user_club_traceability)?.allMembers === true;
   }
 
   async memberStatus(uct: string): Promise<Pick<MemberInfo, 'seasons' | 'licences'>> {
