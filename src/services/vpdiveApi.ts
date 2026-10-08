@@ -194,6 +194,14 @@ export interface RosterEntry {
   medical: { until: string | null; valid: boolean };
   /** Absolute URL of the member's own photo; empty when VPDive shows its default avatar. */
   picture?: string;
+  /** E-mail du membre (relances). */
+  email?: string;
+  /** Jeton d'adhésion au club (uct), comme l'`id` de l'annuaire et des rôles. */
+  uct?: string;
+  /** Matériel réservé, tel que VPDive le libelle (« 1 Gilet stabilisateur », « 1 Pack complet (hors ordinateur) »). */
+  material?: string[];
+  /** Licences : numéro (FFESSM : « A-26-123456 »), fin de validité (AAAA-MM-JJ), validée par le club. */
+  licences?: { number: string; until: string | null; valid: boolean }[];
 }
 
 /** VPDive outing roles that keep someone out of the water by default. */
@@ -811,6 +819,17 @@ class VpDiveClient {
   }
 
   /**
+   * Adhésion et licences d'un membre, pour le suivi des documents (admins,
+   * permission `member_view`) : saisons confirmées et licences avec leur
+   * fédération, lues sur sa fiche (/user?uct_token=…).
+   */
+  async memberStatus(uct: string): Promise<Pick<MemberInfo, 'seasons' | 'licences'>> {
+    const res = await this.request(`/user?uct_token=${encodeURIComponent(uct)}`);
+    const { seasons, licences } = infoOf(obj(res.data) ?? res);
+    return { seasons, licences };
+  }
+
+  /**
    * Mon contact d'urgence, lu sur le profil complet (GET /user, celui de la
    * page « Mon profil »). Champs vides si VPDive ne les renvoie pas.
    */
@@ -903,6 +922,14 @@ class VpDiveClient {
           comment: str(u.comment).trim(),
           medical: { until: str(obj(med.until)?.date).slice(0, 10) || null, valid: med.status === true },
           picture: pictureUrl(str(u.profile_picture)),
+          email: str(u.email).trim(),
+          uct: str(u.uct_token).trim(),
+          material: (Array.isArray(u.material) ? u.material : []).map((m) => str(m).trim()).filter(Boolean),
+          licences: values(u.licences).map((l) => ({
+            number: str(l.licence).trim(),
+            until: str(obj(l.until)?.date).slice(0, 10) || null,
+            valid: l.status === true,
+          })),
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'));

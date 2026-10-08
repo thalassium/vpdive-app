@@ -29,8 +29,13 @@ test('message au club : commentaire, tailles, binôme', () => {
 
 test('modifier son inscription : le message enregistré redonne commentaire, tailles et binôme', () => {
   const sent = composeComment('Je ramène les croissants\net le café', [{ label: 'Combinaison', size: '2XL' }, { label: 'Gilet stabilisateur', size: 'S' }], 'Jean DUPONT');
-  assert.deepEqual(parseComment(sent), { comment: 'Je ramène les croissants\net le café', sizes: { wetsuit: '2XL', bcd: 'S' }, buddy: 'Jean DUPONT' });
-  assert.deepEqual(parseComment('Taille gilet stabilisateur : L'), { comment: '', sizes: { bcd: 'L' }, buddy: '' });
+  assert.deepEqual(parseComment(sent), { comment: 'Je ramène les croissants\net le café', sizes: { wetsuit: '2XL', bcd: 'S' }, buddy: 'Jean DUPONT', bottle: '12 L' });
+  // Bouteille : rien d'écrit pour 12 L (défaut), une ligne sinon, relue à l'identique.
+  const fifteen = composeComment('', [], null, '15 L');
+  assert.equal(fifteen, 'Bouteille : 15 L');
+  assert.equal(parseComment(fifteen).bottle, '15 L');
+  assert.equal(parseComment(composeComment('', [], null, 'Enfant (8/10 L)')).bottle, 'Enfant (8/10 L)');
+  assert.deepEqual(parseComment('Taille gilet stabilisateur : L'), { comment: '', sizes: { bcd: 'L' }, buddy: '', bottle: '12 L' });
   // Un message écrit sur VPDive, sans nos lignes, reste tel quel
-  assert.deepEqual(parseComment('Taille : je verrai sur place'), { comment: 'Taille : je verrai sur place', sizes: {}, buddy: '' });
+  assert.deepEqual(parseComment('Taille : je verrai sur place'), { comment: 'Taille : je verrai sur place', sizes: {}, buddy: '', bottle: '12 L' });
 });

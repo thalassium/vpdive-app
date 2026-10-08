@@ -11,6 +11,11 @@
 export const SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'] as const;
 export type Size = (typeof SIZES)[number];
 
+/** Bouteille souhaitée : 12 L pour tous par défaut, que le message n'écrit pas. */
+export const BOTTLES = ['12 L', '15 L', 'Enfant (8/10 L)'] as const;
+export type Bottle = (typeof BOTTLES)[number];
+export const DEFAULT_BOTTLE: Bottle = '12 L';
+
 export type SizedKind = 'wetsuit' | 'bcd';
 export const SIZED_KINDS: SizedKind[] = ['wetsuit', 'bcd'];
 export const SIZED_LABEL: Record<SizedKind, string> = { wetsuit: 'Combinaison', bcd: 'Gilet stabilisateur' };
@@ -40,9 +45,10 @@ export function sizedKinds(materialName: string): SizedKind[] {
  * n'ont pas de déclinaison VPDive et le binôme souhaité, sur des lignes
  * lisibles telles quelles par le club.
  */
-export function composeComment(comment: string, sizes: { label: string; size: string }[], buddy: string | null): string {
+export function composeComment(comment: string, sizes: { label: string; size: string }[], buddy: string | null, bottle: Bottle = DEFAULT_BOTTLE): string {
   const lines = [comment.trim()];
   if (sizes.length) lines.push(sizes.map((s) => `Taille ${s.label.toLowerCase()} : ${s.size}`).join(' · '));
+  if (bottle !== DEFAULT_BOTTLE) lines.push(`Bouteille : ${bottle}`);
   if (buddy?.trim()) lines.push(`Binôme souhaité : ${buddy.trim()}`);
   return lines.filter(Boolean).join('\n');
 }
@@ -51,11 +57,17 @@ export function composeComment(comment: string, sizes: { label: string; size: st
  * L'inverse de composeComment, pour modifier une inscription : le message du
  * plongeur, les tailles et le binôme repris de ce que VPDive a enregistré.
  */
-export function parseComment(text: string): { comment: string; sizes: Partial<Record<SizedKind, Size>>; buddy: string } {
+export function parseComment(text: string): { comment: string; sizes: Partial<Record<SizedKind, Size>>; buddy: string; bottle: Bottle } {
   const sizes: Partial<Record<SizedKind, Size>> = {};
   let buddy = '';
+  let bottle: Bottle = DEFAULT_BOTTLE;
   const rest: string[] = [];
   for (const line of text.split(/\r?\n/)) {
+    const bt = /^\s*Bouteille\s*:\s*(.+?)\s*$/i.exec(line);
+    if (bt) {
+      bottle = BOTTLES.find((x) => x.toLowerCase() === bt[1]!.toLowerCase()) ?? DEFAULT_BOTTLE;
+      continue;
+    }
     const b = /^\s*Binôme souhaité\s*:\s*(.+)$/i.exec(line);
     if (b) {
       buddy = b[1]!.trim();
@@ -72,5 +84,5 @@ export function parseComment(text: string): { comment: string; sizes: Partial<Re
     }
     rest.push(line);
   }
-  return { comment: rest.join('\n').trim(), sizes, buddy };
+  return { comment: rest.join('\n').trim(), sizes, buddy, bottle };
 }
