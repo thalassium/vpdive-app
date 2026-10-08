@@ -126,6 +126,8 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
   });
 
   const endRef = useRef<HTMLDivElement>(null);
+  /** Zone des messages : sur ordinateur, elle défile seule (la liste reste en place). */
+  const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollKeyRef = useRef('');
 
@@ -234,7 +236,10 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
     if (scrollKeyRef.current === key) return;
     const first = !scrollKeyRef.current;
     scrollKeyRef.current = key;
-    endRef.current?.scrollIntoView({ block: 'end', behavior: first ? 'auto' : 'smooth' });
+    const behavior = first ? 'auto' : 'smooth';
+    const pane = scrollRef.current;
+    if (pane && window.matchMedia('(min-width: 768px)').matches) pane.scrollTo({ top: pane.scrollHeight, behavior });
+    else endRef.current?.scrollIntoView({ block: 'end', behavior });
   }, [thread, openId, messageCount]);
 
   // Zone de saisie qui grandit avec le texte (plafonnée par max-h-32).
@@ -333,11 +338,12 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
           <div className="mt-6 flex justify-center">{newButton('Nouvelle conversation', '')}</div>
         </div>
       ) : (
-        <div className="md:flex md:items-start">
+        // Ordinateur : deux volets de hauteur fixe qui défilent chacun de leur côté.
+        <div className="md:flex md:items-stretch md:h-[calc(100dvh-12rem)] md:min-h-96">
           {/* Liste des conversations, ou le choix des personnes d'une nouvelle conversation */}
           <section
             aria-label={composing ? 'Nouvelle conversation' : 'Conversations'}
-            className={`md:w-80 md:shrink-0 md:border-r border-line md:pr-4 ${open && !composing ? 'hidden md:block' : ''}`}
+            className={`md:w-80 md:shrink-0 md:border-r border-line md:pr-4 md:overflow-y-auto md:overscroll-contain ${open && !composing ? 'hidden md:block' : ''}`}
           >
             {composing ? (
               <NewChat me={me} lost={lost} onCancel={() => setComposing(false)} onCreated={onCreated} />
@@ -393,11 +399,11 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
           </section>
 
           {/* Fil de la conversation */}
-          <section aria-label="Conversation" className={`flex-1 min-w-0 md:pl-6 ${open && !composing ? '' : 'hidden md:block'}`}>
+          <section aria-label="Conversation" className={`flex-1 min-w-0 md:pl-6 md:min-h-0 ${open && !composing ? '' : 'hidden md:block'}`}>
             {!open || !current ? (
               <p className="text-sm text-muted py-2">Choisissez une conversation.</p>
             ) : (
-              <div className="flex flex-col">
+              <div className="flex flex-col md:h-full md:min-h-0">
                 <div className="flex items-center gap-2 pb-3 border-b border-line">
                   <button type="button" onClick={closeChat} className="icon-btn md:hidden -ml-2" aria-label="Retour aux conversations">
                     <ArrowLeft className="w-5 h-5" />
@@ -420,7 +426,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
                   </div>
                 )}
 
-                <div className="py-4 space-y-4">
+                <div ref={scrollRef} className="py-4 space-y-4 md:flex-1 md:min-h-0 md:overflow-y-auto md:overscroll-contain md:pr-2">
                   {!thread ? (
                     threadLoading && <p className="text-sm text-muted">Chargement de la conversation…</p>
                   ) : shown.length === 0 ? (
@@ -444,7 +450,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
                 </div>
 
                 {thread && (
-                  <form onSubmit={send} className="sticky bottom-20 sm:bottom-0 z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3">
+                  <form onSubmit={send} className="sticky bottom-20 sm:bottom-0 md:static z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3">
                     <div className="flex items-end gap-2">
                       <label htmlFor="message-draft" className="sr-only">
                         Votre message
