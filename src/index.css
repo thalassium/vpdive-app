@@ -68,6 +68,14 @@
   --swell: #c9d5e7;
   /* Part de la couleur du vent dans le fond d'une ligne de prévision. */
   --wind-mix: 62%;
+  /* Coupe de mer des statistiques : l'eau fonce avec la profondeur (6, 12, 20, 40, 60 m). */
+  --sea-top: #eaf5fb;
+  --sea-bottom: #c4d8ec;
+  --sea-6: #9bd6ea;
+  --sea-12: #66bde0;
+  --sea-20: #3b97cd;
+  --sea-40: #1f68a7;
+  --sea-60: #0d3b78;
 }
 
 .dark {
@@ -103,6 +111,13 @@
   --coast-near: #0d1938;
   --swell: #0f1c3f;
   --wind-mix: 38%;
+  --sea-top: #12244a;
+  --sea-bottom: #060f24;
+  --sea-6: #8fd2ea;
+  --sea-12: #5fb6dc;
+  --sea-20: #3f93c9;
+  --sea-40: #2f72b4;
+  --sea-60: #3d5fb3;
 }
 
 @theme {

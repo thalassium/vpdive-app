@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, Settings, UserRound, Users, Wind } from 'lucide-react';
+import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, Settings, UserRound, Users, Wind, BarChart3 } from 'lucide-react';
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
@@ -20,6 +20,7 @@ import { appApi, type Me } from './services/appApi';
 const DpPanel = lazy(() => import('./components/dp/DpPanel').then((m) => ({ default: m.DpPanel })));
 const MaterialPanel = lazy(() => import('./components/admin/MaterialPanel').then((m) => ({ default: m.MaterialPanel })));
 const DocsPanel = lazy(() => import('./components/admin/DocsPanel').then((m) => ({ default: m.DocsPanel })));
+const StatsPanel = lazy(() => import('./components/admin/StatsPanel').then((m) => ({ default: m.StatsPanel })));
 const WeatherPanel = lazy(() => import('./components/admin/WeatherPanel').then((m) => ({ default: m.WeatherPanel })));
 const MembersPanel = lazy(() => import('./components/MembersPanel').then((m) => ({ default: m.MembersPanel })));
 const MessagesView = lazy(() => import('./components/views/MessagesView').then((m) => ({ default: m.MessagesView })));
@@ -50,6 +51,13 @@ function clearSessionCaches() {
       if (k && SESSION_CACHE_PREFIXES.some((p) => k.startsWith(p))) keys.push(k);
     }
     keys.forEach((k) => sessionStorage.removeItem(k));
+    // Listes d'inscrits gardées pour les statistiques (sur l'appareil, d'une session à l'autre).
+    const kept: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith('stats-roster:')) kept.push(k);
+    }
+    kept.forEach((k) => localStorage.removeItem(k));
   } catch {
     // Stockage interdit (navigation privée) : rien à effacer.
   }
@@ -132,7 +140,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
   const [error, setError] = useState<string | null>(null);
   const [meteo, setMeteo] = useState<Record<string, MeteoSlot[]>>({});
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
-  const [panel, setPanel] = useState<'dp' | 'weather' | 'material' | 'members' | 'docs' | null>(null);
+  const [panel, setPanel] = useState<'dp' | 'weather' | 'material' | 'members' | 'docs' | 'stats' | null>(null);
   const [dpEvent, setDpEvent] = useState<CalendarEvent | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [meError, setMeError] = useState<string | null>(null);
@@ -371,6 +379,9 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                   items={[
                     { icon: <Users className="w-4 h-4" />, label: 'Gestion des membres', hint: realRole === 'superadmin' ? 'Rôles et doublons' : 'Doublons', onClick: () => setPanel('members') },
                     { icon: <FileWarning className="w-4 h-4" />, label: 'Documentation', hint: 'CACI, licences, adhésions', onClick: () => setPanel('docs') },
+                    ...(realRole === 'superadmin'
+                      ? [{ icon: <BarChart3 className="w-4 h-4" />, label: 'Stats', hint: 'Sorties, plongeurs, niveaux, âges', onClick: () => setPanel('stats') }]
+                      : []),
                   ]}
                 />
               )}
@@ -503,6 +514,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
         {panel === 'members' && isAdmin && me && <MembersPanel me={{ ...me, role }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
         {panel === 'weather' && canDp && <WeatherPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
         {panel === 'material' && isAdmin && <MaterialPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
+        {panel === 'stats' && realRole === 'superadmin' && <StatsPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
         {panel === 'docs' && isAdmin && me && (
           <DocsPanel me={{ uct: me.uct, name: displayName, picture: picture ?? '' }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />
         )}
