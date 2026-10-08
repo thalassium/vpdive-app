@@ -346,7 +346,7 @@ function MemberRow({
   }, [open, profile, member.id, onSessionLost]);
 
   const note = locked
-    ? 'Super-admin défini dans les réglages Vercel'
+    ? undefined
     : isMe
       ? 'Vous ne pouvez pas retirer vos propres rôles'
       : entry?.revoked
@@ -366,7 +366,7 @@ function MemberRow({
               {isMe && <span className="shrink-0 text-muted font-normal">(vous)</span>}
             </span>
             {note && <span className="block text-sm text-muted truncate">{note}</span>}
-            <span className="block text-xs text-muted">{lastSeen ? `Vu dans l’appli ${seenLabel(lastSeen)}` : 'Jamais vu dans l’appli'}</span>
+            {lastSeen && <span className="block text-xs text-muted">Last seen {seenLabel(lastSeen).replace(/^le /, '')}</span>}
           </span>
           <ChevronDown className={`w-4 h-4 text-muted shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
