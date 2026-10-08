@@ -28,6 +28,8 @@ const byName = (a: MemberMatch, b: MemberMatch) => a.name.localeCompare(b.name, 
 export function MembersPanel({ me, onClose, onSessionLost }: Props) {
   const [members, setMembers] = useState<MemberMatch[] | null>(null);
   const [roles, setRoles] = useState<Map<string, RoleEntry>>(new Map());
+  /** Dernière connexion à l'appli (pas à VPDive), par membre. */
+  const [seen, setSeen] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [roleError, setRoleError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -39,8 +41,9 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
     setError(null);
     setMembers(null);
     try {
-      const [list, entries] = await Promise.all([vpdive.fetchMemberDirectory(), appApi.roles()]);
+      const [list, { roles: entries, seen: lastSeen }] = await Promise.all([vpdive.fetchMemberDirectory(), appApi.rolesAndSeen()]);
       setRoles(new Map(entries.map((e) => [e.uct, e])));
+      setSeen(lastSeen);
       setMembers(list);
     } catch (e) {
       if (onSessionLost(e)) return;
@@ -104,7 +107,45 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
     return [{ label: `Admins de l’appli · ${admins.length}`, list: admins }, ...[...map].map(([label, list]) => ({ label, list }))];
   }, [shown, query, roleOf]);
 
-  const duplicates = useMemo(() => (members ? findDuplicates(members) : []), [members]);
+  // Doublons : homonymes de l'annuaire, puis seulement les comptes au statut « Membre ».
+  // Le statut se lit fiche par fiche : seuls les homonymes sont lus, espacés, gardés 6 h.
+  const candidates = useMemo(() => (members ? findDuplicates(members) : []), [members]);
+  /** true : membre ; false : en attente, désinscrit… ; null : fiche illisible (gardé). */
+  const [memberOk, setMemberOk] = useState<Record<string, boolean | null>>({});
+  const [checking, setChecking] = useState(false);
+  useEffect(() => {
+    const ids = [...new Set(candidates.flatMap((g) => g.members.map((m) => m.id)))];
+    if (!ids.length) return;
+    let live = true;
+    void (async () => {
+      setChecking(true);
+      for (const id of ids) {
+        if (!live) return;
+        const cached = readMemberCache(id);
+        if (cached !== null) {
+          setMemberOk((p) => ({ ...p, [id]: cached }));
+          continue;
+        }
+        try {
+          const ok = await vpdive.isClubMember(id);
+          writeMemberCache(id, ok);
+          if (live) setMemberOk((p) => ({ ...p, [id]: ok }));
+        } catch (e) {
+          if (onSessionLost(e)) return;
+          if (live) setMemberOk((p) => ({ ...p, [id]: null }));
+        }
+        await new Promise((r) => setTimeout(r, 450));
+      }
+      if (live) setChecking(false);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [candidates, onSessionLost]);
+  const duplicates = useMemo(
+    () => candidates.map((g) => ({ ...g, members: g.members.filter((m) => memberOk[m.id] !== false) })).filter((g) => g.members.length >= 2),
+    [candidates, memberOk],
+  );
 
   const adminCount = members?.filter((m) => roleOf(m) !== 'member').length ?? 0;
 
@@ -169,7 +210,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
           )}
           {/* Sur téléphone, l'aide sur les rôles défile avec la liste au lieu d'alourdir l'en-tête. */}
           {canEdit && <p className="sm:hidden px-1 pb-3 text-sm text-muted leading-relaxed">{ROLES_HELP}</p>}
-          {members && !query.trim() && <Duplicates groups={duplicates} />}
+          {members && !query.trim() && <Duplicates groups={duplicates} checking={checking} />}
           {members && shown.length === 0 && <p className="py-10 text-center text-muted">Aucun membre ne correspond.</p>}
           {groups.map(({ label, list }) =>
             list.length === 0 && label ? null : (
@@ -181,6 +222,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
                       key={m.id}
                       member={m}
                       entry={roles.get(m.id)}
+                      lastSeen={seen[m.id]}
                       isMe={m.id === me.uct}
                       canEdit={canEdit}
                       busy={busy === m.id}
@@ -204,7 +246,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
  * Doublons possibles de l'annuaire (même nom, ou nom à une faute près), repliés
  * par défaut. La fusion se fait dans VPDive, d'où le lien.
  */
-function Duplicates({ groups }: { groups: DuplicateGroup<MemberMatch>[] }) {
+function Duplicates({ groups, checking }: { groups: DuplicateGroup<MemberMatch>[]; checking: boolean }) {
   if (!groups.length) return null;
   return (
     <details className="group card border-l-4 border-l-warn overflow-hidden mx-1 mb-3">
@@ -212,6 +254,7 @@ function Duplicates({ groups }: { groups: DuplicateGroup<MemberMatch>[] }) {
         <AlertTriangle aria-hidden className="w-5 h-5 text-warn shrink-0" />
         <span className="flex-1 text-base font-semibold text-ink">
           Doublons possibles · <span className="tabular-nums">{groups.length}</span>
+          {checking && <span className="ml-2 text-sm font-normal text-muted">vérification des statuts…</span>}
         </span>
         <ChevronDown aria-hidden className="w-5 h-5 text-muted shrink-0 transition-transform group-open:rotate-180" />
       </summary>
@@ -222,7 +265,7 @@ function Duplicates({ groups }: { groups: DuplicateGroup<MemberMatch>[] }) {
               <ul className="flex-1 min-w-0 space-y-1.5">
                 {g.members.map((m) => (
                   <li key={m.id} className="flex items-center gap-2 min-w-0 text-base text-ink">
-                    <Avatar name={m.name} picture={m.picture} size="sm" />
+                    <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
                     <span className="truncate">{m.name}</span>
                   </li>
                 ))}
@@ -244,10 +287,40 @@ function Duplicates({ groups }: { groups: DuplicateGroup<MemberMatch>[] }) {
   );
 }
 
+/** « le 8 oct. à 14 h 05 », « aujourd'hui à 9 h 12 ». */
+function seenLabel(iso: string): string {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', ' h ');
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return `aujourd’hui à ${time}`;
+  const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) };
+  return `le ${d.toLocaleDateString('fr-FR', opts)} à ${time}`;
+}
+
+const MEMBER_CACHE_MS = 6 * 3600_000;
+function readMemberCache(uct: string): boolean | null {
+  try {
+    const raw = sessionStorage.getItem(`club-member:${uct}`);
+    if (!raw) return null;
+    const { at, ok } = JSON.parse(raw) as { at: number; ok: boolean };
+    return Date.now() - at < MEMBER_CACHE_MS && typeof ok === 'boolean' ? ok : null;
+  } catch {
+    return null;
+  }
+}
+function writeMemberCache(uct: string, ok: boolean) {
+  try {
+    sessionStorage.setItem(`club-member:${uct}`, JSON.stringify({ at: Date.now(), ok }));
+  } catch {
+    // Stockage indisponible : la fiche sera relue la prochaine fois.
+  }
+}
+
 /** Un membre, ses rôles à droite ; ouvert, ses niveaux et qualifications lus dans son profil VPDive. */
 function MemberRow({
   member,
   entry,
+  lastSeen,
   isMe,
   canEdit,
   busy,
@@ -258,6 +331,8 @@ function MemberRow({
 }: {
   member: MemberMatch;
   entry: RoleEntry | undefined;
+  /** Dernière connexion à l'appli (date ISO) ; absente : jamais vue. */
+  lastSeen?: string;
   isMe: boolean;
   canEdit: boolean;
   busy: boolean;
@@ -299,6 +374,7 @@ function MemberRow({
               {isMe && <span className="shrink-0 text-muted font-normal">(vous)</span>}
             </span>
             {note && <span className="block text-sm text-muted truncate">{note}</span>}
+            <span className="block text-xs text-muted">{lastSeen ? `Vu dans l’appli ${seenLabel(lastSeen)}` : 'Jamais vu dans l’appli'}</span>
           </span>
           <ChevronDown className={`w-4 h-4 text-muted shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>

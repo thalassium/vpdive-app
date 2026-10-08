@@ -87,6 +87,8 @@ async function call<T>(query: string, init: { method?: 'GET' | 'POST'; body?: un
 export const appApi = {
   me: () => call<Me>('action=me'),
   roles: () => call<{ roles: RoleEntry[] }>('action=roles').then((r) => r.roles),
+  /** Rôles, et dernière connexion à l'appli de chaque membre (uct → date ISO). */
+  rolesAndSeen: () => call<{ roles: RoleEntry[]; seen?: Record<string, string> }>('action=roles').then((r) => ({ roles: r.roles, seen: r.seen ?? {} })),
   setRole: (uct: string, change: { admin?: boolean; superAdmin?: boolean }) =>
     call<{ roles: RoleEntry[] }>('action=role', { method: 'POST', body: { uct, ...change } }).then((r) => r.roles),
   getOuting: (event: string) => call<{ doc: OutingDoc | null }>(`action=outing&event=${encodeURIComponent(event)}`).then((r) => r.doc),

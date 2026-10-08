@@ -100,7 +100,7 @@ export async function handle(request: Request): Promise<Response> {
 
     // Chaque passage met à jour ce que l'appli sait de la personne (admin VPDive, e-mail).
     const known = roles.known[caller.uct];
-    if (!known || known.vpdiveAdmin !== caller.vpdiveAdmin || known.email !== caller.email || Date.now() - Date.parse(known.lastSeen) > 3_600_000) {
+    if (!known || known.vpdiveAdmin !== caller.vpdiveAdmin || known.email !== caller.email || Date.now() - Date.parse(known.lastSeen) > 600_000) {
       roles.known[caller.uct] = { email: caller.email, name: caller.name, vpdiveAdmin: caller.vpdiveAdmin, lastSeen: new Date().toISOString() };
       await store.set(rolesKey(caller), roles);
     }
@@ -112,7 +112,9 @@ export async function handle(request: Request): Promise<Response> {
 
     if (action === 'roles' && request.method === 'GET') {
       if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
-      return json({ roles: roleEntries(roles) });
+      // Dernière connexion à l'appli (à 10 minutes près) de chaque membre qui l'a ouverte.
+      const seen = Object.fromEntries(Object.entries(roles.known).map(([u, k]) => [u, k.lastSeen]));
+      return json({ roles: roleEntries(roles), seen });
     }
 
     if (action === 'role' && request.method === 'POST') {
