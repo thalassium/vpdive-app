@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, ClipboardList, Eye, CalendarDays, GraduationCap, MessageCircle, UserRound } from 'lucide-react';
+import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, Settings, UserRound, Users } from 'lucide-react';
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
@@ -8,6 +8,9 @@ import { EventBookingModal } from './components/EventBookingModal';
 import { SeaBackdrop } from './components/SeaBackdrop';
 import { MembersPanel } from './components/MembersPanel';
 import { DpPanel } from './components/dp/DpPanel';
+import { MaterialPanel } from './components/admin/MaterialPanel';
+import { DocsPanel } from './components/admin/DocsPanel';
+import { CaptainHat, HeaderMenu } from './components/HeaderMenu';
 import { AccountMenu, ROLE_LABEL, type ViewAsPick } from './components/AccountMenu';
 import { sameName } from './lib/fuzzy';
 import { Avatar } from './components/Avatar';
@@ -43,7 +46,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [meteo, setMeteo] = useState<Record<string, MeteoSlot[]>>({});
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
-  const [panel, setPanel] = useState<'dp' | 'members' | null>(null);
+  const [panel, setPanel] = useState<'dp' | 'material' | 'members' | 'docs' | null>(null);
   const [dpEvent, setDpEvent] = useState<CalendarEvent | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [isDp, setIsDp] = useState(false);
@@ -267,9 +270,26 @@ export default function App() {
               />
 
               {canDp && (
-                <NavButton label="DP" title="Directeur de plongée : palanquées et fiches de sécurité" onClick={() => setPanel('dp')}>
-                  <ClipboardList className="w-4 h-4" />
-                </NavButton>
+                <HeaderMenu
+                  icon={<CaptainHat className="w-5 h-5" />}
+                  label="Gestion sortie"
+                  items={[
+                    { icon: <ClipboardList className="w-4 h-4" />, label: 'DP', hint: 'Palanquées et fiches de sécurité', onClick: () => setPanel('dp') },
+                    ...(isAdmin
+                      ? [{ icon: <Package className="w-4 h-4" />, label: 'Matériel', hint: 'Gilets, combinaisons, bouteilles', onClick: () => setPanel('material') }]
+                      : []),
+                  ]}
+                />
+              )}
+              {isAdmin && (
+                <HeaderMenu
+                  icon={<Settings className="w-5 h-5" />}
+                  label="Admin"
+                  items={[
+                    { icon: <Users className="w-4 h-4" />, label: 'Gestion des membres', hint: realRole === 'superadmin' ? 'Rôles et doublons' : 'Doublons', onClick: () => setPanel('members') },
+                    { icon: <FileWarning className="w-4 h-4" />, label: 'Documentation', hint: 'CACI, licences, adhésions', onClick: () => setPanel('docs') },
+                  ]}
+                />
               )}
               <ThemeToggle />
 
@@ -278,7 +298,6 @@ export default function App() {
                 email={session.email}
                 picture={picture}
                 role={realRole}
-                onMembers={() => setPanel('members')}
                 onViewAs={startViewAs}
                 onLogout={handleLogout}
                 onSessionLost={handleSessionLost}
@@ -389,6 +408,10 @@ export default function App() {
         />
       )}
       {panel === 'members' && isAdmin && me && <MembersPanel me={{ ...me, role }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
+      {panel === 'material' && isAdmin && <MaterialPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
+      {panel === 'docs' && isAdmin && me && (
+        <DocsPanel me={{ uct: me.uct, name: displayName, picture: picture ?? '' }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />
+      )}
 
       <footer className={`relative bg-band text-on-band px-4 pt-8 pb-28 sm:pb-8 mt-16 ${printPanel}`}>
         {/* Le bandeau marine sort de l'eau par une vague, au lieu d'une coupure droite */}
@@ -431,19 +454,5 @@ function UnreadBadge({ count, floating }: { count: number; floating?: boolean })
     >
       {count > 9 ? '9+' : count}
     </span>
-  );
-}
-
-function NavButton({ label, title, onClick, children }: { label: string; title: string; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className="btn btn-quiet h-9 px-3 text-sm"
-    >
-      {children}
-      <span className="hidden lg:inline">{label}</span>
-    </button>
   );
 }

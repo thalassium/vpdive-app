@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Avatar } from './Avatar';
-import { AlertTriangle, ChevronDown, Lock, RefreshCw, Search, ShieldCheck, Users, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ExternalLink, Lock, RefreshCw, Search, ShieldCheck, Users, X } from 'lucide-react';
 import { vpdive, type MemberMatch, type MemberProfile } from '../services/vpdiveApi';
 import { appApi, type AppRole, type Me, type RoleEntry } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
+import { findDuplicates, type DuplicateGroup } from '../lib/duplicates';
 import { ThemeToggle } from './ThemeToggle';
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
   onSessionLost: (e: unknown) => boolean;
 }
 
+const VPDIVE_MEMBERS_URL = 'https://septentrion-env.vpdive.com/app/members';
 const roleRank: Record<AppRole, number> = { superadmin: 0, admin: 1, member: 2 };
 const byName = (a: MemberMatch, b: MemberMatch) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
 
@@ -100,6 +102,8 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
     return [{ label: `Admins de l’appli · ${admins.length}`, list: admins }, ...[...map].map(([label, list]) => ({ label, list }))];
   }, [shown, query, roleOf]);
 
+  const duplicates = useMemo(() => (members ? findDuplicates(members) : []), [members]);
+
   const adminCount = members?.filter((m) => roleOf(m) !== 'member').length ?? 0;
 
   return (
@@ -165,6 +169,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
               </button>
             </div>
           )}
+          {members && !query.trim() && <Duplicates groups={duplicates} />}
           {members && shown.length === 0 && <p className="py-10 text-center text-muted">Aucun membre ne correspond.</p>}
           {groups.map(({ label, list }) =>
             list.length === 0 && label ? null : (
@@ -192,6 +197,50 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Doublons possibles de l'annuaire (même nom, ou nom à une faute près), repliés
+ * par défaut. La fusion se fait dans VPDive, d'où le lien.
+ */
+function Duplicates({ groups }: { groups: DuplicateGroup<MemberMatch>[] }) {
+  if (!groups.length) return null;
+  return (
+    <details className="group card border-l-4 border-l-warn overflow-hidden mx-1 mb-3">
+      <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-raised">
+        <AlertTriangle aria-hidden className="w-5 h-5 text-warn shrink-0" />
+        <span className="flex-1 text-base font-semibold text-ink">
+          Doublons possibles · <span className="tabular-nums">{groups.length}</span>
+        </span>
+        <ChevronDown aria-hidden className="w-5 h-5 text-muted shrink-0 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-line">
+        <ul className="divide-y divide-line">
+          {groups.map((g) => (
+            <li key={g.members.map((m) => m.id).join('|')} className="px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <ul className="flex-1 min-w-0 space-y-1.5">
+                {g.members.map((m) => (
+                  <li key={m.id} className="flex items-center gap-2 min-w-0 text-base text-ink">
+                    <Avatar name={m.name} picture={m.picture} size="sm" />
+                    <span className="truncate">{m.name}</span>
+                  </li>
+                ))}
+              </ul>
+              <span className={`shrink-0 px-2 py-0.5 rounded-lg text-sm font-semibold ${g.reason === 'same' ? 'bg-warn-soft text-warn' : 'bg-raised text-muted'}`}>
+                {g.reason === 'same' ? 'même nom' : 'nom proche'}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="px-4 py-3 border-t border-line text-sm text-muted flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="flex-1 min-w-0">La fusion de deux fiches se fait dans VPDive.</span>
+          <a href={VPDIVE_MEMBERS_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-brand underline underline-offset-2">
+            Ouvrir dans VPDive <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </p>
+      </div>
+    </details>
   );
 }
 

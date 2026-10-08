@@ -3,7 +3,7 @@ import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, External
 import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption } from '../services/vpdiveApi';
 import { ThemeToggle } from './ThemeToggle';
 import { BuddyField } from './BuddyField';
-import { SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Size, type SizedKind } from '../lib/gear';
+import { BOTTLES, DEFAULT_BOTTLE, SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Bottle, type Size, type SizedKind } from '../lib/gear';
 
 const VPDIVE_EVENT_URL = (token: string) => `https://septentrion-env.vpdive.com/app/activities/${token}`;
 
@@ -33,6 +33,8 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const [choiceOf, setChoiceOf] = useState<Record<number, string>>({});
   /** standard size (XXS…3XL) per kind, for wetsuits and BCDs without VPDive variants */
   const [kindSize, setKindSize] = useState<Partial<Record<SizedKind, Size>>>({});
+  /** Bouteille souhaitée : 12 L par défaut, écrite dans le message au club sinon. */
+  const [bottle, setBottle] = useState<Bottle>(DEFAULT_BOTTLE);
   const [people, setPeople] = useState(1);
   const [comment, setComment] = useState('');
   const [buddy, setBuddy] = useState('');
@@ -62,6 +64,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       setGear({});
       setChoiceOf({});
       setKindSize({});
+      setBottle(DEFAULT_BOTTLE);
       setPeople(1);
       setEditing(false);
     } catch (e) {
@@ -115,6 +118,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
     setGear(Object.fromEntries(r.gear.map((g) => [g.id, true])));
     setChoiceOf(Object.fromEntries(r.gear.filter((g) => g.choiceId).map((g) => [g.id, g.choiceId!])));
     setKindSize(parsed.sizes);
+    setBottle(parsed.bottle);
     setComment(parsed.comment);
     setBuddy(parsed.buddy);
     setStatus({ kind: 'idle' });
@@ -180,7 +184,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           roleKey,
           tariffToken,
           people,
-          comment: composeComment(comment, booking.commentSizes, buddy),
+          comment: composeComment(comment, booking.commentSizes, buddy, bottle),
           materials: booking.materials,
           choices: booking.choices,
         },
@@ -370,15 +374,21 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                       </section>
                     )}
 
-                    {/* Rental gear: tap to check */}
-                    {detail.materials.length > 0 && (
-                      <section>
-                        <SectionTitle
-                          n={++step}
-                          hint={detail.multipleBooking && people > 1 ? `Quantité alignée sur ${people} places` : 'Touchez pour ajouter'}
-                        >
-                          Location de matériel
-                        </SectionTitle>
+                    {/* Rental gear: tap to check. The bottle is asked of everyone, rental or not. */}
+                    <section>
+                      <SectionTitle
+                        n={++step}
+                        hint={
+                          detail.materials.length === 0
+                            ? undefined
+                            : detail.multipleBooking && people > 1
+                              ? `Quantité alignée sur ${people} places`
+                              : 'Touchez pour ajouter'
+                        }
+                      >
+                        {detail.materials.length > 0 ? 'Location de matériel' : 'Matériel'}
+                      </SectionTitle>
+                      {detail.materials.length > 0 && (
                         <div role="group" aria-label="Location de matériel" className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                           {detail.materials.map((m) => {
                             const checked = !!gear[m.id];
@@ -400,27 +410,35 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                             );
                           })}
                         </div>
+                      )}
 
-                        {choiceGear.map((m) => (
-                          <SizePicker
-                            key={m.id}
-                            label={sizedKinds(m.name).length ? `${m.name} : votre taille` : `${m.name} : votre choix`}
-                            options={m.choices.map((c) => ({ value: c.id, label: c.name }))}
-                            value={choiceOf[m.id] ?? null}
-                            onChange={(v) => setChoiceOf((prev) => ({ ...prev, [m.id]: v }))}
-                          />
-                        ))}
-                        {neededKinds.map((k) => (
-                          <SizePicker
-                            key={k}
-                            label={`Taille ${SIZED_LABEL[k].toLowerCase()}`}
-                            options={SIZES.map((s) => ({ value: s, label: s }))}
-                            value={kindSize[k] ?? null}
-                            onChange={(v) => setKindSize((prev) => ({ ...prev, [k]: v as Size }))}
-                          />
-                        ))}
-                      </section>
-                    )}
+                      {choiceGear.map((m) => (
+                        <SizePicker
+                          key={m.id}
+                          label={sizedKinds(m.name).length ? `${m.name} : votre taille` : `${m.name} : votre choix`}
+                          options={m.choices.map((c) => ({ value: c.id, label: c.name }))}
+                          value={choiceOf[m.id] ?? null}
+                          onChange={(v) => setChoiceOf((prev) => ({ ...prev, [m.id]: v }))}
+                        />
+                      ))}
+                      {neededKinds.map((k) => (
+                        <SizePicker
+                          key={k}
+                          label={`Taille ${SIZED_LABEL[k].toLowerCase()}`}
+                          options={SIZES.map((s) => ({ value: s, label: s }))}
+                          value={kindSize[k] ?? null}
+                          onChange={(v) => setKindSize((prev) => ({ ...prev, [k]: v as Size }))}
+                        />
+                      ))}
+                      <SizePicker
+                        label="Bouteille"
+                        hint="12 L pour tous par défaut"
+                        options={BOTTLES.map((b) => ({ value: b, label: b }))}
+                        value={bottle}
+                        onChange={(v) => setBottle(v as Bottle)}
+                        className={detail.materials.length > 0 ? 'mt-4' : ''}
+                      />
+                    </section>
 
                     {/* People & comment */}
                     <section className="space-y-4">
@@ -521,23 +539,28 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 }
 
 
-/** One row of size chips under the gear grid, for a checked wetsuit, BCD or item with club-defined variants. */
+/** One row of choice chips under the gear grid: size of a checked wetsuit, BCD or item with club-defined variants, or the bottle. */
 function SizePicker({
   label,
+  hint,
   options,
   value,
   onChange,
+  className = 'mt-4',
 }: {
   label: string;
+  hint?: string;
   options: { value: string; label: string }[];
   value: string | null;
   onChange: (v: string) => void;
+  className?: string;
 }) {
   return (
-    <fieldset className="mt-4">
-      <legend className="label block mb-2">
+    <fieldset className={className}>
+      <legend className={`label block ${hint ? '' : 'mb-2'}`}>
         {label} {!value && <span className="font-normal text-warn">· obligatoire</span>}
       </legend>
+      {hint && <p className="text-sm text-muted mb-2">{hint}</p>}
       <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
         {options.map((o) => {
           const selected = value === o.value;
@@ -607,7 +630,7 @@ function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDeta
     const choice = m?.choices.find((c) => c.id === g.choiceId);
     return m ? [`${m.name.trim()}${choice ? ` (${choice.name})` : ''}`] : [];
   });
-  const { sizes, buddy } = parseComment(r?.comment ?? '');
+  const { sizes, buddy, bottle } = parseComment(r?.comment ?? '');
   const sizeText = SIZED_KINDS.filter((k) => sizes[k]).map((k) => `${SIZED_LABEL[k].toLowerCase()} ${sizes[k]}`);
   const canEdit = detail.canModify && !detail.requiresExtraForm && !!r;
   return (
@@ -622,6 +645,7 @@ function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDeta
           <SummaryRow label="Matériel">
             {gear.length ? gear.join(', ') : 'aucune location'}
             {sizeText.length > 0 && <span className="text-muted"> · taille {sizeText.join(', ')}</span>}
+            {bottle !== DEFAULT_BOTTLE && <span className="text-muted"> · bouteille {bottle}</span>}
           </SummaryRow>
           {buddy && <SummaryRow label="Binôme">{buddy}</SummaryRow>}
         </dl>
