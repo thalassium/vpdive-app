@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayParticipants, defaultRoles, headerFromRoles, postsByPerson, rolesOf, setVolunteer, syncWithRoster, toggleRole, type OutingDoc, type Volunteers } from './outing';
+import { dayParticipants, defaultRoles, headerFromRoles, normalizeOuting, postsByPerson, rolesOf, setVolunteer, syncWithRoster, toggleRole, type OutingDoc, type Volunteers } from './outing';
 import { aptitudesFromLabels, type Diver } from './palanquees';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -53,7 +53,7 @@ const diver = (id: string, ...labels: string[]): Diver => ({ id, name: `Nom ${id
 
 const outing = (): OutingDoc => ({
   settings: { levels: {}, training: {}, excluded: ['x', 'gone3'] },
-  header: { etablissement: '', reference: '', bateau: '', pilote: '', dp: '', securite: '', date: '', creneau: '', lieu: '' },
+  header: { etablissement: '', reference: '', bateau: '', pilote: '', dp: '', securite: '', date: '', creneau: '', lieu: '', accompagnants: '' },
   dives: [
     {
       id: 'd1',
@@ -98,9 +98,38 @@ test('désinscrits : retirés des palanquées, des rôles et des postes ; la pal
 
 test('désinscrits : rien à faire quand tout le monde est là (même objet, rien de dévalidé)', () => {
   const before = outing();
+  before.settings.excluded = ['x'];
   const roster = ['a', 'b', 'c', 'x', 'gone1', 'gone2', 'gone3', 'gone4'].map((id) => person(id));
   const { doc, departed } = syncWithRoster(before, roster);
   assert.deepEqual(departed, []);
-  assert.equal(doc.dives[0], before.dives[0]);
-  assert.equal(doc.dives[1], before.dives[1]);
+  assert.equal(doc, before, 'même objet : rien à enregistrer');
+});
+
+test('« Qui plonge ? » : décoché, il sort des palanquées et des non-placés, garde ses rôles ; ce n’est pas un désinscrit', () => {
+  const before = outing();
+  before.settings.excluded = ['gone1', 'c'];
+  const roster = ['a', 'b', 'c', 'gone1', 'gone2', 'gone3', 'gone4'].map((id) => person(id));
+  const { doc, departed } = syncWithRoster(before, roster);
+  assert.deepEqual(departed, [], 'décocher n’est pas se désinscrire : pas de bandeau');
+  const d1 = doc.dives[0]!;
+  assert.deepEqual(d1.plan!.palanquees.map((p) => [p.id, p.guide?.id ?? null, p.members.map((m) => m.id)]), [
+    ['p1', null, ['a', 'b']],
+    ['p2', null, ['gone2']],
+    ['p3', null, ['gone3']],
+  ]);
+  assert.equal(d1.validated, null);
+  assert.deepEqual(doc.roles, { dp: ['gone1'], securite: ['a'] }, 'il reste DP : il ne plonge pas, il dirige');
+  assert.deepEqual(doc.dives[1]!.plan!.palanquees[0]!.members.map((m) => m.id), ['a']);
+  assert.deepEqual(doc.settings.excluded, ['gone1', 'c']);
+});
+
+test('fiche : lieu pré-rempli avec le titre effacé, accompagnants ajouté ; sinon même objet', () => {
+  const old = outing();
+  const { accompagnants: _dropped, ...headerBefore } = old.header;
+  const legacy = { ...old, header: { ...headerBefore, lieu: 'Sortie club' } } as unknown as OutingDoc;
+  const fixed = normalizeOuting(legacy, { title: 'Sortie club' });
+  assert.equal(fixed.header.lieu, '');
+  assert.equal(fixed.header.accompagnants, '');
+  const kept = { ...outing(), header: { ...outing().header, lieu: 'Grand Congloué' } };
+  assert.equal(normalizeOuting(kept, { title: 'Sortie club' }), kept);
 });

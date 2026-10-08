@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { vpdive, ymd, DP_ROLE, type CalendarEvent, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import { appApi, AppApiError, type AppRole } from '../../services/appApi';
-import { headerFromRoles, newOuting, nextDive, syncWithRoster, type Dive, type OutingDoc } from '../../lib/outing';
+import { headerFromRoles, newOuting, nextDive, normalizeOuting, syncWithRoster, type Dive, type OutingDoc } from '../../lib/outing';
 import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
@@ -254,14 +254,14 @@ function OutingWorkspace({
     try {
       const [r, saved] = await Promise.all([vpdive.fetchRoster(event.token), appApi.getOuting(event.token)]);
       // Une composition enregistrée est rapprochée des inscrits du jour : les désinscrits en sortent.
-      const sync = saved ? syncWithRoster(saved, r) : null;
+      const sync = saved ? syncWithRoster(normalizeOuting(saved, event), r) : null;
       const d = sync?.doc ?? newOuting(event, r, session.clubName);
       revRef.current = saved?.rev ?? 0;
       docRef.current = d;
       setRoster(r);
       setDoc(d);
       setDeparted(sync?.departed ?? []);
-      if (sync?.departed.length) setNeedsSave(true);
+      if (saved && sync && sync.doc !== saved) setNeedsSave(true);
       setDiveId(d.dives[0]?.id ?? null);
       setView('dive');
       setTab(d.dives[0]?.validated ? 'fiche' : 'palanquees');
@@ -341,7 +341,9 @@ function OutingWorkspace({
   const update = (fn: (d: OutingDoc) => OutingDoc) => {
     const current = docRef.current;
     if (!current || saveStateRef.current === 'conflict') return;
-    const next = fn(current);
+    // Contrôle continu : un plongeur décoché de « Qui plonge ? » quitte aussitôt les palanquées.
+    const changed = fn(current);
+    const next = roster ? syncWithRoster(changed, roster).doc : changed;
     docRef.current = next;
     setDoc(next);
     setSave('pending');

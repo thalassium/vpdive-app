@@ -17,6 +17,7 @@ export const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: str
   { key: 'date', label: 'Date', type: 'date' },
   { key: 'creneau', label: 'Matin / Après-midi / Nuit', options: ['', 'Matin', 'Après-midi', 'Nuit'] },
   { key: 'lieu', label: 'Lieu de plongée' },
+  { key: 'accompagnants', label: 'Accompagnants' },
 ];
 
 export type SheetSlot = 'guide' | 'member' | 'extra';

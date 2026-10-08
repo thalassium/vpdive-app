@@ -42,6 +42,8 @@ export interface SafetyHeader {
   date: string;
   creneau: string;
   lieu: string;
+  /** Personnes à bord qui ne plongent pas (nombre ou noms). Absent sur les sorties enregistrées avant. */
+  accompagnants: string;
 }
 
 export interface OutingDoc {
@@ -172,7 +174,8 @@ export function newOuting(event: CalendarEvent, roster: RosterEntry[], clubName:
       ...headerFromRoles(roster, roles),
       date: event.start.slice(0, 10),
       creneau: event.allDay ? '' : hour < 12 ? 'Matin' : hour < 18 ? 'Après-midi' : 'Nuit',
-      lieu: event.title,
+      lieu: '',
+      accompagnants: '',
     },
     dives: [{ id: 'd1', label: 'Plongée 1', plan: null, validated: null, sheets: {}, gas: {} }],
     volunteers: {},
@@ -198,20 +201,29 @@ export function nextDive(doc: OutingDoc): Dive {
 }
 
 /**
- * Rapproche une sortie enregistrée de la liste des inscrits du jour. Ceux qui se
- * sont désinscrits (ou passés en liste d'attente) sortent des palanquées, des
- * non-placés, des rôles, des postes de bénévoles et des gaz. Une palanquée qui
- * perd son encadrant garde ses plongeurs, désormais sans encadrant (« À
+ * Tient la sortie d'accord avec la liste des inscrits et avec « Qui plonge ? »,
+ * au chargement comme à chaque modification. N'est dans l'eau (palanquées,
+ * non-placés, gaz) que celui qui est inscrit et coché « plonge » ; les rôles
+ * et les postes de bénévoles ne demandent que d'être inscrit. Une palanquée
+ * qui perd son encadrant garde ses plongeurs, désormais sans encadrant (« À
  * revoir ») ; une palanquée vidée disparaît. Une plongée validée dont la
  * composition change est dévalidée : sa fiche de sécurité n'est plus juste.
- * `departed` : les noms retirés d'une composition, pour le dire au DP.
+ * `departed` : les désinscrits retirés d'une composition, pour le dire au DP.
+ * Rien ne change : les mêmes plongées (même objet) sont rendues.
  */
 export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: OutingDoc; departed: string[] } {
   const present = new Set(dayParticipants(roster).map((r) => r.id));
+  const excluded = new Set(doc.settings.excluded);
   const gone = new Map<string, string>();
+  let moved = 0;
   const keep = <T extends Diver | null>(d: T): T => {
-    if (d && !present.has(d.id)) {
+    if (!d) return d;
+    if (!present.has(d.id)) {
       gone.set(d.id, d.name);
+      return null as T;
+    }
+    if (excluded.has(d.id)) {
+      moved++;
       return null as T;
     }
     return d;
@@ -219,14 +231,14 @@ export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: Ou
   const onlyPresent = (ids: string[] | undefined) => ids?.filter((id) => present.has(id));
 
   const dives = doc.dives.map((dive) => {
-    const gas = Object.fromEntries(Object.entries(dive.gas).filter(([id]) => present.has(id)));
+    const gas = Object.fromEntries(Object.entries(dive.gas).filter(([id]) => present.has(id) && !excluded.has(id)));
     if (!dive.plan) return Object.keys(gas).length === Object.keys(dive.gas).length ? dive : { ...dive, gas };
-    const before = gone.size;
+    const before = gone.size + moved;
     const palanquees = dive.plan.palanquees
       .map((p) => ({ ...p, guide: keep(p.guide), extra: keep(p.extra), members: p.members.filter((m) => keep(m) !== null) }))
       .filter((p) => p.guide || p.extra || p.members.length > 0);
     const unassigned = dive.plan.unassigned.filter((u) => keep(u.diver) !== null);
-    const changed = gone.size > before || palanquees.length !== dive.plan.palanquees.length;
+    const changed = gone.size + moved > before || palanquees.length !== dive.plan.palanquees.length;
     if (!changed) return Object.keys(gas).length === Object.keys(dive.gas).length ? dive : { ...dive, gas };
     const kept = new Set(palanquees.map((p) => p.id));
     const sheets = Object.fromEntries(Object.entries(dive.sheets).filter(([id]) => kept.has(id)));
@@ -244,6 +256,8 @@ export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: Ou
     if (ids?.length) volunteers[id] = ids;
   }
 
+  const unchanged = dives.every((d, i) => d === doc.dives[i]) && sameIds(roles, doc.roles) && sameIds(volunteers, doc.volunteers) && doc.settings.excluded.every((id) => present.has(id));
+  if (unchanged) return { doc, departed: [] };
   return {
     doc: {
       ...doc,
@@ -254,6 +268,23 @@ export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: Ou
     },
     departed: [...new Set(gone.values())],
   };
+}
+
+/** Mêmes identifiants par clé (les clés vides comptent comme absentes). */
+function sameIds(a: Record<string, string[] | undefined>, b: Record<string, string[] | undefined> | undefined): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b ?? {})]);
+  return [...keys].every((k) => (a[k] ?? []).join() === (b?.[k] ?? []).join());
+}
+
+/**
+ * Sorties enregistrées avant un changement de la fiche : champs ajoutés depuis
+ * (accompagnants) et lieu pré-rempli avec le titre de la sortie, effacé — le
+ * lieu se choisit désormais (liste à venir), il n'est plus deviné.
+ */
+export function normalizeOuting(doc: OutingDoc, event: Pick<CalendarEvent, 'title'>): OutingDoc {
+  const header = { ...doc.header, accompagnants: doc.header.accompagnants ?? '' };
+  if (header.lieu === event.title) header.lieu = '';
+  return header.accompagnants === doc.header.accompagnants && header.lieu === doc.header.lieu ? doc : { ...doc, header };
 }
 
 /** Nombre de plongeurs à l'eau pour une plongée (en-tête de la fiche). */

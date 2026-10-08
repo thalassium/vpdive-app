@@ -29,7 +29,7 @@ test('fiche : date en toutes lettres, nom de fichier sans accents', () => {
 test('fiche PDF : six palanquées par page', () => {
   const g = diver('Guide', 'P4');
   const palanquees: Palanquee[] = Array.from({ length: 7 }, (_, i) => ({ id: `p${i}`, kind: 'guided', guide: g, extra: null, members: [diver('Zoé', 'P1')] }));
-  const header = { etablissement: 'Club', reference: '', bateau: 'Ève', pilote: '', dp: 'Hélène', securite: '', date: '2026-10-08', creneau: 'Après-midi', lieu: 'Île' };
+  const header = { etablissement: 'Club', reference: '', bateau: 'Ève', pilote: '', dp: 'Hélène', securite: '', date: '2026-10-08', creneau: 'Après-midi', lieu: 'Île', accompagnants: '' };
   const dive: Dive = { id: 'd1', label: 'Plongée 1', plan: { palanquees, unassigned: [] }, validated: null, sheets: { p0: emptySheet() }, gas: {} };
   const pdf = safetySheetPdf({ settings: {} as OutingDoc['settings'], header, dives: [dive] }, dive, 'Sortie');
   assert.equal(pdf.getNumberOfPages(), 2);
@@ -73,7 +73,7 @@ test('fiche PDF : une formation de six et deux explorations sur la même rangée
     members: [...[1, 2, 3, 4].map((i) => diver(`S${i}`, 'P1', 'FN2')), diver('M', 'MF2'), diver('G', 'N4')],
   };
   const small: Palanquee = { id: 's', kind: 'guided', guide: diver('G2', 'N4'), extra: null, members: [diver('Z', 'P1')] };
-  const header = { etablissement: 'Club', reference: '', bateau: '', pilote: '', dp: '', securite: '', date: '2026-10-08', creneau: '', lieu: '' };
+  const header = { etablissement: 'Club', reference: '', bateau: '', pilote: '', dp: '', securite: '', date: '2026-10-08', creneau: '', lieu: '', accompagnants: '' };
   const dive: Dive = { id: 'd1', label: 'Plongée 1', plan: { palanquees: [big, small, { ...small, id: 's2' }], unassigned: [] }, validated: null, sheets: {}, gas: {} };
   const pdf = safetySheetPdf({ settings: {} as OutingDoc['settings'], header, dives: [dive] }, dive, 'Sortie');
   assert.equal(pdf.getNumberOfPages(), 1);
