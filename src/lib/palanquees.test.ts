@@ -206,11 +206,12 @@ test('palanquées autonomes de 2 ou 3, jamais 1 ni 4', () => {
   }
 });
 
-test('un mineur n’est jamais autonome', () => {
+test('un mineur avec une aptitude PA est autonome : l’aptitude décide, pas l’âge', () => {
   const kid = { ...diver('Kid', 'N2'), minor: true };
   const plan = proposePalanquees([kid, diver('A', 'N2'), diver('B', 'N2')], { maxDepth: 20 });
-  assert.ok(plan.palanquees.every((p) => !(p.kind === 'autonomous' && p.members.includes(kid))));
-  assert.equal(plan.unassigned[0]?.diver, kid);
+  const p = plan.palanquees.find((x) => x.members.includes(kid));
+  assert.equal(p?.kind, 'autonomous');
+  assert.deepEqual(validate(p!, 20), []);
 });
 
 test('validate signale les erreurs d’une palanquée modifiée à la main', () => {
@@ -476,10 +477,7 @@ test('formation qui perd son enseignant : un membre qui suffit est promu, sinon 
   assert.equal(memberLabel(e2, swapped), 'E2');
 });
 
-test('un moniteur mineur n’est ni encadrant ni autonome ; un enfant est signalé', () => {
-  const kid = { ...diver('Kid', 'N4'), minor: true };
-  const plan = proposePalanquees([kid, diver('G', 'N4'), diver('N1', 'N1'), diver('N1b', 'N1')]);
-  assert.ok(plan.palanquees.every((p) => p.guide?.id !== kid.id && !(p.kind === 'autonomous' && p.members.includes(kid))));
+test('un enfant est signalé', () => {
   const child = { ...diver('Bronze', 'PBR'), minor: true };
   assert.ok(validate({ id: 'c', kind: 'guided', guide: diver('G2', 'N4'), extra: null, members: [child] }).some((i) => /enfant/.test(i)));
 });

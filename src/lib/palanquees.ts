@@ -117,7 +117,10 @@ export interface Diver extends Aptitudes {
   name: string;
   /** Niveaux tels que VPDive les affiche, montrés tels quels à l'admin. */
   labels: string[];
-  /** Mineur, si on le sait : interdit en palanquée autonome. */
+  /**
+   * Mineur, si on le sait : affiché pour information. L'âge ne décide de rien :
+   * l'autonomie (PA dès 16 ans) et l'encadrement viennent des aptitudes que le club attribue.
+   */
   minor?: boolean;
   /** Niveaux et diplômes tels que VPDive les écrit (DEJEPS, MF1, P2, PADI - AOW…). */
   display?: string[];
@@ -597,7 +600,6 @@ export function validate(p: Palanquee, outingMax: Depth = 60): string[] {
     if (p.members.length > 3) issues.push(`${p.members.length} plongeurs autonomes : 3 au maximum.`);
     for (const m of p.members) {
       if (!m.pa) issues.push(`${m.name} n’est pas autonome (aucune aptitude PA).`);
-      if (m.minor || m.child) issues.push(`${m.name} est mineur : pas d’autonomie.`);
       if (m.training) issues.push(`${m.name} est en formation (${trainingLabel(m)}) : palanquée de formation avec un enseignant.`);
     }
   }
@@ -682,12 +684,12 @@ function guidedGroups(divers: Diver[], guideCount: number, outingMax: Depth, dep
 
 /**
  * Propose des palanquées pour les inscrits d'une sortie, dans l'ordre que suit un DP :
- *   1. Les autonomes qui ne sont pas encadrants (PA-xx majeurs) se regroupent par
+ *   1. Les autonomes qui ne sont pas encadrants (PA-xx) se regroupent par
  *      prérogative : les PA-60 entre eux, puis les PA-40, les PA-20… par 2 ou 3.
  *   2. Les formations (FN#, élèves ce jour-là même s'ils sont moniteurs)
  *      reçoivent l'enseignant le moins qualifié qui suffit (E2 pour FN1, E3
  *      au-delà ; MIN_TEACH_FOR_TRAINING), sinon restent non placés.
- *   3. Les plongeurs encadrés (PE-xx, débutants, mineurs) reçoivent un N4/GP au
+ *   3. Les plongeurs encadrés (PE-xx, débutants) reçoivent un N4/GP au
  *      moins (un E1 ne prend que des débutants, 0-6 m, en formation). S'il manque des
  *      encadrants, on réunit des niveaux et la palanquée prend la prérogative du
  *      moins formé : un PE-40 plonge alors à 20 m avec des N1.
@@ -726,8 +728,8 @@ function composePalanquees(divers: Diver[], opts: PlanOptions): Plan {
     if (d.child) unassigned.push({ diver: d, reason: 'Plongeur enfant : conditions de pratique enfants, à placer à la main.' });
     // Élève ce jour-là, moniteur ou non : il n'encadre pas.
     else if (d.training) trainees.push(d);
-    else if (d.guide && !d.minor) guides.push(d);
-    else if (d.pa && !d.minor) autonomous.push(d);
+    else if (d.guide) guides.push(d);
+    else if (d.pa) autonomous.push(d);
     else if (guidedDepthOf(d)) guided.push(d);
     else unassigned.push({ diver: d, reason: 'Niveau inconnu : à placer à la main.' });
   }
