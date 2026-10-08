@@ -68,15 +68,6 @@ function WindArrow({ deg }: { deg: number }) {
   );
 }
 
-/** Flèche creuse pour la houle, même convention. */
-function SwellArrow({ deg }: { deg: number }) {
-  return (
-    <svg aria-hidden viewBox="0 0 24 24" className="w-6 h-6 shrink-0 text-ink" style={{ transform: `rotate(${deg + 180}deg)` }}>
-      <path d="M12 3 19 20.5 12 16.5 5 20.5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 const waveTone = (m: number | null) => (m === null ? 'text-ink' : m >= SEUILS.rouge.vagues ? 'text-danger' : m >= SEUILS.jaune.vagues ? 'text-warn' : 'text-ink');
 
 /** Part d'une vitesse sur l'échelle de la barre (40 nd = pleine largeur). */
@@ -88,9 +79,9 @@ const bar = (kn: number) => `${Math.min(kn / 40, 1) * 100}%`;
  */
 function SlotRow({ s, active, onSelect }: { s: Slot; active: boolean; onSelect: () => void }) {
   const c = windColor(s.wind);
-  const swell = [s.swell !== null ? `houle ${metres(s.swell)}` : null, s.swellPeriod !== null ? `${Math.round(s.swellPeriod)} s` : null]
-    .filter(Boolean)
-    .join(' · ');
+  // « houle 0,9 m du SO » puis « période 5 s » : le temps entre deux crêtes.
+  const swell = s.swell === null ? '' : `houle ${metres(s.swell)}` + (s.swellDir !== null ? ` du ${compass(s.swellDir)}` : '');
+  const period = s.swell !== null && s.swellPeriod !== null ? `période ${Math.round(s.swellPeriod)} s` : '';
   return (
     <li>
       <button
@@ -120,12 +111,10 @@ function SlotRow({ s, active, onSelect }: { s: Slot; active: boolean; onSelect: 
           </span>
         </span>
 
-        <span className="flex items-center gap-2 min-w-0">
-          {s.swellDir !== null ? <SwellArrow deg={s.swellDir} /> : <span className="w-6 shrink-0" />}
-          <span className="min-w-0">
-            <span className={`block text-xl font-semibold leading-none tabular-nums ${waveTone(s.waves)}`}>{metres(s.waves)}</span>
-            {swell && <span className="block mt-1 text-sm text-muted tabular-nums truncate">{swell}</span>}
-          </span>
+        <span className="min-w-0">
+          <span className={`block text-xl font-semibold leading-none tabular-nums ${waveTone(s.waves)}`}>{metres(s.waves)}</span>
+          {swell && <span className="block mt-1 text-sm leading-snug text-muted tabular-nums">{swell}</span>}
+          {period && <span className="block text-sm leading-snug text-muted tabular-nums">{period}</span>}
         </span>
 
         {/* Force du vent puis rafales, sur une échelle de 0 à 40 nd */}
@@ -427,6 +416,14 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                     <p className="py-10 text-center text-muted">Prévision indisponible pour ce jour.</p>
                   ) : (
                     <ul className="divide-y divide-line">
+                      <li
+                        aria-hidden
+                        className="grid grid-cols-[3.25rem_minmax(0,1.2fr)_minmax(0,1fr)] gap-2 sm:gap-3 pl-2 pr-3 py-1.5 text-sm font-semibold text-muted bg-surface"
+                      >
+                        <span />
+                        <span>Vent</span>
+                        <span>Vagues</span>
+                      </li>
                       {daySlots.map((sl) => (
                         <SlotRow key={sl.time} s={sl} active={sl.time.slice(11, 13) === hour} onSelect={() => setHour(sl.time.slice(11, 13))} />
                       ))}
