@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { SEUILS } from '../lib/marine';
 import { ChevronLeft, ChevronRight, Wind, RefreshCw, AlertCircle, Check } from 'lucide-react';
 import { ymd, type CalendarEvent, type MeteoSlot } from '../services/vpdiveApi';
 
@@ -38,8 +39,8 @@ function daytimeWind(slots: MeteoSlot[] | undefined) {
   const day = slots?.filter((s) => s.hour >= 7 && s.hour <= 19) ?? [];
   if (!day.length) return null;
   const top = day.reduce((a, b) => (b.windSpeed_kt > a.windSpeed_kt ? b : a));
-  // Above 16 knots the outing may be cancelled.
-  return { max: top.windSpeed_kt, gusts: top.windGusts_kt, dir: top.windDir, strong: top.windSpeed_kt > 16 };
+  // Vigilance au même seuil que l'écran Météo (SEUILS.jaune.vent).
+  return { max: top.windSpeed_kt, gusts: top.windGusts_kt, dir: top.windDir, strong: top.windSpeed_kt >= SEUILS.jaune.vent };
 }
 
 /** Warning mark next to a strong wind; the reason stays in the tooltip. */

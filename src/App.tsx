@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, Settings, UserRound, Users, Wind } from 'lucide-react';
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
@@ -6,22 +6,24 @@ import { LoginPage } from './components/LoginPage';
 import { StandardCalendar, gridRange } from './components/StandardCalendar';
 import { EventBookingModal } from './components/EventBookingModal';
 import { SeaBackdrop } from './components/SeaBackdrop';
-import { MembersPanel } from './components/MembersPanel';
-import { DpPanel } from './components/dp/DpPanel';
-import { MaterialPanel } from './components/admin/MaterialPanel';
-import { DocsPanel } from './components/admin/DocsPanel';
-import { WeatherPanel } from './components/admin/WeatherPanel';
 import { CaptainHat, HeaderMenu } from './components/HeaderMenu';
 import { AccountMenu, ROLE_LABEL, type ViewAsPick } from './components/AccountMenu';
 import { sameName } from './lib/fuzzy';
 import { Avatar } from './components/Avatar';
 import { Cromagnon } from './components/Cromagnon';
 import { CoursesView } from './components/views/CoursesView';
-import { MessagesView } from './components/views/MessagesView';
 import { messaging } from './services/messaging';
-import { ProfileView } from './components/views/ProfileView';
 import { vpdive, ymd, SessionExpiredError, DP_ROLE, type CalendarEvent, type MeteoSlot, type Session } from './services/vpdiveApi';
 import { appApi, type Me } from './services/appApi';
+
+// Chargés à la demande : l'agenda et la fiche de réservation restent dans le paquet principal, le reste n'arrive qu'à l'ouverture.
+const DpPanel = lazy(() => import('./components/dp/DpPanel').then((m) => ({ default: m.DpPanel })));
+const MaterialPanel = lazy(() => import('./components/admin/MaterialPanel').then((m) => ({ default: m.MaterialPanel })));
+const DocsPanel = lazy(() => import('./components/admin/DocsPanel').then((m) => ({ default: m.DocsPanel })));
+const WeatherPanel = lazy(() => import('./components/admin/WeatherPanel').then((m) => ({ default: m.WeatherPanel })));
+const MembersPanel = lazy(() => import('./components/MembersPanel').then((m) => ({ default: m.MembersPanel })));
+const MessagesView = lazy(() => import('./components/views/MessagesView').then((m) => ({ default: m.MessagesView })));
+const ProfileView = lazy(() => import('./components/views/ProfileView').then((m) => ({ default: m.ProfileView })));
 
 const thisMonth = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
@@ -38,10 +40,92 @@ const tabFromHash = (): Tab => {
   return TABS.some((t) => t.id === h) ? (h as Tab) : 'agenda';
 };
 
+/** Caches de session de l'appli (documents, adhésions, libellés, météo, sorties DP) : effacés à la déconnexion, le téléphone peut être partagé. */
+const SESSION_CACHE_PREFIXES = ['docs-status:', 'club-member-v2:', 'my-labels:', 'meteo:', 'dp-events:'];
+function clearSessionCaches() {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && SESSION_CACHE_PREFIXES.some((p) => k.startsWith(p))) keys.push(k);
+    }
+    keys.forEach((k) => sessionStorage.removeItem(k));
+  } catch {
+    // Stockage interdit (navigation privée) : rien à effacer.
+  }
+}
+
+/** Le pare-feu VPDive coupe les rafales : une pause entre deux lectures de liste d'inscrits. */
+const pause = () => new Promise<void>((r) => setTimeout(r, 400));
+
+/** Sorties où le membre est DP, gardées une heure dans l'onglet pour ne pas relire toutes les listes d'inscrits à chaque visite. */
+const DP_CACHE_TTL = 60 * 60 * 1000;
+const dpCacheKey = (s: Session) => `dp-events:${s.userId ?? ''}`;
+const readDpCache = (key: string): string[] | null => {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { at: number; tokens: string[] };
+    return Date.now() - v.at < DP_CACHE_TTL && Array.isArray(v.tokens) ? v.tokens : null;
+  } catch {
+    return null;
+  }
+};
+const writeDpCache = (key: string, tokens: string[]) => {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), tokens }));
+  } catch {
+    // Stockage plein ou interdit : on relira à la prochaine visite.
+  }
+};
+
+/**
+ * « Voir en tant que » (super-admin) : les droits d'un autre membre, simulés
+ * dans le navigateur. Son rôle dans l'appli, et les sorties où il est DP
+ * (null tant qu'on les cherche, avec l'avancement de la recherche). Le serveur, lui, voit toujours le compte connecté.
+ */
+type ViewAs = ViewAsPick & { dpEvents: string[] | null; progress: { done: number; total: number } | null };
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(() => vpdive.getSession());
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
 
+  const handleSessionLost = useCallback((e: unknown) => {
+    if (e instanceof SessionExpiredError) {
+      setSession(null);
+      setLoginNotice(e.message);
+      return true;
+    }
+    return false;
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    // D'abord le serveur de l'appli (il lui faut encore la session VPDive), puis VPDive, puis le local.
+    await appApi.logout();
+    vpdive.logout();
+    clearSessionCaches();
+    setLoginNotice(null);
+    setSession(null);
+  }, []);
+
+  if (!session) {
+    return (
+      <LoginPage
+        notice={loginNotice}
+        onLoginSuccess={(s) => {
+          setLoginNotice(null);
+          setSession(s);
+        }}
+      />
+    );
+  }
+
+  // Clé = jeton : une autre session remonte tout de zéro, rien (rôle, menu DP, pastille, « voir en tant que ») ne survit à la déconnexion.
+  return <SignedIn key={session.token} session={session} onLogout={handleLogout} onSessionLost={handleSessionLost} />;
+}
+
+/** Tout ce qui dépend d'une session connectée : état, appels VPDive et écran principal. */
+function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { session: Session; onLogout: () => void; onSessionLost: (e: unknown) => boolean }) {
   const [month, setMonth] = useState<Date>(thisMonth);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -51,16 +135,13 @@ export default function App() {
   const [panel, setPanel] = useState<'dp' | 'weather' | 'material' | 'members' | 'docs' | null>(null);
   const [dpEvent, setDpEvent] = useState<CalendarEvent | null>(null);
   const [me, setMe] = useState<Me | null>(null);
-  const [isDp, setIsDp] = useState(false);
-  const [picture, setPicture] = useState<string | undefined>(() => vpdive.getSession()?.picture);
+  const [meError, setMeError] = useState<string | null>(null);
+  /** Sorties où le membre connecté est DP (jetons) ; null tant qu'on ne les connaît pas. */
+  const [dpEvents, setDpEvents] = useState<string[] | null>(null);
+  const [picture, setPicture] = useState<string | undefined>(session.picture);
   const [tab, setTabState] = useState<Tab>(tabFromHash);
   const [unread, setUnread] = useState(0);
-  /**
-   * « Voir en tant que » (super-admin) : les droits d'un autre membre, simulés
-   * dans le navigateur. Son rôle dans l'appli, et les sorties où il est DP
-   * (null tant qu'on les cherche). Le serveur, lui, voit toujours le compte connecté.
-   */
-  const [viewAs, setViewAs] = useState<(ViewAsPick & { dpEvents: string[] | null }) | null>(null);
+  const [viewAs, setViewAs] = useState<ViewAs | null>(null);
   const viewAsId = useRef(0);
   const loadId = useRef(0);
   // Rôle dans l'appli, décidé par le serveur (server/handler.ts) : super-admin,
@@ -68,24 +149,10 @@ export default function App() {
   const realRole = me?.role ?? 'member';
   const role = viewAs?.role ?? realRole;
   const isAdmin = role === 'admin' || role === 'superadmin';
+  const isDp = (dpEvents?.length ?? 0) > 0;
   const canDp = isAdmin || (viewAs ? (viewAs.dpEvents?.length ?? 0) > 0 : isDp);
 
-  const handleSessionLost = useCallback((e: unknown) => {
-    if (e instanceof SessionExpiredError) {
-      setActiveEvent(null);
-      setPanel(null);
-      setMe(null);
-      setIsDp(false);
-      setViewAs(null);
-      setSession(null);
-      setLoginNotice(e.message);
-      return true;
-    }
-    return false;
-  }, []);
-
   const loadEvents = useCallback(async () => {
-    if (!session) return;
     const id = ++loadId.current; // ignore answers for a month the member already left
     const [start, end] = gridRange(month);
     setIsLoading(true);
@@ -100,45 +167,63 @@ export default function App() {
     } finally {
       if (id === loadId.current) setIsLoading(false);
     }
-  }, [session, month, handleSessionLost]);
+  }, [month, handleSessionLost]);
 
   useEffect(() => {
     loadEvents();
   }, [loadEvents]);
 
   // Rôle relu à chaque visite (la session VPDive dure 30 jours, les rôles peuvent changer entre-temps).
-  const sessionToken = session?.token;
+  const loadMe = useCallback(() => {
+    setMeError(null);
+    appApi.me().then(setMe, (e) => {
+      if (handleSessionLost(e)) return;
+      console.warn('Rôle dans l’appli non lu :', e);
+      // Autre erreur qu'une session perdue : la messagerie propose de réessayer au lieu de charger sans fin.
+      setMeError(e instanceof Error ? e.message : String(e));
+    });
+  }, [handleSessionLost]);
   useEffect(() => {
-    if (!sessionToken) return;
-    appApi.me().then(setMe, (e) => handleSessionLost(e) || console.warn('Rôle dans l’appli non lu :', e));
-  }, [sessionToken, handleSessionLost]);
+    loadMe();
+  }, [loadMe]);
 
   // Un membre qui n'est pas admin a le menu DP s'il est directeur de plongée
-  // d'une sortie à venir où il est inscrit.
+  // d'une sortie où il est inscrit (même fenêtre que le menu DP : 14 jours en arrière, 60 en avant).
   useEffect(() => {
-    if (!me || me.role !== 'member' || !session) return;
+    if (!me || me.role !== 'member') return;
+    const key = dpCacheKey(session);
+    const cached = readDpCache(key);
+    if (cached) {
+      setDpEvents(cached);
+      return;
+    }
     let cancelled = false;
     (async () => {
       const today = new Date();
+      const from = new Date(today);
+      from.setDate(from.getDate() - 14);
       const to = new Date(today);
       to.setDate(to.getDate() + 60);
-      const mine = (await vpdive.fetchEvents(ymd(today), ymd(to))).filter((e) => e.registered);
+      const mine = (await vpdive.fetchEvents(ymd(from), ymd(to))).filter((e) => e.registered);
+      const tokens: string[] = [];
+      // Toutes ses sorties comme DP (le menu DP en a besoin), listes lues une à une avec une pause.
       for (const e of mine) {
+        if (cancelled) return;
         const roster = await vpdive.fetchRoster(e.token).catch(() => []);
-        if (roster.some((r) => r.id === String(session.userId) && r.roles.some((x) => DP_ROLE.test(x)))) {
-          if (!cancelled) setIsDp(true);
-          return;
-        }
+        if (roster.some((r) => r.id === String(session.userId) && r.roles.some((x) => DP_ROLE.test(x)))) tokens.push(e.token);
+        await pause();
       }
-    })().catch((e) => console.warn('Rôle DP non vérifié :', e));
+      if (cancelled) return;
+      writeDpCache(key, tokens);
+      setDpEvents(tokens);
+    })().catch((e) => handleSessionLost(e) || console.warn('Rôle DP non vérifié :', e));
     return () => {
       cancelled = true;
     };
-  }, [me, session]);
+  }, [me, session, handleSessionLost]);
 
   // Photo du compte : les sessions enregistrées avant ce champ la relisent une fois sur VPDive.
   useEffect(() => {
-    if (!session) return;
     if (session.picture !== undefined) {
       setPicture(session.picture);
       return;
@@ -152,22 +237,32 @@ export default function App() {
       const id = ++viewAsId.current;
       setActiveEvent(null);
       setPanel(null);
-      setViewAs({ ...pick, dpEvents: null });
+      // Admin simulé : le menu DP lui est acquis, inutile de lire une seule liste d'inscrits.
+      if (pick.role !== 'member') return setViewAs({ ...pick, dpEvents: [], progress: null });
+      setViewAs({ ...pick, dpEvents: null, progress: null });
+      const update = (patch: Partial<ViewAs>) => {
+        if (id === viewAsId.current) setViewAs((v) => (v && v.uct === pick.uct ? { ...v, ...patch } : v));
+      };
       try {
         const today = new Date();
         const from = new Date(today);
         from.setDate(from.getDate() - 14);
         const to = new Date(today);
         to.setDate(to.getDate() + 60);
-        const list = await vpdive.fetchEvents(ymd(from), ymd(to));
-        const rosters = await Promise.all(list.map((e) => vpdive.fetchRoster(e.token).catch(() => [])));
-        const dpEvents = list
-          .filter((_, i) => rosters[i]!.some((r) => sameName(r.name, pick.name) && r.roles.some((x) => DP_ROLE.test(x))))
-          .map((e) => e.token);
-        if (id === viewAsId.current) setViewAs((v) => (v && v.uct === pick.uct ? { ...v, dpEvents } : v));
+        // Seulement les sorties qui ont des inscrits, une liste à la fois avec une pause : le pare-feu VPDive bloque les rafales.
+        const list = (await vpdive.fetchEvents(ymd(from), ymd(to))).filter((e) => e.registeredCount > 0);
+        const dpEvents: string[] = [];
+        for (let i = 0; i < list.length; i++) {
+          if (id !== viewAsId.current) return;
+          update({ progress: { done: i + 1, total: list.length } });
+          const roster = await vpdive.fetchRoster(list[i]!.token).catch(() => []);
+          if (roster.some((r) => sameName(r.name, pick.name) && r.roles.some((x) => DP_ROLE.test(x)))) dpEvents.push(list[i]!.token);
+          await pause();
+        }
+        update({ dpEvents, progress: null });
       } catch (e) {
         if (handleSessionLost(e)) return;
-        if (id === viewAsId.current) setViewAs((v) => (v && v.uct === pick.uct ? { ...v, dpEvents: [] } : v));
+        update({ dpEvents: [], progress: null });
       }
     },
     [handleSessionLost],
@@ -193,41 +288,29 @@ export default function App() {
   // Pastille de la messagerie (celle de VPDive) : conversations non lues, relues toutes les minutes.
   const refreshUnread = useCallback(() => {
     if (!vpdive.getSession()) return;
-    messaging.unread().then(setUnread, () => setUnread(0));
-  }, []);
+    // Session perdue pendant la relecture : retour à la connexion, pas une pastille à zéro en silence.
+    messaging.unread().then(setUnread, (e) => {
+      if (!handleSessionLost(e)) setUnread(0);
+    });
+  }, [handleSessionLost]);
   useEffect(() => {
-    if (!session) return;
-    refreshUnread();
-    const id = window.setInterval(refreshUnread, 60_000);
-    return () => window.clearInterval(id);
-  }, [session, refreshUnread]);
+    // Onglet caché : pas de relecture (pare-feu VPDive) ; relue dès le retour au premier plan.
+    const tick = () => {
+      if (!document.hidden) refreshUnread();
+    };
+    tick();
+    const id = window.setInterval(tick, 60_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [refreshUnread]);
 
   // Weather is a bonus: if Open-Meteo is down the agenda still works, just without wind badges.
   useEffect(() => {
-    if (!session) return;
     vpdive.fetchMeteo().then(setMeteo, (e) => console.warn('Météo indisponible :', e));
-  }, [session]);
-
-  const handleLogout = () => {
-    vpdive.logout();
-    setViewAs(null);
-    setSession(null);
-    setEvents([]);
-    setLoginNotice(null);
-  };
-
-  if (!session) {
-    return (
-      <LoginPage
-        notice={loginNotice}
-        onLoginSuccess={(s) => {
-          setLoginNotice(null);
-          setMonth(thisMonth());
-          setSession(s);
-        }}
-      />
-    );
-  }
+  }, []);
 
   const displayName = `${session.firstName} ${session.lastName}`.trim() || session.email;
   const connected = !error && !isLoading;
@@ -300,7 +383,7 @@ export default function App() {
                 role={realRole}
                 onProfile={() => goTo('profil')}
                 onViewAs={startViewAs}
-                onLogout={handleLogout}
+                onLogout={onLogout}
                 onSessionLost={handleSessionLost}
               />
             </div>
@@ -314,7 +397,7 @@ export default function App() {
                 Vous voyez le site comme <strong className="font-semibold">{viewAs.name}</strong> · {ROLE_LABEL[viewAs.role]}
                 {viewAs.role === 'member' &&
                   (viewAs.dpEvents === null
-                    ? ' · recherche de ses sorties comme DP…'
+                    ? ` · recherche de ses sorties comme DP…${viewAs.progress ? ` ${viewAs.progress.done}/${viewAs.progress.total}` : ''}`
                     : viewAs.dpEvents.length
                       ? ` · DP de ${viewAs.dpEvents.length} sortie${viewAs.dpEvents.length > 1 ? 's' : ''}`
                       : ' · DP d’aucune sortie à venir')}
@@ -329,28 +412,35 @@ export default function App() {
       </header>
 
       <main className={`flex-1 pb-20 sm:pb-0 ${printPanel}`}>
-        {tab === 'agenda' && (
-          <StandardCalendar
-            month={month}
-            onMonthChange={setMonth}
-            events={events}
-            meteoData={meteo}
-            isLoading={isLoading}
-            error={error}
-            onRefresh={loadEvents}
-            onOpenEvent={setActiveEvent}
-          />
-        )}
-        {tab === 'cours' && <CoursesView onOpenEvent={setActiveEvent} onSessionLost={handleSessionLost} />}
-        {tab === 'messages' &&
-          (me ? (
-            <MessagesView me={{ uct: me.uct, name: displayName, picture: picture ?? '' }} onSessionLost={handleSessionLost} onRead={refreshUnread} />
-          ) : (
-            <p className="max-w-5xl mx-auto px-4 sm:px-6 py-8 text-muted">Chargement…</p>
-          ))}
-        {tab === 'profil' && (
-          <ProfileView session={session} me={me} picture={picture} onLogout={handleLogout} onSessionLost={handleSessionLost} />
-        )}
+        <Suspense fallback={<p className="max-w-5xl mx-auto px-4 sm:px-6 py-8 text-muted">Chargement…</p>}>
+          {tab === 'agenda' && (
+            <StandardCalendar
+              month={month}
+              onMonthChange={setMonth}
+              events={events}
+              meteoData={meteo}
+              isLoading={isLoading}
+              error={error}
+              onRefresh={loadEvents}
+              onOpenEvent={setActiveEvent}
+            />
+          )}
+          {tab === 'cours' && <CoursesView onOpenEvent={setActiveEvent} onSessionLost={handleSessionLost} />}
+          {tab === 'messages' &&
+            (me ? (
+              <MessagesView me={{ uct: me.uct, name: displayName, picture: picture ?? '' }} onSessionLost={handleSessionLost} onRead={refreshUnread} />
+            ) : meError ? (
+              <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 flex flex-wrap items-center gap-3 text-sm">
+                <span className="text-danger">{meError}</span>
+                <button type="button" onClick={loadMe} className="btn btn-quiet">
+                  Réessayer
+                </button>
+              </div>
+            ) : (
+              <p className="max-w-5xl mx-auto px-4 sm:px-6 py-8 text-muted">Chargement…</p>
+            ))}
+          {tab === 'profil' && <ProfileView session={session} me={me} picture={picture} onLogout={onLogout} onSessionLost={handleSessionLost} />}
+        </Suspense>
       </main>
 
       {/* Téléphone : la barre d'onglets en bas, à portée de pouce */}
@@ -395,25 +485,28 @@ export default function App() {
         />
       )}
 
-      {panel === 'dp' && canDp && (
-        <DpPanel
-          session={session}
-          role={role}
-          dpEvents={viewAs && viewAs.role === 'member' ? (viewAs.dpEvents ?? []) : undefined}
-          initialEvent={dpEvent}
-          onClose={() => {
-            setPanel(null);
-            setDpEvent(null);
-          }}
-          onSessionLost={handleSessionLost}
-        />
-      )}
-      {panel === 'members' && isAdmin && me && <MembersPanel me={{ ...me, role }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
-      {panel === 'weather' && canDp && <WeatherPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
-      {panel === 'material' && isAdmin && <MaterialPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
-      {panel === 'docs' && isAdmin && me && (
-        <DocsPanel me={{ uct: me.uct, name: displayName, picture: picture ?? '' }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />
-      )}
+      <Suspense fallback={<PanelFallback />}>
+        {panel === 'dp' && canDp && (
+          <DpPanel
+            session={session}
+            role={role}
+            // Membre : ses sorties DP déjà trouvées ici, le menu DP ne relit pas les listes d'inscrits.
+            dpEvents={viewAs && viewAs.role === 'member' ? (viewAs.dpEvents ?? []) : role === 'member' ? (dpEvents ?? []) : undefined}
+            initialEvent={dpEvent}
+            onClose={() => {
+              setPanel(null);
+              setDpEvent(null);
+            }}
+            onSessionLost={handleSessionLost}
+          />
+        )}
+        {panel === 'members' && isAdmin && me && <MembersPanel me={{ ...me, role }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
+        {panel === 'weather' && canDp && <WeatherPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
+        {panel === 'material' && isAdmin && <MaterialPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
+        {panel === 'docs' && isAdmin && me && (
+          <DocsPanel me={{ uct: me.uct, name: displayName, picture: picture ?? '' }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />
+        )}
+      </Suspense>
 
       <footer className={`relative bg-band text-on-band px-4 pt-8 pb-28 sm:pb-8 mt-16 ${printPanel}`}>
         {/* Le bandeau marine sort de l'eau par une vague, au lieu d'une coupure droite */}
@@ -435,6 +528,15 @@ export default function App() {
           </div>
         </div>
       </footer>
+    </div>
+  );
+}
+
+/** Le temps qu'un panneau arrive : le même voile que lui, pour que l'ouverture ne saute pas. */
+function PanelFallback() {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim">
+      <p className="bg-surface rounded-xl px-6 py-4 text-muted">Chargement…</p>
     </div>
   );
 }

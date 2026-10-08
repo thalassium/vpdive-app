@@ -179,7 +179,7 @@ export function ProfileView({
             ) : quals === undefined ? (
               <div aria-hidden className="h-14 rounded-lg animate-pulse bg-raised" />
             ) : quals === null ? (
-              <p className="text-muted">Les niveaux s'affichent dès votre prochaine inscription à une sortie.</p>
+              <p className="text-muted">Les niveaux s’affichent dès votre prochaine inscription à une sortie.</p>
             ) : (
               <div className="space-y-4">
                 {quals.groups

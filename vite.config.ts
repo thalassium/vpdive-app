@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -38,6 +39,40 @@ function appApi(): Plugin {
   };
 }
 
+/**
+ * Content Security Policy, injected in the built index.html only (the dev
+ * server adds its own inline scripts for hot reload). Scripts: ours and the
+ * theme script of index.html, by its hash. Everything else lists the hosts
+ * the app really talks to: VPDive (photos; the API goes through /api/vpdive),
+ * Open-Meteo, map tiles, Google Fonts.
+ */
+function csp(): Plugin {
+  return {
+    name: 'csp',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html) {
+        const inline = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]!).filter((code) => code.trim());
+        const hashes = inline.map((code) => `'sha256-${createHash('sha256').update(code, 'utf8').digest('base64')}'`);
+        const policy = [
+          "default-src 'self'",
+          `script-src 'self' ${hashes.join(' ')}`.trim(),
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+          "font-src 'self' data: https://fonts.gstatic.com",
+          "img-src 'self' data: blob: https://*.vpdive.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tiles.openseamap.org",
+          "connect-src 'self' https://api.open-meteo.com https://marine-api.open-meteo.com",
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+        ].join('; ');
+        return html.replace('<meta charset="UTF-8" />', `<meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="${policy}" />`);
+      },
+    },
+  };
+}
+
 // VPDive's CORS policy does not allow the Authorization / userClubTraceability
 // headers, so the browser must reach the API through a same-origin proxy.
 export default defineConfig(({ mode }) => {
@@ -47,7 +82,7 @@ export default defineConfig(({ mode }) => {
     if (env[key] && !process.env[key]) process.env[key] = env[key];
   }
   return {
-    plugins: [react(), tailwindcss(), appApi()],
+    plugins: [react(), tailwindcss(), appApi(), csp()],
     server: {
       proxy: {
         '/api/vpdive': {

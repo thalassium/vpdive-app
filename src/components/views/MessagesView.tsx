@@ -187,18 +187,23 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
     [lost],
   );
 
-  // Liste : au montage, puis toutes les 20 s.
+  // Liste : au montage, puis toutes les 30 s tant que l'onglet est visible ; au retour, tout de suite.
   useEffect(() => {
     void loadList();
-    const id = window.setInterval(() => void loadList(true), LIST_POLL_MS);
-    return () => window.clearInterval(id);
+    const id = window.setInterval(() => !document.hidden && void loadList(true), LIST_POLL_MS);
+    const back = () => !document.hidden && void loadList(true);
+    document.addEventListener('visibilitychange', back);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', back);
+    };
   }, [loadList]);
 
-  // Fil ouvert : toutes les 10 s.
+  // Fil ouvert : toutes les 15 s tant que l'onglet est visible.
   const openId = open?.id ?? null;
   useEffect(() => {
     if (!openId) return;
-    const id = window.setInterval(() => void loadThread(openId, true), THREAD_POLL_MS);
+    const id = window.setInterval(() => !document.hidden && void loadThread(openId, true), THREAD_POLL_MS);
     return () => window.clearInterval(id);
   }, [openId, loadThread]);
 
@@ -323,7 +328,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
       {failedFirst ? (
         <div className="card p-4 sm:p-6 space-y-4">
           <div>
-            <p className="text-base text-ink">La messagerie n'a pas pu être chargée.</p>
+            <p className="text-base text-ink">La messagerie n’a pas pu être chargée.</p>
             <p className="mt-1 text-sm text-muted break-words">{listError}</p>
           </div>
           <button type="button" onClick={() => void loadList()} className="btn btn-quiet">
@@ -333,8 +338,8 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
       ) : empty ? (
         <div className="card px-6 py-10 text-center max-w-lg mx-auto">
           <Cromagnon className="w-40 mx-auto mb-5 text-field-border" />
-          <p className="text-base text-ink">Aucune conversation pour l'instant.</p>
-          <p className="mt-1 text-sm text-muted">Écrivez à un membre du club ou créez un groupe pour une sortie.</p>
+          <p className="text-base text-ink">Aucune conversation pour l’instant.</p>
+          <p className="mt-1 text-sm text-muted">Écrivez à un membre du club.</p>
           <div className="mt-6 flex justify-center">{newButton('Nouvelle conversation', '')}</div>
         </div>
       ) : (
@@ -361,7 +366,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
                 {chats === null ? (
                   <p className="text-sm text-muted py-2">Chargement des conversations…</p>
                 ) : chats.length === 0 ? (
-                  <p className="text-sm text-muted py-2">Aucune conversation pour l'instant.</p>
+                  <p className="text-sm text-muted py-2">Aucune conversation pour l’instant.</p>
                 ) : (
                   <ul className="card divide-y divide-line overflow-hidden">
                     {chats.map((c) => {
@@ -449,7 +454,8 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
                   <div ref={endRef} className="scroll-mb-40 sm:scroll-mb-24" />
                 </div>
 
-                {thread && (
+                {thread && !thread.canRespond && <p className="py-3 text-sm text-muted border-t border-line">Conversation fermée sur VPDive.</p>}
+                {thread && thread.canRespond && (
                   <form onSubmit={send} className="sticky bottom-20 sm:bottom-0 md:static z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3">
                     <div className="flex items-end gap-2">
                       <label htmlFor="message-draft" className="sr-only">
@@ -527,7 +533,6 @@ function NewChat({
   const [attempt, setAttempt] = useState(0);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<MemberMatch[]>([]);
-  const [title, setTitle] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
 
@@ -668,14 +673,6 @@ function NewChat({
 
       {selected.length > 0 && (
         <div className="sticky bottom-20 sm:bottom-0 z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3 mt-4 space-y-3">
-          {selected.length > 1 && (
-            <div>
-              <label htmlFor="group-title" className="label block mb-1.5">
-                Nom du groupe (facultatif)
-              </label>
-              <input id="group-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="field w-full" />
-            </div>
-          )}
           {createError && (
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-danger flex-1 min-w-0">{createError}</p>
@@ -685,7 +682,7 @@ function NewChat({
             </div>
           )}
           <button type="button" onClick={() => void create()} disabled={creating} aria-busy={creating} className="btn btn-primary w-full">
-            {selected.length === 1 ? `Écrire à ${firstName(selected[0]?.name ?? '')}` : 'Créer le groupe'}
+            Écrire à {firstName(selected[0]?.name ?? '')}
           </button>
         </div>
       )}
