@@ -3,7 +3,7 @@
  * Pointe Rouge et l'emblème de gabian.app. Dessiné à la main, en deux couleurs
  * du thème :
  *   marine (currentColor : text-brand, bleu clair en thème sombre)  le trait,
- *     les pointes d'ailes, l'œil, et une teinte du même pour le dos
+ *     les pointes d'ailes, l'œil, et une teinte du même pour le dos (bec sans tache)
  *   rose (l'accent du site)  le bec, les pattes, le cercle de l'œil
  * Le corps prend le fond (var(--surface)) : le gabian suit le thème clair ou sombre.
  *
@@ -49,13 +49,12 @@ export function Gabian({ className = '', title, open = false, animate = false }:
         <path d="M62 52 L34 56 C27 57 24 61 27 65 L30 63 L62 62 Z" fill={PINK} />
         {/* Intérieur du bec : caché bec fermé, visible quand la mandibule s'abaisse */}
         <path d="M62 61 L33 62 L62 67 Z" fill="currentColor" fillOpacity={0.55} stroke="none" />
-        {/* Mandibule inférieure, pivot à la commissure : c'est elle qui s'ouvre ; la tache du bec en marine */}
+        {/* Mandibule inférieure, pivot à la commissure : c'est elle qui s'ouvre */}
         <g
           className={animate ? 'gabian-cry' : undefined}
           style={{ transformOrigin: '62px 62px', transform: open && !animate ? 'rotate(-22deg)' : undefined }}
         >
           <path d="M62 62 L31 63 C28 65 29 69 34 69 L62 66 Z" fill={PINK} />
-          <ellipse cx="37" cy="66.2" rx="3.2" ry="2.1" fill="currentColor" stroke="none" />
         </g>
       </g>
     </svg>
