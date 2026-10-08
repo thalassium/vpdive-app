@@ -65,11 +65,18 @@ export interface Stats {
   waiting: number;
   /** Remplissage moyen des sorties à jauge (0…1), null si aucune. */
   fill: number | null;
-  /** Plongeurs (hors encadrement) par profondeur de prérogative, détail par niveau. */
-  depths: { depth: DepthBand; count: number; levels: LevelCount[] }[];
-  /** Sans niveau lisible. */
-  unknownLevel: number;
+  /**
+   * Les plongeurs distincts, répartis sans reste (la somme fait `divers`) : niveau de
+   * plongeur FFESSM (ou ANMP, FSGT), encadrement, brevet d'une autre école, aucun niveau.
+   */
+  groups: { divers: number; staff: number; otherSchool: number; none: number };
+  /** Niveaux de plongeur, du Débutant au N3. */
+  levels: LevelCount[];
+  /** Brevets d'autres écoles, par école (PADI, SSI…). */
+  otherSchools: LevelCount[];
   staff: { level: StaffLevel; count: number }[];
+  /** Sorties de plongée dont on connaît le DP (appli ou VPDive), sur celles dont on a lu la liste. */
+  dpKnown: { known: number; of: number };
   /** Âges par tranche ; `median` en années. */
   ages: { bins: { label: string; from: number; count: number }[]; median: number | null; minors: number; known: number };
   directors: { id: string; name: string; picture?: string; count: number }[];
@@ -122,12 +129,20 @@ function median(values: number[]): number | null {
   return s.length % 2 ? s[mid]! : Math.round((s[mid - 1]! + s[mid]!) / 2);
 }
 
+/** Écoles autres que la FFESSM et ses équivalents français, reconnues dans le nom du brevet. */
+const OTHER_SCHOOL = /\b(PADI|SSI|GUE|CMAS|NAUI|BSAC|IANTD|TDI|SDI|RAID|PSAI)\b/i;
+
+/** Ordre d'affichage des niveaux de plongeur. */
+const LEVEL_ORDER = ['Débutant', 'N1', 'PE20 + PA20', 'PE40', 'N2', 'N2 + PA40', 'PE60', 'PA60', 'N3'];
+
 /**
  * `rosters` : liste des inscrits par sortie (jeton) ; une sortie absente (pas
  * encore lue) compte dans les sorties, ses places viennent de l'agenda, ses
  * plongeurs manquent encore.
+ * `dpFromApp` : DP choisis dans l'appli (Rôles de la sortie), qui l'emportent sur
+ * le rôle pris à l'inscription dans VPDive.
  */
-export function computeStats(events: StatEvent[], rosters: Record<string, StatPerson[] | undefined>): Stats {
+export function computeStats(events: StatEvent[], rosters: Record<string, StatPerson[] | undefined>, dpFromApp: Record<string, string[] | undefined> = {}): Stats {
   const sorted = [...events].sort((a, b) => a.start.localeCompare(b.start));
   const activities = new Map<string, number>();
   const months = new Map<string, { outings: number; places: number }>();
@@ -138,6 +153,8 @@ export function computeStats(events: StatEvent[], rosters: Record<string, StatPe
   let places = 0;
   let waiting = 0;
   const fills: number[] = [];
+  let dpKnown = 0;
+  let dpOf = 0;
 
   for (const e of sorted) {
     tally(activities, e.activity || 'Autre');
@@ -156,30 +173,41 @@ export function computeStats(events: StatEvent[], rosters: Record<string, StatPe
     if (e.max) fills.push(Math.min(1, n / e.max));
     if (!roster) continue;
     waiting += roster.length - taken!.length;
+    // DP : celui de l'appli s'il y en a un, sinon le rôle pris à l'inscription.
+    const appDp = (dpFromApp[e.token] ?? []).filter((id) => roster.some((p) => p.id === id));
+    const dpIds = new Set(appDp.length ? appDp : taken!.filter((p) => p.roles.some((r) => DP_ROLE.test(r))).map((p) => p.id));
+    dpOf++;
+    if (dpIds.size) dpKnown++;
     for (const p of taken!) {
       // La plus récente sortie fait foi pour le niveau et l'âge.
       const seen = people.get(p.id);
       people.set(p.id, { person: p, count: (seen?.count ?? 0) + 1 });
       const bump = (map: typeof directors) => map.set(p.id, { person: p, count: (map.get(p.id)?.count ?? 0) + 1 });
-      if (p.roles.some((r) => DP_ROLE.test(r))) bump(directors);
+      if (dpIds.has(p.id)) bump(directors);
       if (p.roles.some((r) => INSTRUCTOR_ROLE.test(r))) bump(instructors);
     }
   }
 
   // Niveaux, âges, formations : une fois par personne.
-  const byDepth = new Map<DepthBand, Map<string, number>>();
+  const levels = new Map<string, number>();
+  const depthOfLabel = new Map<string, number>();
   const staff = new Map<StaffLevel, number>();
+  const schools = new Map<string, number>();
   const training = new Map<string, number>();
   const ages: number[] = [];
-  let unknownLevel = 0;
+  let none = 0;
   for (const { person } of people.values()) {
     const a = aptitudesFromLabels(person.levels);
     const s = staffLevel(a);
+    const lv = s ? null : diverLevel(a);
     if (s) tally(staff as Map<string, number>, s);
-    else {
-      const lv = diverLevel(a);
-      if (lv) tally(byDepth.get(lv.depth) ?? byDepth.set(lv.depth, new Map()).get(lv.depth)!, lv.label);
-      else unknownLevel++;
+    else if (lv) {
+      tally(levels, lv.label);
+      depthOfLabel.set(lv.label, lv.depth);
+    } else {
+      const school = person.levels.map((l) => OTHER_SCHOOL.exec(l)?.[1]?.toUpperCase()).find(Boolean);
+      if (school) tally(schools, school);
+      else none++;
     }
     if (person.age !== null && person.age > 0) ages.push(person.age);
     const target = aptitudesFromLabels(person.training).training;
@@ -202,12 +230,19 @@ export function computeStats(events: StatEvent[], rosters: Record<string, StatPe
     divers: people.size,
     waiting,
     fill: fills.length ? fills.reduce((s, f) => s + f, 0) / fills.length : null,
-    depths: DEPTHS.map((depth) => {
-      const levels = sortedCounts(byDepth.get(depth) ?? new Map());
-      return { depth, count: levels.reduce((s, l) => s + l.count, 0), levels };
+    groups: {
+      divers: [...levels.values()].reduce((s, x) => s + x, 0),
+      staff: [...staff.values()].reduce((s, x) => s + x, 0),
+      otherSchool: [...schools.values()].reduce((s, x) => s + x, 0),
+      none,
+    },
+    levels: sortedCounts(levels).sort((x, y) => {
+      const rank = (l: string) => (LEVEL_ORDER.includes(l) ? LEVEL_ORDER.indexOf(l) : 100 + (depthOfLabel.get(l) ?? 0));
+      return rank(x.label) - rank(y.label);
     }),
-    unknownLevel,
+    otherSchools: sortedCounts(schools),
     staff: STAFF.map((level) => ({ level, count: staff.get(level) ?? 0 })),
+    dpKnown: { known: dpKnown, of: dpOf },
     ages: {
       bins: AGE_BINS.map((b, i) => ({ ...b, count: ages.filter((x) => x >= b.from && x < (AGE_BINS[i + 1]?.from ?? Infinity)).length })),
       median: median(ages),

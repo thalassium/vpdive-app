@@ -68,6 +68,9 @@ export const appApi = {
   setRole: (uct: string, change: { admin?: boolean; superAdmin?: boolean }) =>
     call<{ roles: RoleEntry[] }>('action=role', { method: 'POST', body: { uct, ...change } }).then((r) => r.roles),
   getOuting: (event: string) => call<{ doc: OutingDoc | null }>(`action=outing&event=${encodeURIComponent(event)}`).then((r) => r.doc),
+  /** Rôles enregistrés dans l'appli (DP, pilote, sécurité) pour plusieurs sorties ; null : pas de fiche. */
+  outingRoles: (events: string[]) =>
+    call<{ roles: Record<string, Record<string, string[]> | null> }>(`action=outing_roles&events=${events.map(encodeURIComponent).join(',')}`, { method: 'GET' }).then((r) => r.roles),
   /** Suivi des documents : membres ignorés (uct → nom, qui, quand), partagés entre admins. */
   docsIgnored: () => call<{ ignored: IgnoredDocs }>('action=docs_ignored').then((r) => r.ignored),
   setDocsIgnored: (uct: string, name: string, ignore: boolean) =>

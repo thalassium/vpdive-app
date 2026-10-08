@@ -208,7 +208,8 @@ export interface RosterEntry {
 
 /** VPDive outing roles that keep someone out of the water by default. */
 export const SURFACE_ROLES = /s[ée]curit[ée] surface|pilote/i;
-export const DP_ROLE = /directeur de plong/i;
+/** « Directeur de plongée », ou « Directrice de plongée » comme VPDive l'écrit parfois. */
+export const DP_ROLE = /direct(?:eur|rice) de plong/i;
 
 export interface EventDetail {
   token: string;

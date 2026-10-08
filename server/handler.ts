@@ -252,6 +252,15 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
       }
     }
 
+    // Statistiques : rôles de la sortie (DP, pilote, sécurité) tels que l'appli les a enregistrés,
+    // pour plusieurs sorties d'un coup (admins seulement). Sortie sans fiche : null.
+    if (action === 'outing_roles' && request.method === 'GET') {
+      if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
+      const events = (url.searchParams.get('events') ?? '').split(',').filter((e) => /^[\w-]{10,80}$/.test(e)).slice(0, 300);
+      const docs = await Promise.all(events.map((e) => store.get<{ roles?: Record<string, string[]> }>(outingKey(caller, e))));
+      return json({ roles: Object.fromEntries(events.map((e, i) => [e, docs[i]?.roles ?? null])) });
+    }
+
     if (action === 'outing') {
       const event = url.searchParams.get('event') ?? '';
       if (!/^[\w-]{10,80}$/.test(event)) throw new HttpError(400, 'Sortie inconnue.');

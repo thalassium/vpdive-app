@@ -53,9 +53,10 @@ test('statistiques : sorties, places, plongeurs distincts, encadrement, âges', 
     { key: '2026-04', outings: 1, places: 6 },
   ]);
   assert.equal(s.fill, (3 / 10 + 3 / 4) / 2, 'remplissage moyen des sorties à jauge');
-  assert.deepEqual(s.depths.find((d) => d.depth === 20), { depth: 20, count: 1, levels: [{ label: 'N1', count: 1 }] });
-  assert.deepEqual(s.depths.find((d) => d.depth === 40)?.levels, [{ label: 'N2', count: 1 }]);
-  assert.equal(s.unknownLevel, 1);
+  assert.deepEqual(s.levels, [{ label: 'N1', count: 1 }, { label: 'N2', count: 1 }]);
+  assert.deepEqual(s.groups, { divers: 2, staff: 2, otherSchool: 0, none: 1 });
+  assert.equal(s.groups.divers + s.groups.staff + s.groups.otherSchool + s.groups.none, s.divers, 'la répartition retombe sur le total');
+  assert.deepEqual(s.dpKnown, { known: 1, of: 2 });
   assert.deepEqual(s.staff.filter((x) => x.count), [{ level: 'E3', count: 1 }, { level: 'GP', count: 1 }]);
   assert.deepEqual(s.directors.map((d) => [d.id, d.count]), [['2', 1]]);
   assert.deepEqual(s.instructors.map((d) => [d.id, d.count]), [['4', 1]]);
@@ -70,4 +71,23 @@ test('périodes : depuis janvier, 12 derniers mois, année précédente', () => 
   assert.deepEqual(presetRange('year', today), { from: '2026-01-01', to: '2026-10-08' });
   assert.deepEqual(presetRange('12m', today), { from: '2025-10-09', to: '2026-10-08' });
   assert.deepEqual(presetRange('last-year', today), { from: '2025-01-01', to: '2025-12-31' });
+});
+
+test('DP : celui de l’appli l’emporte sur le rôle pris à l’inscription ; « Directrice » reconnu', () => {
+  const events = [ev('a', '2026-03-14T08:15:00'), ev('b', '2026-03-15T08:15:00'), ev('c', '2026-03-21T08:15:00')];
+  const rosters = {
+    a: [p('carla', ['MF1'], { roles: ['Directeur de plongée'] }), p('niels', ['MF1'], { roles: ['Enseignant/Encadrant'] })],
+    b: [p('niels', ['MF1'], { roles: ['Enseignant/Encadrant'] })],
+    c: [p('fred', ['MF2'], { roles: ['Directrice de plongée'] })],
+  };
+  const s = computeStats(events, rosters, { a: ['niels'], b: ['niels'] });
+  assert.deepEqual(s.directors.map((d) => [d.id, d.count]), [['niels', 2], ['fred', 1]]);
+  assert.deepEqual(s.dpKnown, { known: 3, of: 3 });
+});
+
+test('niveaux : autres écoles à part, aucun niveau à part', () => {
+  const events = [ev('a', '2026-03-14T08:15:00')];
+  const s = computeStats(events, { a: [p('1', ['PADI - AOW']), p('2', ['SSI - AOW']), p('3', ['PADI - OWD']), p('4', []), p('5', ['RIFA-P']), p('6', ['P1'])] });
+  assert.deepEqual(s.otherSchools, [{ label: 'PADI', count: 2 }, { label: 'SSI', count: 1 }]);
+  assert.deepEqual(s.groups, { divers: 1, staff: 0, otherSchool: 3, none: 2 });
 });

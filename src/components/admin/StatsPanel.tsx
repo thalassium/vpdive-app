@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BarChart3, RefreshCw, X } from 'lucide-react';
 import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdiveApi';
+import { appApi } from '../../services/appApi';
 import { computeStats, isDiveActivity, presetRange, type StatEvent, type StatPerson, type Stats } from '../../lib/stats';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
@@ -63,6 +64,8 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
 
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
   const [rosters, setRosters] = useState<Record<string, StatPerson[]>>({});
+  /** DP choisis dans l'appli (Rôles de la sortie), par sortie : ils priment sur VPDive. */
+  const [dpFromApp, setDpFromApp] = useState<Record<string, string[] | undefined>>({});
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [stopped, setStopped] = useState(false);
@@ -108,12 +111,18 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     setError(null);
     setEvents(null);
     setRosters({});
+    setDpFromApp({});
     setProgress(null);
     try {
       const to = range.to < presetRange('year', new Date()).to ? range.to : presetRange('year', new Date()).to;
       const list = (await vpdive.fetchEvents(range.from, to)).filter((e) => Date.parse(e.start) <= Date.now());
       if (id !== run.current) return;
       setEvents(list);
+      // Un seul appel au serveur de l'appli pour toutes les sorties ; sans réponse, VPDive seul.
+      appApi
+        .outingRoles(list.map((e) => e.token))
+        .then((roles) => id === run.current && setDpFromApp(Object.fromEntries(Object.entries(roles).map(([k, r]) => [k, r?.dp]))))
+        .catch((e) => onSessionLost(e));
       await readRosters(list, id);
     } catch (e) {
       if (id !== run.current || onSessionLost(e)) return;
@@ -148,8 +157,8 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
       registered: e.registeredCount,
       max: e.maxParticipants,
     }));
-    return computeStats(statEvents, rosters);
-  }, [events, rosters]);
+    return computeStats(statEvents, rosters, dpFromApp);
+  }, [events, rosters, dpFromApp]);
 
   const presets: { id: Preset; label: string }[] = [
     { id: 'year', label: 'Depuis janvier' },
@@ -256,7 +265,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                 )}
 
                 <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-start">
-                  <DepthSection stats={stats} />
+                  <LevelsSection stats={stats} />
                   <div className="space-y-5">
                     <SeasonSection stats={stats} from={range.from} to={range.to} />
                     <AgesSection stats={stats} />
@@ -264,9 +273,9 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                 </div>
 
                 <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-                  <Ranking title="Directeurs de plongée" rows={stats.directors} unit="sortie" />
+                  <Ranking title="Directeurs de plongée" rows={stats.directors} unit="sortie" note={`DP connu pour ${plural(stats.dpKnown.known, 'sortie', 'sorties')} sur ${n(stats.dpKnown.of)}.`} />
                   <Ranking title="Encadrants" rows={stats.instructors} unit="sortie" />
-                  <Ranking title="Les plus assidus" rows={stats.regulars} unit="plongée" className="md:col-span-2 lg:col-span-1" />
+                  <Ranking title="Les plus assidus" rows={stats.regulars} unit="sortie" className="md:col-span-2 lg:col-span-1" />
                 </div>
 
                 <div className="grid gap-5 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -285,7 +294,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
 function Section({ title, aside, children, className = '' }: { title: string; aside?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <section className={`card p-4 sm:p-5 ${className}`}>
-      <div className="flex items-baseline justify-between gap-3 mb-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 mb-4">
         <h3 className="text-lg font-semibold text-brand">{title}</h3>
         {aside && <span className="text-sm text-muted tabular-nums">{aside}</span>}
       </div>
@@ -313,58 +322,75 @@ function Hero({ stats, from, to }: { stats: Stats; from: string; to: string }) {
   );
 }
 
-const SEA: Record<number, string> = { 6: 'var(--sea-6)', 12: 'var(--sea-12)', 20: 'var(--sea-20)', 40: 'var(--sea-40)', 60: 'var(--sea-60)' };
-const LIGHT_BAND = (depth: number) => depth <= 12;
+/** Teintes des niveaux, de la surface vers le fond (sans profondeur affichée). */
+const LEVEL_TINTS = ['var(--sea-6)', 'var(--sea-12)', 'var(--sea-20)', 'var(--sea-40)', 'var(--sea-60)'];
+const levelTint = (i: number, count: number) => LEVEL_TINTS[Math.min(LEVEL_TINTS.length - 1, Math.floor((i / Math.max(1, count - 1)) * (LEVEL_TINTS.length - 1)))]!;
 
 /**
- * La coupe : chaque plongeur à la profondeur de sa prérogative, la mer qui
- * fonce en descendant ; l'encadrement à part, du E4 au GP.
+ * Les plongeurs de la période, répartis sans reste : la barre du haut retombe
+ * sur le total de la phrase d'en-tête. Puis les niveaux de plongeur, et
+ * l'encadrement du E4 au GP.
  */
-function DepthSection({ stats }: { stats: Stats }) {
-  const max = Math.max(1, ...stats.depths.map((d) => d.count));
-  const staffMax = Math.max(1, ...stats.staff.map((s) => s.count));
-  const divers = stats.depths.reduce((s, d) => s + d.count, 0);
-  const staff = stats.staff.reduce((s, x) => s + x.count, 0);
+function LevelsSection({ stats }: { stats: Stats }) {
+  const g = stats.groups;
+  const total = Math.max(1, g.divers + g.staff + g.otherSchool + g.none);
+  const parts = [
+    { label: 'plongeurs', count: g.divers, color: 'var(--sea-20)' },
+    { label: 'encadrants', count: g.staff, color: 'var(--fill)' },
+    { label: 'brevet d’une autre école', count: g.otherSchool, color: 'var(--chart)' },
+    { label: 'sans niveau dans VPDive', count: g.none, color: 'var(--line)' },
+  ].filter((x) => x.count > 0);
+  const max = Math.max(1, ...stats.levels.map((l) => l.count));
+  const staffMax = Math.max(1, ...stats.staff.map((x) => x.count));
   return (
-    <Section title="Niveaux" aside={`${plural(divers, 'plongeur', 'plongeurs')}, ${n(staff)} en encadrement`}>
-      <div className="rounded-lg overflow-hidden border border-line" style={{ background: 'linear-gradient(to bottom, var(--sea-top), var(--sea-bottom))' }}>
-        {/* La surface. */}
-        <div className="h-3 border-b-2 border-white/70" aria-hidden />
-        {stats.depths.map((d) => (
-          <div key={d.depth} className="flex items-stretch gap-3 px-3 py-3 border-b border-dashed border-white/50 last:border-b-0 min-h-[4.5rem]">
-            <span className="w-11 shrink-0 text-sm font-semibold tabular-nums text-brand pt-1">{d.depth} m</span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span
-                  className="h-7 rounded-md transition-[width] duration-500"
-                  style={{ width: d.count ? `max(calc(${(d.count / max) * 100}% - 3rem), 1.75rem)` : '0', background: SEA[d.depth] }}
-                  aria-hidden
-                />
-                <span className="text-base font-semibold tabular-nums text-ink">{d.count ? n(d.count) : '—'}</span>
-              </div>
-              {d.levels.length > 0 && (
-                <p className={`mt-1 text-sm leading-snug ${LIGHT_BAND(d.depth) ? 'text-muted' : 'text-ink/80'}`}>{d.levels.map((l) => `${l.label} ${n(l.count)}`).join(', ')}</p>
-              )}
-            </div>
-          </div>
+    <Section title="Niveaux" aside={plural(stats.divers, 'plongeur', 'plongeurs')}>
+      <div className="flex h-3 rounded-full overflow-hidden" role="img" aria-label={parts.map((x) => `${x.count} ${x.label}`).join(', ')}>
+        {parts.map((x) => (
+          <span key={x.label} style={{ width: `${(x.count / total) * 100}%`, background: x.color }} />
         ))}
       </div>
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        {parts.map((x) => (
+          <li key={x.label} className="inline-flex items-center gap-1.5">
+            <span aria-hidden className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: x.color }} />
+            <span className="font-semibold tabular-nums text-ink">{n(x.count)}</span>
+            <span className="text-muted">{x.label}</span>
+          </li>
+        ))}
+      </ul>
 
-      {/* Encadrement : du E4 au GP, à part de la coupe. */}
-      <div className="mt-4">
-        <h4 className="text-sm font-semibold text-ink mb-2">Encadrement</h4>
-        <ul className="grid grid-cols-5 gap-2">
-          {stats.staff.map((x) => (
-            <li key={x.level} className="rounded-lg bg-raised px-2 py-2 text-center">
-              <span className="block text-sm text-muted">{x.level}</span>
-              <span className="block text-lg font-semibold tabular-nums text-brand">{n(x.count)}</span>
-              <span className="mt-1 block h-1 rounded-full bg-line overflow-hidden" aria-hidden>
-                <span className="block h-full bg-fill rounded-full" style={{ width: `${(x.count / staffMax) * 100}%` }} />
-              </span>
-            </li>
-          ))}
-        </ul>
-        {stats.unknownLevel > 0 && <p className="mt-3 text-sm text-muted">{plural(stats.unknownLevel, 'plongeur', 'plongeurs')} sans niveau lisible.</p>}
+      <div className="mt-5 grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,12rem)]">
+        <div>
+          <h4 className="text-sm font-semibold text-ink mb-2">Plongeurs</h4>
+          <ul className="space-y-2">
+            {stats.levels.map((l, i) => (
+              <li key={l.label} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-sm font-semibold text-brand truncate">{l.label}</span>
+                <span className="flex-1 min-w-0 h-6 flex items-center gap-2">
+                  <span className="h-full rounded-md transition-[width] duration-500" style={{ width: `max(calc(${(l.count / max) * 100}% - 2.5rem), 0.75rem)`, background: levelTint(i, stats.levels.length) }} aria-hidden />
+                  <span className="text-sm font-semibold tabular-nums text-ink">{n(l.count)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          {stats.otherSchools.length > 0 && (
+            <p className="mt-3 text-sm text-muted">Autres écoles : {stats.otherSchools.map((x) => `${x.label} ${n(x.count)}`).join(', ')}.</p>
+          )}
+        </div>
+        <div>
+          <h4 className="text-sm font-semibold text-ink mb-2">Encadrement</h4>
+          <ul className="space-y-2">
+            {stats.staff.map((x) => (
+              <li key={x.level} className="flex items-center gap-2">
+                <span className="w-7 text-sm font-semibold tabular-nums text-brand">{x.level}</span>
+                <span className="flex-1 h-2 rounded-full bg-line overflow-hidden" aria-hidden>
+                  <span className="block h-full bg-fill rounded-full" style={{ width: `${(x.count / staffMax) * 100}%` }} />
+                </span>
+                <span className="w-7 text-right text-sm tabular-nums text-ink">{n(x.count)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
       {stats.training.length > 0 && (
         <p className="mt-4 text-base text-ink">
@@ -441,10 +467,10 @@ function AgesSection({ stats }: { stats: Stats }) {
   );
 }
 
-function Ranking({ title, rows, unit, className = '' }: { title: string; rows: Stats['regulars']; unit: string; className?: string }) {
+function Ranking({ title, rows, unit, note, className = '' }: { title: string; rows: Stats['regulars']; unit: string; note?: string; className?: string }) {
   const max = Math.max(1, ...rows.map((r) => r.count));
   return (
-    <Section title={title} className={className}>
+    <Section title={title} aside="nombre de sorties" className={className}>
       {rows.length === 0 ? (
         <p className="text-muted">Personne pour l’instant.</p>
       ) : (
@@ -467,6 +493,7 @@ function Ranking({ title, rows, unit, className = '' }: { title: string; rows: S
           ))}
         </ol>
       )}
+      {note && <p className="mt-3 text-sm text-muted">{note}</p>}
     </Section>
   );
 }
