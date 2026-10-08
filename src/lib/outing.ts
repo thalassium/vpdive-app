@@ -184,8 +184,26 @@ export type Volunteers = Partial<Record<VolunteerPost, string[]>>;
 /** Deux personnes au plus par poste ; une même personne peut tenir plusieurs postes. */
 export const MAX_PER_POST = 2;
 
-/** Ceux qu'on peut désigner : les inscrits de la journée, hors liste d'attente. */
-export const dayParticipants = (roster: RosterEntry[]) => roster.filter((r) => !r.waitingList);
+/** Ceux qu'on peut désigner : les inscrits de la journée, hors liste d'attente sauf ceux que le DP a pris. */
+export const dayParticipants = (roster: RosterEntry[], taken: string[] = []) => roster.filter((r) => !r.waitingList || taken.includes(r.id));
+
+/**
+ * Qui ne plonge pas : décoché par le DP, ou en liste d'attente sur VPDive sans
+ * que le DP l'ait pris. La liste d'attente compte donc toujours, même pour
+ * quelqu'un qui s'y est mis après la création de la fiche.
+ */
+export function outOfWater(roster: RosterEntry[], settings: OutingDoc['settings']): Set<string> {
+  const taken = new Set(settings.fromWaitingList ?? []);
+  return new Set([...settings.excluded, ...roster.filter((r) => r.waitingList && !taken.has(r.id)).map((r) => r.id)]);
+}
+
+/** Coche ou décoche quelqu'un dans « Qui plonge ? » ; en liste d'attente, c'est le prendre ou non. */
+export function toggleDiving(settings: OutingDoc['settings'], r: Pick<RosterEntry, 'id' | 'waitingList'>, diving: boolean): OutingDoc['settings'] {
+  const excluded = settings.excluded.filter((x) => x !== r.id);
+  const taken = (settings.fromWaitingList ?? []).filter((x) => x !== r.id);
+  if (r.waitingList) return { ...settings, excluded, fromWaitingList: diving ? [...taken, r.id] : taken };
+  return { ...settings, excluded: diving ? excluded : [...excluded, r.id], ...(settings.fromWaitingList ? { fromWaitingList: taken } : {}) };
+}
 
 /**
  * Met (ou retire, avec null) une personne à une place d'un poste. Pas de doublon
@@ -271,8 +289,9 @@ export function nextDive(doc: OutingDoc): Dive {
  * Rien ne change : les mêmes plongées (même objet) sont rendues.
  */
 export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: OutingDoc; departed: string[] } {
-  const present = new Set(dayParticipants(roster).map((r) => r.id));
-  const excluded = new Set(doc.settings.excluded);
+  const present = new Set(dayParticipants(roster, doc.settings.fromWaitingList).map((r) => r.id));
+  const listed = new Set(roster.map((r) => r.id));
+  const excluded = outOfWater(roster, doc.settings);
   const gone = new Map<string, string>();
   let moved = 0;
   const keep = <T extends Diver | null>(d: T): T => {
@@ -315,12 +334,16 @@ export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: Ou
     if (ids?.length) volunteers[id] = ids;
   }
 
-  const unchanged = dives.every((d, i) => d === doc.dives[i]) && sameIds(roles, doc.roles) && sameIds(volunteers, doc.volunteers) && doc.settings.excluded.every((id) => present.has(id));
+  const unchanged = dives.every((d, i) => d === doc.dives[i]) && sameIds(roles, doc.roles) && sameIds(volunteers, doc.volunteers) && doc.settings.excluded.every((id) => listed.has(id)) && (doc.settings.fromWaitingList ?? []).every((id) => present.has(id));
   if (unchanged) return { doc, departed: [] };
   return {
     doc: {
       ...doc,
-      settings: { ...doc.settings, excluded: doc.settings.excluded.filter((id) => present.has(id)) },
+      settings: {
+        ...doc.settings,
+        excluded: doc.settings.excluded.filter((id) => listed.has(id)),
+        ...(doc.settings.fromWaitingList ? { fromWaitingList: doc.settings.fromWaitingList.filter((id) => present.has(id)) } : {}),
+      },
       dives,
       ...(doc.roles ? { roles } : {}),
       ...(doc.volunteers ? { volunteers } : {}),

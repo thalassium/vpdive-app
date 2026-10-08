@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayParticipants, defaultRoles, guestEntry, headerFromRoles, newGuest, normalizeOuting, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
+import { dayParticipants, defaultRoles, guestEntry, headerFromRoles, newGuest, normalizeOuting, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
 import { aptitudesFromLabels, type Diver } from './palanquees';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -145,4 +145,21 @@ test('plongeurs hors VPDive : entrée de liste, baptême débutant, retirés ave
   assert.deepEqual(withGuests([], { guests: [g] }).map((r) => r.id), ['ext-1']);
   assert.deepEqual(stillUnregistered({ unregistered: [{ id: 'x', name: 'X', instructor: false, by: 'DP', at: '' }] }, [e]).map((u) => u.id), ['x']);
   assert.deepEqual(stillUnregistered({ unregistered: [{ id: 'ext-1', name: 'X', instructor: false, by: 'DP', at: '' }] }, [e]), [], 'revenu dans la liste : plus barré');
+});
+
+test('liste d’attente : hors de l’eau tant que le DP ne l’a pas prise, même arrivée après la fiche', () => {
+  const r = (id: string, waitingList = false) => ({ id, name: id, firstname: id, lastname: '', levels: ['E3'], display: [], training: [], roles: [], age: 40, waitingList, comment: '', medical: { until: null, valid: true } }) as RosterEntry;
+  const roster = [r('a'), r('w', true)];
+  const settings = { excluded: [] as string[] };
+  assert.deepEqual([...outOfWater(roster, settings)], ['w'], 'en attente, non décoché : hors de l’eau');
+  const taken = toggleDiving(settings, roster[1]!, true);
+  assert.deepEqual(taken.fromWaitingList, ['w']);
+  assert.equal(outOfWater(roster, taken).size, 0);
+  // Pris par le DP : il reste encadrant après le contrôle continu.
+  const g: Diver = { ...aptitudesFromLabels(['E3']), id: 'w', name: 'w', labels: ['E3'] };
+  const doc = { settings: taken, header: {} as OutingDoc['header'], dives: [{ id: 'd', label: 'P1', plan: { palanquees: [{ id: 'p', kind: 'guided' as const, guide: g, extra: null, members: [{ ...g, id: 'a', name: 'a' }] }], unassigned: [] }, validated: null, sheets: {}, gas: {} }] };
+  assert.equal(syncWithRoster(doc, roster).doc.dives[0]!.plan!.palanquees[0]!.guide?.id, 'w');
+  assert.equal(syncWithRoster({ ...doc, settings }, roster).doc.dives[0]!.plan!.palanquees[0]!.guide, null, 'non pris : retiré');
+  assert.deepEqual(toggleDiving(taken, roster[1]!, false).fromWaitingList, []);
+  assert.deepEqual(toggleDiving(settings, roster[0]!, false).excluded, ['a']);
 });

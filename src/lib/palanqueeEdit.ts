@@ -85,6 +85,8 @@ export interface DiverSettings {
   training?: Record<string, string>;
   /** Liste des plongeurs validée par le DP : prérogatives connues, formations indiquées. Débloque les palanquées. */
   confirmed?: boolean;
+  /** En liste d'attente sur VPDive, mais pris quand même par le DP (coché dans « Qui plonge ? »). */
+  fromWaitingList?: string[];
 }
 
 /** Fixe (ou efface avec '') la prérogative retenue ou la formation d'un plongeur, sans toucher à l'autre. */

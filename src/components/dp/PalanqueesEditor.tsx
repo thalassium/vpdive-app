@@ -46,7 +46,7 @@ import {
   setType,
   trainingMenuFor,
 } from '../../lib/palanqueeEdit';
-import { DIVE_ROLES, dayParticipants, defaultRoles, newGuest, rolesOf, stillUnregistered, toggleRole, type Dive, type DiveRole, type Guest, type OutingDoc, type Roles, type Unregistered } from '../../lib/outing';
+import { DIVE_ROLES, dayParticipants, defaultRoles, newGuest, outOfWater, rolesOf, stillUnregistered, toggleDiving, toggleRole, type Dive, type DiveRole, type Guest, type OutingDoc, type Roles, type Unregistered } from '../../lib/outing';
 import { Menu } from '../Menu';
 
 interface Props {
@@ -111,7 +111,8 @@ function RoleBadges({ id }: { id: string }) {
 export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles, onPlan, onValidate, onReopen, onGuests, onUnregister }: Props) {
   const [copied, setCopied] = useState(false);
   const settings = doc.settings;
-  const excluded = useMemo(() => new Set(settings.excluded), [settings.excluded]);
+  // Décochés, et liste d'attente VPDive que le DP n'a pas prise.
+  const excluded = useMemo(() => outOfWater(roster, settings), [roster, settings]);
   const divers = useMemo(() => rosterToDivers(roster, settings), [roster, settings]);
   const diving = divers.filter((d) => !excluded.has(d.id));
   const locked = !!dive.validated;
@@ -219,7 +220,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
           <input
             type="checkbox"
             checked={!out}
-            onChange={() => onSettings({ ...settings, excluded: out ? settings.excluded.filter((x) => x !== d.id) : [...settings.excluded, d.id] })}
+            onChange={() => onSettings(toggleDiving(settings, r, out))}
             className="w-5 h-5 accent-[var(--fill)] shrink-0"
           />
           <Avatar name={d.name} picture={d.picture} size="sm" initials={false} className="hidden sm:block" />
@@ -326,7 +327,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
         </div>
       )}
 
-      <RolesSection roster={roster} roles={roles} excluded={excluded} onRoles={onRoles} />
+      <RolesSection roster={roster} roles={roles} excluded={excluded} taken={settings.fromWaitingList} onRoles={onRoles} />
 
       {/* 1. Qui plonge : encadrants du plus haut au plus bas, puis plongeurs ; validé par le DP avant les palanquées */}
       {!locked && !rosterOk && (
@@ -499,8 +500,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
  * Rôles de la sortie : DP, pilote, sécurité surface. N'importe quel inscrit de la
  * journée, encadrant ou non, qu'il plonge ou non ; un même inscrit peut en cumuler.
  */
-function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntry[]; roles: Roles; excluded: Set<string>; onRoles: (roles: Roles, role: DiveRole) => void }) {
-  const people = dayParticipants(roster).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+function RolesSection({ roster, roles, excluded, taken, onRoles }: { roster: RosterEntry[]; roles: Roles; excluded: Set<string>; taken?: string[]; onRoles: (roles: Roles, role: DiveRole) => void }) {
+  const people = dayParticipants(roster, taken).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   const byId = new Map(roster.map((r) => [r.id, r]));
   return (
     <section>

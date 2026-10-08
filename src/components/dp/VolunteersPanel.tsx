@@ -5,6 +5,8 @@ import { Menu } from '../Menu';
 
 interface Props {
   roster: RosterEntry[];
+  /** En liste d'attente mais pris par le DP : peut tenir un poste. */
+  taken?: string[];
   volunteers: Volunteers;
   onChange: (v: Volunteers) => void;
 }
@@ -17,8 +19,8 @@ const postLabel = (id: VolunteerPost) => VOLUNTEER_POSTS.find((p) => p.id === id
  * eau…), deux personnes au plus par poste, choisies parmi les inscrits
  * de la journée. Une même personne peut tenir plusieurs postes.
  */
-export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
-  const people = dayParticipants(roster).sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'fr'));
+export function VolunteersPanel({ roster, taken, volunteers, onChange }: Props) {
+  const people = dayParticipants(roster, taken).sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'fr'));
   const byId = new Map(people.map((r) => [r.id, r]));
   const load = postsByPerson(volunteers);
   const recap = [...load]

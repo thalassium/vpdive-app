@@ -496,6 +496,7 @@ function OutingWorkspace({
       {view === 'benevoles' ? (
         <VolunteersPanel
           roster={people}
+          taken={doc.settings.fromWaitingList}
           volunteers={doc.volunteers ?? {}}
           onChange={(volunteers) => update((d) => ({ ...d, volunteers }))}
         />
