@@ -21,6 +21,14 @@ export interface StatEvent {
   max: number | null;
 }
 
+/** Équipe de la sortie qui n'est pas inscrite (pilote, DP désigné…) : compte pour les rôles, pas comme plongeur. */
+export interface StatStaff {
+  id: string;
+  name: string;
+  picture?: string;
+  roles: string[];
+}
+
 export interface StatPerson {
   id: string;
   name: string;
@@ -142,14 +150,19 @@ const LEVEL_ORDER = ['Débutant', 'N1', 'PE20 + PA20', 'PE40', 'N2', 'N2 + PA40'
  * `dpFromApp` : DP choisis dans l'appli (Rôles de la sortie), qui l'emportent sur
  * le rôle pris à l'inscription dans VPDive.
  */
-export function computeStats(events: StatEvent[], rosters: Record<string, StatPerson[] | undefined>, dpFromApp: Record<string, string[] | undefined> = {}): Stats {
+export function computeStats(
+  events: StatEvent[],
+  rosters: Record<string, StatPerson[] | undefined>,
+  dpFromApp: Record<string, string[] | undefined> = {},
+  crewByEvent: Record<string, StatStaff[] | undefined> = {},
+): Stats {
   const sorted = [...events].sort((a, b) => a.start.localeCompare(b.start));
   const activities = new Map<string, number>();
   const months = new Map<string, { outings: number; places: number }>();
   const weekdays = [0, 0, 0, 0, 0, 0, 0];
   const people = new Map<string, { person: StatPerson; count: number }>();
-  const directors = new Map<string, { person: StatPerson; count: number }>();
-  const instructors = new Map<string, { person: StatPerson; count: number }>();
+  const directors = new Map<string, { person: StatStaff; count: number }>();
+  const instructors = new Map<string, { person: StatStaff; count: number }>();
   let places = 0;
   let waiting = 0;
   const fills: number[] = [];
@@ -173,10 +186,12 @@ export function computeStats(events: StatEvent[], rosters: Record<string, StatPe
     if (e.max) fills.push(Math.min(1, n / e.max));
     if (!roster) continue;
     waiting += roster.length - taken!.length;
-    // DP : celui de l'appli s'il y en a un, sinon le rôle pris à l'inscription ; sans DP du
+    // L'équipe : les inscrits, plus ceux que VPDive désigne sans les inscrire (pilote, DP…).
+    const crew: StatStaff[] = [...taken!, ...(crewByEvent[e.token] ?? []).filter((x) => !roster.some((p) => p.id === x.id))];
+    // DP : celui de l'appli s'il y en a un, sinon le rôle pris dans VPDive ; sans DP du
     // tout, le pilote ou la sécurité surface de la sortie (règle du club).
-    const appDp = (dpFromApp[e.token] ?? []).filter((id) => roster.some((p) => p.id === id));
-    const withRole = (re: RegExp) => taken!.filter((p) => p.roles.some((r) => re.test(r))).map((p) => p.id);
+    const appDp = (dpFromApp[e.token] ?? []).filter((id) => crew.some((p) => p.id === id));
+    const withRole = (re: RegExp) => crew.filter((p) => p.roles.some((r) => re.test(r))).map((p) => p.id);
     const vpDp = withRole(DP_ROLE);
     const dpIds = new Set(appDp.length ? appDp : vpDp.length ? vpDp : withRole(SURFACE_ROLES));
     dpOf++;
@@ -185,6 +200,8 @@ export function computeStats(events: StatEvent[], rosters: Record<string, StatPe
       // La plus récente sortie fait foi pour le niveau et l'âge.
       const seen = people.get(p.id);
       people.set(p.id, { person: p, count: (seen?.count ?? 0) + 1 });
+    }
+    for (const p of crew) {
       const bump = (map: typeof directors) => map.set(p.id, { person: p, count: (map.get(p.id)?.count ?? 0) + 1 });
       if (dpIds.has(p.id)) bump(directors);
       if (p.roles.some((r) => INSTRUCTOR_ROLE.test(r))) bump(instructors);
@@ -217,7 +234,7 @@ export function computeStats(events: StatEvent[], rosters: Record<string, StatPe
     if (target && !s) tally(training, `N${target}`);
   }
 
-  const top = (map: Map<string, { person: StatPerson; count: number }>, n: number) =>
+  const top = (map: Map<string, { person: StatStaff; count: number }>, n: number) =>
     [...map.values()]
       .sort((a, b) => b.count - a.count || a.person.name.localeCompare(b.person.name, 'fr'))
       .slice(0, n)

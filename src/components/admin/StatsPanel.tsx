@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { BarChart3, RefreshCw, X } from 'lucide-react';
 import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi } from '../../services/appApi';
-import { computeStats, isDiveActivity, presetRange, type StatEvent, type StatPerson, type Stats } from '../../lib/stats';
+import { computeStats, isDiveActivity, presetRange, type StatEvent, type StatPerson, type StatStaff, type Stats } from '../../lib/stats';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
 import { useDialog } from '../../hooks/useDialog';
@@ -18,7 +18,8 @@ import { useDialog } from '../../hooks/useDialog';
 type Preset = 'year' | '12m' | 'last-year' | 'custom';
 
 const GAP_MS = 400;
-const CACHE_PREFIX = 'stats-roster:v1:';
+// v2 : la liste garde aussi l'équipe non inscrite (pilote, DP désignés dans VPDive).
+const CACHE_PREFIX = 'stats-roster:v2:';
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const nf = new Intl.NumberFormat('fr-FR');
@@ -39,17 +40,18 @@ function toPerson(r: RosterEntry): StatPerson {
   return { id: r.id, name: r.name, ...(r.picture ? { picture: r.picture } : {}), age: r.age, levels: r.levels, training: r.training, roles: r.roles, waitingList: r.waitingList };
 }
 const finished = (e: CalendarEvent) => Date.parse(e.end || e.start) < Date.now() - 24 * 3600_000;
-function readCache(token: string): StatPerson[] | null {
+type Cached = { rows: StatPerson[]; staff: StatStaff[] };
+function readCache(token: string): Cached | null {
   try {
     const raw = localStorage.getItem(CACHE_PREFIX + token);
-    return raw ? (JSON.parse(raw) as StatPerson[]) : null;
+    return raw ? (JSON.parse(raw) as Cached) : null;
   } catch {
     return null;
   }
 }
-function writeCache(token: string, rows: StatPerson[]) {
+function writeCache(token: string, value: Cached) {
   try {
-    localStorage.setItem(CACHE_PREFIX + token, JSON.stringify(rows));
+    localStorage.setItem(CACHE_PREFIX + token, JSON.stringify(value));
   } catch {
     // Stockage plein ou interdit : la liste sera relue la prochaine fois.
   }
@@ -64,6 +66,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
 
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
   const [rosters, setRosters] = useState<Record<string, StatPerson[]>>({});
+  const [staff, setStaff] = useState<Record<string, StatStaff[]>>({});
   /** DP choisis dans l'appli (Rôles de la sortie), par sortie : ils priment sur VPDive. */
   const [dpFromApp, setDpFromApp] = useState<Record<string, string[] | undefined>>({});
   const [error, setError] = useState<string | null>(null);
@@ -83,15 +86,19 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
         if (id !== run.current) return;
         const cached = finished(e) ? readCache(e.token) : null;
         if (cached) {
-          setRosters((r) => ({ ...r, [e.token]: cached }));
+          setRosters((r) => ({ ...r, [e.token]: cached.rows }));
+          setStaff((r) => ({ ...r, [e.token]: cached.staff }));
         } else {
           if (fetched) await wait(GAP_MS);
           if (id !== run.current) return;
           try {
-            const rows = (await vpdive.fetchRoster(e.token)).map(toPerson);
+            const read = await vpdive.fetchRosterAndStaff(e.token);
+            const rows = read.roster.map(toPerson);
+            const crew: StatStaff[] = read.staff.map((x) => ({ id: x.id, name: x.name, ...(x.picture ? { picture: x.picture } : {}), roles: x.roles }));
             fetched = true;
-            if (finished(e)) writeCache(e.token, rows);
+            if (finished(e)) writeCache(e.token, { rows, staff: crew });
             setRosters((r) => ({ ...r, [e.token]: rows }));
+            setStaff((r) => ({ ...r, [e.token]: crew }));
           } catch (err) {
             if (onSessionLost(err)) return;
             setError(`Lecture interrompue : ${message(err)}`);
@@ -111,6 +118,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     setError(null);
     setEvents(null);
     setRosters({});
+    setStaff({});
     setDpFromApp({});
     setProgress(null);
     try {
@@ -157,8 +165,8 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
       registered: e.registeredCount,
       max: e.maxParticipants,
     }));
-    return computeStats(statEvents, rosters, dpFromApp);
-  }, [events, rosters, dpFromApp]);
+    return computeStats(statEvents, rosters, dpFromApp, staff);
+  }, [events, rosters, dpFromApp, staff]);
 
   const presets: { id: Preset; label: string }[] = [
     { id: 'year', label: 'Depuis janvier' },

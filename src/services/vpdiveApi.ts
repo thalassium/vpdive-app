@@ -206,6 +206,14 @@ export interface RosterEntry {
   licences?: { number: string; until: string | null; valid: boolean }[];
 }
 
+/** Membre de l'équipe d'une sortie (DP, pilote, encadrant) qui n'est pas dans la liste des inscrits. */
+export interface StaffEntry {
+  id: string;
+  name: string;
+  picture: string;
+  roles: string[];
+}
+
 /** VPDive outing roles that keep someone out of the water by default. */
 export const SURFACE_ROLES = /s[ée]curit[ée] surface|pilote/i;
 /** « Directeur de plongée », ou « Directrice de plongée » comme VPDive l'écrit parfois. */
@@ -1033,7 +1041,33 @@ class VpDiveClient {
    * `npm run probe`, October 2026.
    */
   async fetchRoster(eventToken: string): Promise<RosterEntry[]> {
+    return (await this.fetchRosterAndStaff(eventToken)).roster;
+  }
+
+  /**
+   * Inscrits, plus l'équipe de la sortie qui n'y est pas inscrite : VPDive peut
+   * désigner un pilote, un DP ou un encadrant (`responsibles`) sans qu'il figure
+   * dans la liste des inscrits. Ils comptent pour les rôles, pas comme plongeurs.
+   */
+  async fetchRosterAndStaff(eventToken: string): Promise<{ roster: RosterEntry[]; staff: StaffEntry[] }> {
     const res = await this.request(`/calendar/${eventToken}/event`);
+    const roster = this.rosterFrom(res);
+    const known = new Set(roster.map((r) => r.id));
+    const responsibles = obj(res.data)?.responsibles;
+    const staff = (Array.isArray(responsibles) ? responsibles : Object.values(obj(responsibles) ?? {}))
+      .map(obj)
+      .filter((r): r is Json => r !== null)
+      .map((r) => ({
+        id: String(r.user_id ?? ''),
+        name: str(r.officialFullname).trim() || str(r.publicFullname).trim(),
+        picture: pictureUrl(str(r.profilePicture)),
+        roles: (Array.isArray(r.role) ? r.role : Object.values(obj(r.role) ?? {})).map((x) => str(obj(x)?.role)).filter(Boolean),
+      }))
+      .filter((r) => r.id && !known.has(r.id) && r.roles.length > 0);
+    return { roster, staff };
+  }
+
+  private rosterFrom(res: Json): RosterEntry[] {
     const registered = obj(obj(res.data)?.user_registered);
     if (!registered) throw new VpDiveError('Liste des inscrits introuvable dans la réponse VPDive.', 0);
     const values = (v: unknown): Json[] => (Array.isArray(v) ? v : Object.values(obj(v) ?? {})).map(obj).filter((x): x is Json => x !== null);

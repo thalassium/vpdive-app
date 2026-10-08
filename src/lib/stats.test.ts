@@ -102,3 +102,13 @@ test('DP : sans DP sur la sortie, le pilote ou la sécurité surface en tient li
   assert.deepEqual(s.directors.map((d) => [d.id, d.count]), [['dp', 1], ['pilote', 1]], 'sur b il y a un DP : la sécu ne compte pas');
   assert.deepEqual(s.dpKnown, { known: 2, of: 2 });
 });
+
+test('équipe non inscrite : un pilote désigné dans VPDive compte comme DP s’il n’y a pas de DP, pas comme plongeur', () => {
+  const events = [ev('a', '2026-09-26T08:15:00')];
+  const rosters = { a: [p('lucas', ['MF1'], { roles: ['Enseignant/Encadrant'] }), p('x', ['P2'])] };
+  const s = computeStats(events, rosters, {}, { a: [{ id: 'niels', name: 'GINS Niels', roles: ['Pilote'] }] });
+  assert.deepEqual(s.directors.map((d) => [d.id, d.count]), [['niels', 1]]);
+  assert.equal(s.divers, 2, 'le pilote non inscrit ne compte pas comme plongeur');
+  assert.equal(s.places, 2);
+  assert.deepEqual(s.instructors.map((d) => d.id), ['lucas']);
+});
