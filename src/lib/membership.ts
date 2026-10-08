@@ -556,8 +556,9 @@ export interface ItemView {
 
 /** Libellé VPDive d'une assurance FFESSM (« Loisir 3 Top » → « Assurance Loisir 3 TOP ») ; null pour « Aucune ». */
 export function vpdiveInsurance(ffessm: string): string | null {
-  const m = /loisir\s*(\d)(\s*top)?/i.exec(ffessm);
-  if (m) return `Assurance Loisir ${m[1]}${m[2] ? ' TOP' : ''}`;
+  const m = /loisir\s*(\d|base)(\s*top)?/i.exec(ffessm);
+  // « Loisir Base » est la Loisir 1.
+  if (m) return `Assurance Loisir ${/base/i.test(m[1]!) ? '1' : m[1]}${m[2] ? ' TOP' : ''}`;
   if (/piscine/i.test(ffessm)) return 'Assurance Piscine';
   return null;
 }
@@ -671,6 +672,8 @@ export interface Fix {
   refresh?: boolean;
   /** Brevets à ajouter (kind « brevets »). */
   brevets?: string[];
+  /** Libellé VPDive de l'assurance à écrire (kind « insurance »), avec l'année de la licence. */
+  insurance?: string;
 }
 
 /** Les corrections rapides d'une personne (aucune si elle n'est pas reconnue avec certitude). */
@@ -697,7 +700,12 @@ export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: 
     if (!ffessmOnes.length) out.push({ kind: 'licence-add', before: 'aucune licence FFESSM', after: `${p.ffessm.licence}, jusqu’au 31/12/${season}` });
   }
   const wanted = p.ffessm ? vpdiveInsurance(p.ffessm.insurance) : null;
-  if (wanted && r.insurance !== wanted) out.push({ kind: 'insurance', before: r.insurance || 'aucune', after: wanted });
+  // Une autre assurance (DAN…) notée dans VPDive (« Autre ») reste : on ne remplace que vide ou FFESSM.
+  const replaceable = !r.insurance || /loisir|piscine/i.test(r.insurance);
+  // L'année de l'assurance est celle de la licence FFESSM (2027 pour 2026/2027).
+  if (wanted && replaceable && (r.insurance !== wanted || r.insuranceYear !== season)) {
+    out.push({ kind: 'insurance', before: r.insurance ? `${r.insurance}${r.insuranceYear ? ` (${r.insuranceYear})` : ''}` : 'aucune', after: `${wanted} (${season})`, insurance: wanted });
+  }
   if (lacking.length) out.push({ kind: 'brevets', before: r.levels.length ? `${r.levels.length} niveau${r.levels.length > 1 ? 'x' : ''}` : 'aucun niveau', after: `+ ${lacking.join(', ')}`, brevets: lacking });
   return out;
 }

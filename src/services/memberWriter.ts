@@ -74,6 +74,7 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
       if (!job.insurance) throw new Error('assurance inconnue');
       blocks.push({ kind: 'insurance', entries: () => insuranceEntries(job.insurance!, season) });
       want.insurance = job.insurance;
+      want.insuranceYear = season;
     }
     if (job.levels.length) {
       const ids = job.levels.map((l) => l.id);

@@ -98,7 +98,7 @@ const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
   season: { title: `Saison d’adhésion à ajouter`, help: 'Adhésion payée sur HelloAsso (geste d’août compris), saison absente de la fiche VPDive.' },
   licence: { title: 'Licence FFESSM : date de fin à mettre à jour', help: 'Même numéro, date ancienne. VPDive relit la FFESSM si la licence est vérifiée, sinon la date est saisie.' },
   'licence-add': { title: 'Licence FFESSM à ajouter', help: 'Licence prise par le club (export Mon Club), absente de la fiche VPDive.' },
-  insurance: { title: 'Assurance à reporter', help: 'Assurance prise à la FFESSM (export Mon Club), différente de celle de la fiche VPDive.' },
+  insurance: { title: 'Assurance à reporter', help: 'Assurance FFESSM (export Mon Club) et son année, écrites dans la liste VPDive. Une autre assurance (DAN…) n’est pas remplacée.' },
   brevets: { title: 'Brevets à ajouter', help: 'Brevets délivrés par la FFESSM (export des brevets), absents des niveaux de la fiche VPDive.' },
 };
 const CASE_TITLE: Record<CaseKind, string> = {
@@ -161,6 +161,8 @@ export function MembershipTab({
   const [confirming, setConfirming] = useState(false);
   const [results, setResults] = useState<{ uct: string; name: string; ok: boolean; message: string; warning?: string }[]>([]);
   const stopWriting = useRef(false);
+  /** Compte rendu des écritures, ramené à l'écran à la fin du lot. */
+  const resultsRef = useRef<HTMLElement>(null);
   const lost = useRef(onSessionLost);
   lost.current = onSessionLost;
 
@@ -452,7 +454,7 @@ export function MembershipTab({
       let job = jobs.find((j) => j.uct === uct);
       if (!job) jobs.push((job = { uct, name: r.match.member!.name, fixes: [], levels: [], ...(r.p.ffessm ? { licence: r.p.ffessm.licence } : {}) }));
       job.fixes.push(f);
-      if (f.kind === 'insurance') job.insurance = f.after;
+      if (f.kind === 'insurance' && f.insurance) job.insurance = f.insurance;
       if (f.kind === 'brevets') for (const t of targets(f)) if (t.level) job.levels.push({ id: t.level.id, name: t.level.name });
     }
     const apply = async () => {
@@ -480,6 +482,7 @@ export function MembershipTab({
       }
       setPicked(new Set());
       setWriting(null);
+      requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     };
     return (
       <div className="space-y-4">
@@ -492,6 +495,35 @@ export function MembershipTab({
         </div>
         {errors}
         {progressBar}
+        {results.length > 0 && (
+          <section ref={resultsRef} className="card overflow-hidden scroll-mt-4" aria-live="polite">
+            <header className="flex items-center gap-2 px-4 py-2.5 bg-raised border-b border-line">
+              <span className="font-semibold text-brand">Écrit dans VPDive</span>
+              <span className="text-sm text-muted tabular-nums">
+                · {results.filter((x) => x.ok).length} fiche{results.filter((x) => x.ok).length > 1 ? 's' : ''}
+                {results.some((x) => !x.ok) && ' · arrêté au premier problème'}
+              </span>
+              <button type="button" onClick={() => setResults([])} className="icon-btn ml-auto" aria-label="Fermer le compte rendu">
+                <X className="w-4 h-4" />
+              </button>
+            </header>
+            <ul className="divide-y divide-line">
+              {results.map((x) => (
+                <li key={x.uct} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-4 py-2.5 text-sm">
+                  {x.ok ? <Check className="w-4 h-4 mt-0.5 text-ok shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 text-danger shrink-0" />}
+                  <span className="w-52 min-w-0 font-medium text-ink truncate">{x.name}</span>
+                  <span className={`flex-1 min-w-0 ${x.ok ? 'text-muted' : 'text-danger'}`}>
+                    {x.message}
+                    {x.warning && <span className="block text-warn">{x.warning}</span>}
+                  </span>
+                  <a href={VPDIVE_MEMBER(x.uct)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand underline underline-offset-2">
+                    Fiche <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {loading ? (
           !haError && !loadError && <GabianLoader label="Lecture de HelloAsso et des membres VPDive…" />
         ) : groups.length === 0 ? (
@@ -550,35 +582,6 @@ export function MembershipTab({
               </section>
             );
           })
-        )}
-        {results.length > 0 && (
-          <section className="card overflow-hidden" aria-live="polite">
-            <header className="flex items-center gap-2 px-4 py-2.5 bg-raised border-b border-line">
-              <span className="font-semibold text-brand">Écrit dans VPDive</span>
-              <span className="text-sm text-muted tabular-nums">
-                · {results.filter((x) => x.ok).length} fiche{results.filter((x) => x.ok).length > 1 ? 's' : ''}
-                {results.some((x) => !x.ok) && ' · arrêté au premier problème'}
-              </span>
-              <button type="button" onClick={() => setResults([])} className="icon-btn ml-auto" aria-label="Fermer le compte rendu">
-                <X className="w-4 h-4" />
-              </button>
-            </header>
-            <ul className="divide-y divide-line">
-              {results.map((x) => (
-                <li key={x.uct} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-4 py-2.5 text-sm">
-                  {x.ok ? <Check className="w-4 h-4 mt-0.5 text-ok shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 text-danger shrink-0" />}
-                  <span className="w-52 min-w-0 font-medium text-ink truncate">{x.name}</span>
-                  <span className={`flex-1 min-w-0 ${x.ok ? 'text-muted' : 'text-danger'}`}>
-                    {x.message}
-                    {x.warning && <span className="block text-warn">{x.warning}</span>}
-                  </span>
-                  <a href={VPDIVE_MEMBER(x.uct)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand underline underline-offset-2">
-                    Fiche <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </section>
         )}
         <div className="sticky -bottom-4 z-10 -mx-3 sm:-mx-5 px-3 sm:px-5 py-3 bg-surface border-t border-line flex flex-wrap items-center gap-3">
           {writing ? (

@@ -61,6 +61,8 @@ test('tarifs HelloAsso', () => {
   assert.equal(vpdiveInsurance('Loisir 3 Top'), 'Assurance Loisir 3 TOP');
   assert.equal(vpdiveInsurance('Loisir 1 2026'), 'Assurance Loisir 1');
   assert.equal(vpdiveInsurance('Aucune'), null);
+  assert.equal(vpdiveInsurance('Loisir Base'), 'Assurance Loisir 1');
+  assert.equal(vpdiveInsurance('Loisir 1 base'), 'Assurance Loisir 1');
 });
 
 test('export FFESSM : valeurs lues derrière leurs libellés, accents perdus tolérés', () => {
@@ -196,8 +198,15 @@ test('corrections rapides : saison, licence (date ou ajout), assurance, brevets 
   const sure = { status: 'sure' as const, member, why: 'même date de naissance', candidates: [] };
   const rec: VpRecord = { email: '', birthday: '', seasons: ['2026'], licences: [{ number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2026-12-31', id: 7, verified: true }], insurance: '', insuranceYear: null, member: true, levels: [] };
   const fixes = quickFixes(lea!, sure, rec, 2027, ['Niveau 2']);
-  assert.deepEqual(fixes.map((f) => [f.kind, f.after]), [['season', '+ 2026/2027'], ['licence', 'jusqu’au 31/12/2027'], ['insurance', 'Assurance Loisir 2'], ['brevets', '+ Niveau 2']]);
+  assert.deepEqual(fixes.map((f) => [f.kind, f.after]), [['season', '+ 2026/2027'], ['licence', 'jusqu’au 31/12/2027'], ['insurance', 'Assurance Loisir 2 (2027)'], ['brevets', '+ Niveau 2']]);
   assert.equal(fixes[1]!.refresh, true);
+  assert.equal(fixes[2]!.insurance, 'Assurance Loisir 2');
+  // Assurance : l'année seule ancienne suffit ; « Autre » texte libre FFESSM remplacé ; DAN et autres gardées.
+  const ins = (insurance: string, insuranceYear: number | null) => quickFixes(lea!, sure, { ...rec, insurance, insuranceYear }, 2027).find((f) => f.kind === 'insurance')?.before ?? null;
+  assert.equal(ins('Assurance Loisir 2', 2026), 'Assurance Loisir 2 (2026)');
+  assert.equal(ins('Assurance Loisir 2', 2027), null);
+  assert.equal(ins('Loisir 1 base', 2027), 'Loisir 1 base (2027)');
+  assert.equal(ins('DAN SILVER', 2025), null);
   // Licence non vérifiée : c'est quand même une correction rapide, la date se saisit.
   const manual = { ...rec, licences: [{ ...rec.licences[0]!, verified: false }] };
   assert.equal(quickFixes(lea!, sure, manual, 2027).find((f) => f.kind === 'licence')?.refresh, false);

@@ -78,7 +78,7 @@ test('bloc niveaux : ceux de la fiche plus les nouveaux, refus si un niveau est 
     ['l_125', 't_3', 'l_130'],
   );
   assert.throws(() => capacityEntries(fiche(), ['l_130'], new Set(['l_130'])), WriteError);
-  assert.deepEqual(insuranceEntries('Assurance Loisir 1', 2027)[1], ['mobile_insurance_form[insurance_choice]', 'Assurance Loisir 1']);
+  assert.deepEqual(insuranceEntries('Assurance Loisir 1', 2027)[2], ['mobile_insurance_form[insurance]', 'Assurance Loisir 1']);
 });
 
 test('brevet FFESSM → niveau VPDive unique, FFESSM de préférence', () => {

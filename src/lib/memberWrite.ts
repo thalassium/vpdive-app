@@ -154,11 +154,15 @@ export function licenceEntries(u: RawMember, change: LicenceChange): Entry[] {
   return out;
 }
 
-/** Bloc assurance : un libellé de la liste VPDive (« Assurance Loisir 1 »…) et son année. */
+/**
+ * Bloc assurance : un libellé de la liste VPDive (« Assurance Loisir 1 »…) et son année.
+ * VPDive garde le champ texte `insurance` (le choix seul n'est pas pris : essayé le
+ * 9 octobre 2026) ; le site affiche alors le libellé comme choix de la liste.
+ */
 export const insuranceEntries = (choice: string, year: number): Entry[] => [
   ['mobile_insurance_form[insurance_year]', String(year)],
   ['mobile_insurance_form[insurance_choice]', choice],
-  ['mobile_insurance_form[insurance]', ''],
+  ['mobile_insurance_form[insurance]', choice],
 ];
 
 const CAPACITY_LISTS = [
@@ -196,6 +200,7 @@ export interface Expect {
   /** Licence FFESSM qui doit être là, valable jusqu'à la fin de la saison. */
   licence?: string;
   insurance?: string;
+  insuranceYear?: number;
   /** Noms des niveaux ajoutés. */
   levels?: string[];
 }
@@ -218,6 +223,7 @@ export function checkWrite(before: VpRecord, after: VpRecord, want: Expect, seas
     if (!l.expires || l.expires < licenceEnd(season)) return { error: `licence encore ${l.expires ? `au ${l.expires.split('-').reverse().join('/')}` : 'sans date de fin'}` };
   }
   if (want.insurance && after.insurance !== want.insurance) return { error: `assurance relue : ${after.insurance || 'aucune'}` };
+  if (want.insuranceYear && after.insuranceYear !== want.insuranceYear) return { error: `année de l’assurance relue : ${after.insuranceYear ?? 'aucune'}` };
   const missing = (want.levels ?? []).filter((n) => !after.levels.includes(n));
   if (missing.length) return { warning: `pas encore visible : ${missing.join(', ')} (validation en attente ?)` };
   return {};
