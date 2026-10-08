@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bulkReminderText, checkDocs, isFfessm, reminderText, type DocsStatus } from './docsCheck';
+import { bulkReminderText, checkDocs, isFfessm, reminderText, seasonOfOuting, type DocsStatus } from './docsCheck';
 
 const TODAY = '2026-10-08';
 const OUTING = '2026-10-11';
 const ffessm = (expires: string, expired = false) => ({ number: 'A-26-123456', organization: 'FFESSM', expires, expired, validated: true });
-const inOrder: DocsStatus = { seasons: ['2026', '2025'], licences: [ffessm('2027-12-31')] };
+const inOrder: DocsStatus = { seasons: ['2027', '2026'], licences: [ffessm('2027-12-31')] };
 const entry = (until: string | null, valid = until !== null, licences: { number: string; until: string | null; valid: boolean }[] = []) => ({
   medical: { until, valid },
   licences,
@@ -29,21 +29,21 @@ test('CACI manquant ou périmé à la date de la sortie : rouge', () => {
 });
 
 test('licence FFESSM lue sur la fiche du membre : jaune si aucune ne couvre la sortie', () => {
-  const none = checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2026'], licences: [] }, TODAY);
+  const none = checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2027'], licences: [] }, TODAY);
   assert.equal(none.level, 'yellow');
   assert.deepEqual(none.issues, [{ kind: 'licence', level: 'yellow', text: 'Licence FFESSM manquante' }]);
   // Une licence d'une autre fédération ne compte pas.
   const padi = { number: '123', organization: 'PADI', expires: '2030-01-01', expired: false, validated: true };
-  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2026'], licences: [padi] }, TODAY).issues[0]?.text, 'Licence FFESSM manquante');
+  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2027'], licences: [padi] }, TODAY).issues[0]?.text, 'Licence FFESSM manquante');
   // La plus récente est citée.
-  const old = checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2026'], licences: [ffessm('2024-12-31', true), ffessm('2025-12-31', true)] }, TODAY);
+  const old = checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2027'], licences: [ffessm('2024-12-31', true), ffessm('2025-12-31', true)] }, TODAY);
   assert.equal(old.issues[0]?.text, 'Licence FFESSM expirée le 31/12/2025');
   // Sans date de fin, on se fie à l'indicateur « expirée ».
-  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2026'], licences: [ffessm('')] }, TODAY).level, 'ok');
-  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2026'], licences: [ffessm('', true)] }, TODAY).level, 'yellow');
+  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2027'], licences: [ffessm('')] }, TODAY).level, 'ok');
+  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2027'], licences: [ffessm('', true)] }, TODAY).level, 'yellow');
   // Organisation écrite autrement
   const longName = { ...ffessm('2027-12-31'), organization: 'Ffessm - Fédération française' };
-  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2026'], licences: [longName] }, TODAY).level, 'ok');
+  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2027'], licences: [longName] }, TODAY).level, 'ok');
 });
 
 test('fiche du membre illisible : licences de la liste des inscrits, adhésion non vérifiée', () => {
@@ -60,11 +60,14 @@ test('fiche du membre illisible : licences de la liste des inscrits, adhésion n
   assert.equal(checkDocs(entry('2027-01-01', true, [{ number: 'A-26-12345', until: null, valid: true }]), OUTING, null, TODAY).level, 'ok');
 });
 
-test('adhésion : la saison est l’année de la sortie', () => {
-  const r = checkDocs(entry('2027-06-01'), '2027-01-10', { seasons: ['2026', '2025'], licences: [ffessm('2027-12-31')] }, TODAY);
+test('adhésion : la saison de la sortie va du 1er septembre au 31 août (VPDive : année de fin)', () => {
+  // Sortie du 11 octobre 2026 : saison 2026/2027, « 2027 » dans VPDive ; « 2026 » (2025/2026) ne suffit plus.
+  const r = checkDocs(entry('2027-06-01'), OUTING, { seasons: ['2026', '2025'], licences: [ffessm('2027-12-31')] }, TODAY);
   assert.equal(r.level, 'yellow');
-  assert.deepEqual(r.issues, [{ kind: 'adhesion', level: 'yellow', text: 'Adhésion 2027 non confirmée' }]);
-  assert.equal(checkDocs(entry('2027-06-01'), OUTING, { seasons: ['2026'], licences: [ffessm('2027-12-31')] }, TODAY).level, 'ok');
+  assert.deepEqual(r.issues, [{ kind: 'adhesion', level: 'yellow', text: 'Adhésion 2026/2027 non confirmée' }]);
+  assert.equal(checkDocs(entry('2027-06-01'), OUTING, { seasons: ['2027'], licences: [ffessm('2027-12-31')] }, TODAY).level, 'ok');
+  assert.equal(checkDocs(entry('2027-06-01'), '2026-08-20', { seasons: ['2026'], licences: [ffessm('2027-12-31')] }, TODAY).level, 'ok', 'en août : encore 2025/2026');
+  assert.equal(seasonOfOuting('2026-10-11'), '2026/2027');
 });
 
 test('messages de relance', () => {
@@ -92,5 +95,5 @@ test('isFfessm : organisation écrite avec des points, numéros sous toutes leur
 
 test('licence « F.F.E.S.S.M. » valable à la date de la sortie : rien à signaler', () => {
   const lic = { number: 'a241045719', organization: 'F.F.E.S.S.M.', expires: '2026-12-31', expired: false, validated: false };
-  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2026'], licences: [lic] }, TODAY).level, 'ok');
+  assert.equal(checkDocs(entry('2027-01-01'), OUTING, { seasons: ['2027'], licences: [lic] }, TODAY).level, 'ok');
 });

@@ -3,8 +3,9 @@
  * être couvert LE JOUR DE LA SORTIE.
  *   - CACI (certificat médical) absent ou périmé à cette date : rouge.
  *   - Pas de licence FFESSM valable à cette date : jaune.
- *   - Adhésion de la saison (année de la sortie) non confirmée : jaune ; si la
- *     fiche du membre n'a pas pu être lue, « adhésion non vérifiée » (discret).
+ *   - Adhésion de la saison de la sortie (du 1er septembre au 31 août) non
+ *     confirmée : jaune ; si la fiche du membre n'a pas pu être lue, « adhésion
+ *     non vérifiée » (discret).
  *
  * Sources : la liste des inscrits (RosterEntry, certificat et licences) et, si
  * on a pu la lire, la fiche du membre (vpdive.memberStatus : saisons et
@@ -13,6 +14,10 @@
  */
 
 import type { RosterEntry } from '../services/vpdiveApi';
+import { seasonLabel, seasonOf } from './membership';
+
+/** Saison d'une sortie, pour les messages de relance (« 2026/2027 »). */
+export const seasonOfOuting = (outingDate: string) => seasonLabel(seasonOf(outingDate));
 
 export type DocKind = 'caci' | 'licence' | 'adhesion';
 export type DocLevel = 'red' | 'yellow' | 'ok';
@@ -96,12 +101,12 @@ export function checkDocs(
     issues.push({ kind: 'licence', level: 'yellow', text: last ? `Licence FFESSM ${expiry(last, today, true)}` : 'Licence FFESSM manquante' });
   }
 
-  // Adhésion de la saison
-  const year = outingDate.slice(0, 4);
+  // Adhésion de la saison de la sortie (1er septembre → 31 août ; VPDive la note par son année de fin).
+  const season = seasonOf(outingDate);
   if (!status) {
     issues.push({ kind: 'adhesion', level: 'muted', text: 'Adhésion non vérifiée' });
-  } else if (!status.seasons.map(String).includes(year)) {
-    issues.push({ kind: 'adhesion', level: 'yellow', text: `Adhésion ${year} non confirmée` });
+  } else if (!status.seasons.map(String).includes(String(season))) {
+    issues.push({ kind: 'adhesion', level: 'yellow', text: `Adhésion ${seasonLabel(season)} non confirmée` });
   }
 
   const level: DocLevel = issues.some((i) => i.level === 'red') ? 'red' : issues.some((i) => i.level === 'yellow') ? 'yellow' : 'ok';

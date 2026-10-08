@@ -166,3 +166,22 @@ test('table des brevets : le choix des admins prime sur la règle automatique', 
   assert.ok(!hasBrevet(['P - Plongeur Or (POR) F.F.E.S.S.M.'], 'Plongeur Or', map), 'la table remplace la règle');
   assert.ok(hasBrevet(['P - Plongeur Or (POR) F.F.E.S.S.M.'], 'Plongeur Or'), 'sans table : règle automatique');
 });
+
+test('rapprochement : toujours vers un compte Membre ; un invité homonyme n’est pas proposé', () => {
+  const dir: VpMember[] = [
+    { id: 'guest', name: 'Stephane SARTORETTO', picture: '' },
+    { id: 'member', name: 'Stéphane SARTORETTO', picture: '' },
+  ];
+  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: [], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
+  const [st] = buildPeople([item({ firstName: 'Stéphane', lastName: 'SARTORETTO', birthDate: '1967-12-07' })], [], 2027);
+  const m = matchPerson(st!, dir, { guest: rec({ member: false }), member: rec({}) });
+  assert.equal(m.status, 'sure');
+  assert.equal(m.member?.id, 'member');
+  assert.equal(m.why, 'seul compte Membre à ce nom');
+  // La preuve sur l'invité ne l'emporte pas sur le compte Membre.
+  assert.equal(matchPerson(st!, dir, { guest: rec({ member: false, birthday: '1967-12-07' }), member: rec({}) }).member?.id, 'member');
+  // Deux comptes Membre homonymes, rien pour trancher : à confirmer, sans l'invité.
+  const two = matchPerson(st!, [...dir, { id: 'm2', name: 'SARTORETTO Stéphane', picture: '' }], { guest: rec({ member: false }), member: rec({}), m2: rec({}) });
+  assert.equal(two.status, 'confirm');
+  assert.deepEqual(two.candidates.map((c) => c.id).sort(), ['m2', 'member']);
+});

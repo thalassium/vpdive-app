@@ -443,10 +443,18 @@ export function matchPerson(p: Person, directory: VpMember[], records: Record<st
     const member = directory.find((m) => m.id === link.uct);
     if (member) return { status: 'sure', member, why: `choisi par ${link.by}`, candidates: [] };
   }
-  const candidates = candidatesFor(p, directory);
+  const found = candidatesFor(p, directory);
+  if (found.length === 0) return { status: 'missing', member: null, why: '', candidates: [] };
+  // Comme pour les doublons : on pointe vers un compte « Membre », jamais vers un invité
+  // tant qu'un homonyme a le statut Membre.
+  const members = found.filter((m) => records[m.id]?.member);
+  const candidates = members.length ? members : found;
   const proven = candidates.map((m) => ({ m, why: evidence(p, m, records[m.id]) })).filter((x) => x.why);
   if (proven.length === 1) return { status: 'sure', member: proven[0]!.m, why: proven[0]!.why!, candidates: [] };
-  if (candidates.length === 0) return { status: 'missing', member: null, why: '', candidates: [] };
+  const allRead = found.every((m) => records[m.id]);
+  if (!proven.length && allRead && members.length === 1 && nameScore(p.name, members[0]!.name) >= 0.9) {
+    return { status: 'sure', member: members[0]!, why: found.length > 1 ? 'seul compte Membre à ce nom' : 'même nom, compte Membre', candidates: [] };
+  }
   return { status: 'confirm', member: null, why: '', candidates: proven.length ? proven.map((x) => x.m) : candidates };
 }
 

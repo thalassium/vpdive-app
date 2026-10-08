@@ -6,7 +6,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
 import { messaging } from '../../services/messaging';
-import { bulkReminderText, checkDocs, reminderText, type DocIssue, type DocKind, type DocsStatus } from '../../lib/docsCheck';
+import { bulkReminderText, checkDocs, reminderText, seasonOfOuting, type DocIssue, type DocKind, type DocsStatus } from '../../lib/docsCheck';
 import { MembershipTab } from './MembershipTab';
 
 interface Me {
@@ -633,13 +633,13 @@ function ReminderSheet({
   const next = first.concerns[0]!;
   const [text, setText] = useState(() =>
     bulk
-      ? bulkReminderText({ year: next.outing.date.slice(0, 4), from: me.name })
+      ? bulkReminderText({ year: seasonOfOuting(next.outing.date), from: me.name })
       : reminderText({
           firstName: first.firstname,
           date: dayLabel(next.outing.date),
           title: next.outing.title,
           kinds: first.issues.filter((i) => i.level !== 'muted').map((i) => i.kind),
-          year: next.outing.date.slice(0, 4),
+          year: seasonOfOuting(next.outing.date),
           from: me.name,
         }),
   );
