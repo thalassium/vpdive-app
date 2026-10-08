@@ -2,12 +2,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { ArrowLeft, Check, Plus, SendHorizontal, Users, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
 import { Cromagnon } from '../Cromagnon';
-import { appApi, type ChatMember, type ChatMessage, type ChatSummary, type ChatThread } from '../../services/appApi';
+import { messaging, type ChatMember, type ChatMessage, type ChatSummary, type ChatThread } from '../../services/messaging';
 import { vpdive, type MemberMatch } from '../../services/vpdiveApi';
 import { normalizeName, rankByName } from '../../lib/fuzzy';
 
-const THREAD_POLL_MS = 10_000;
-const LIST_POLL_MS = 20_000;
+const THREAD_POLL_MS = 15_000;
+const LIST_POLL_MS = 30_000;
 
 type Me = { uct: string; name: string; picture: string };
 
@@ -110,11 +110,13 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
   const lostRef = useRef(false);
   const onSessionLostRef = useRef(onSessionLost);
   const onReadRef = useRef(onRead);
+  const meRef = useRef(me);
   const openIdRef = useRef<string | null>(null);
   const tempIdRef = useRef(0);
   useEffect(() => {
     onSessionLostRef.current = onSessionLost;
     onReadRef.current = onRead;
+    meRef.current = me;
   });
 
   const endRef = useRef<HTMLDivElement>(null);
@@ -139,7 +141,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
         setListError('');
       }
       try {
-        const list = await appApi.chats();
+        const list = await messaging.chats(meRef.current);
         // La conversation ouverte reste lue.
         setChats(list.map((c) => (c.id === openIdRef.current ? { ...c, unread: false } : c)));
         setListError('');
@@ -161,7 +163,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
         setThreadError('');
       }
       try {
-        const t = await appApi.chat(id);
+        const t = await messaging.chat(id, meRef.current);
         if (openIdRef.current !== id) return false;
         setThread(t);
         setThreadError('');
@@ -241,9 +243,14 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
   /** Envoie (ou renvoie) un message de la boîte d'envoi. */
   const deliver = async (chatId: string, tempId: string, text: string) => {
     try {
-      const sent = await appApi.chatSend(chatId, text);
+      const realId = await messaging.send(chatId, text, meRef.current);
       if (openIdRef.current !== chatId) return;
-      setThread((t) => t && (t.messages.some((m) => m.id === sent.id) ? t : { ...t, messages: [...t.messages, sent], last: sent }));
+      // Premier message d'une nouvelle conversation : VPDive vient de la créer.
+      if (realId !== chatId) {
+        openIdRef.current = realId;
+        setOpen((o) => (o ? { ...o, id: realId } : o));
+      }
+      await loadThread(realId, true);
       setOutbox((o) => o.filter((x) => x.id !== tempId));
       void loadList(true);
       if (!lostRef.current) onReadRef.current();
@@ -514,10 +521,10 @@ function NewChat({
 
   useEffect(() => {
     let cancelled = false;
-    vpdive.fetchMemberDirectory().then(
+    vpdive.fetchMemberDirectory('messages').then(
       (list) => {
         if (cancelled) return;
-        setDirectory(list.filter((m) => m.id !== me.uct));
+        setDirectory(list.filter((m) => m.name !== me.name));
         setDirError('');
       },
       (e) => {
@@ -541,19 +548,16 @@ function NewChat({
   }, [directory, query]);
 
   const isSelected = (m: MemberMatch) => selected.some((s) => s.id === m.id);
-  const toggle = (m: MemberMatch) => setSelected((s) => (s.some((x) => x.id === m.id) ? s.filter((x) => x.id !== m.id) : [...s, m]));
+  // Une personne à la fois : les groupes se créent dans VPDive.
+  const toggle = (m: MemberMatch) => setSelected((s) => (s.some((x) => x.id === m.id) ? [] : [m]));
 
   const create = async () => {
     if (selected.length === 0 || creating) return;
     setCreating(true);
     setCreateError('');
     try {
-      const chat = await appApi.chatNew(
-        selected.map((m) => ({ uct: m.id, name: m.name, picture: m.picture })),
-        { name: me.name, picture: me.picture },
-        selected.length > 1 ? title.trim() || undefined : undefined,
-      );
-      onCreated(chat);
+      const person = selected[0]!;
+      onCreated(messaging.draft({ uct: person.id, name: person.name, picture: person.picture }, me));
     } catch (e) {
       if (lost(e)) return;
       setCreateError(errorText(e, 'La conversation n’a pas pu être créée.'));

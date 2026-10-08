@@ -11,6 +11,13 @@ import { Redis } from '@upstash/redis';
 export interface Store {
   get<T>(key: string): Promise<T | null>;
   set<T>(key: string, value: T): Promise<void>;
+  /** Supprime les clés qui correspondent au motif (« * » = n'importe quoi) ; renvoie leur nombre. */
+  deleteMatching(pattern: string): Promise<number>;
+}
+
+/** Motif à étoiles (« club:*:chat* ») → expression régulière ancrée. */
+export function globToRegExp(pattern: string): RegExp {
+  return new RegExp(`^${pattern.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
 }
 
 /**
@@ -39,6 +46,16 @@ function redisStore(): Store | null {
     set: async (key, value) => {
       await redis.set(key, value);
     },
+    deleteMatching: async (pattern) => {
+      let cursor: string | number = 0;
+      let deleted = 0;
+      do {
+        const [next, keys]: [string | number, string[]] = await redis.scan(cursor, { match: pattern, count: 500 });
+        if (keys.length) deleted += await redis.del(...keys);
+        cursor = next;
+      } while (String(cursor) !== '0');
+      return deleted;
+    },
   };
 }
 
@@ -60,6 +77,17 @@ function fileStore(): Store {
       all[key] = value;
       await mkdir('.data', { recursive: true });
       await writeFile(file, JSON.stringify(all, null, 2));
+    },
+    deleteMatching: async (pattern) => {
+      const { mkdir, writeFile } = await import('node:fs/promises');
+      const all = await read();
+      const re = globToRegExp(pattern);
+      const keys = Object.keys(all).filter((k) => re.test(k));
+      if (!keys.length) return 0;
+      for (const k of keys) delete all[k];
+      await mkdir('.data', { recursive: true });
+      await writeFile(file, JSON.stringify(all, null, 2));
+      return keys.length;
     },
   };
 }

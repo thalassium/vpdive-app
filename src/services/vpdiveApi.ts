@@ -105,7 +105,7 @@ export interface MemberMatch {
 
 const VPDIVE_ORIGIN = 'https://septentrion-env.vpdive.com';
 /** VPDive returns site-relative paths; its default avatars live under /files/images/. */
-const pictureUrl = (path: string) =>
+export const pictureUrl = (path: string) =>
   !path || path.startsWith('/files/images/') ? '' : path.startsWith('http') ? path : `${VPDIVE_ORIGIN}${path.startsWith('/') ? '' : '/'}${path}`;
 
 /** Mes informations, telles que la fiche « Mon profil » de VPDive les donne. Chaînes vides si non renseignées. */
@@ -795,8 +795,12 @@ class VpDiveClient {
    * member picker (`route: "assignment"`). Exact substrings only: see
    * lib/fuzzy.ts for typos.
    */
-  async searchMembers(query: string): Promise<MemberMatch[]> {
-    const list = await this.requestList('/search/user', { method: 'POST', body: { query, route: 'assignment' } });
+  /**
+   * route « assignment » : `id` = jeton d'adhésion (fiches, rôles) ; route « messages » :
+   * `id` = jeton utilisateur, celui des destinataires de la messagerie VPDive.
+   */
+  async searchMembers(query: string, route: 'assignment' | 'messages' = 'assignment'): Promise<MemberMatch[]> {
+    const list = await this.requestList('/search/user', { method: 'POST', body: { query, route } });
     return list
       .map((raw) => {
         const o = obj(raw);
@@ -831,6 +835,53 @@ class VpDiveClient {
     const res = await this.request(`/user/member/${encodeURIComponent(uct)}`);
     const data = obj(obj(res)?.data) ?? obj(res);
     return obj(data?.user_club_traceability)?.allMembers === true;
+  }
+
+  // ── Messagerie VPDive (/messages_, voir lib/vpdiveChat.ts pour les formes) ──
+
+  /** Conversations à deux, première page (la plus récente). */
+  messageList(): Promise<Json> {
+    return this.request('/messages_/messages/discussion/0/0/all/null');
+  }
+
+  /** Fil d'une conversation, par son jeton. */
+  messageThread(conversation: string): Promise<Json> {
+    return this.request(`/messages_/detail/messages/${encodeURIComponent(conversation)}/0/null/0`);
+  }
+
+  /** Compteurs de non-lus : { res: { messages, groups, … } }. */
+  messageNotifications(): Promise<Json> {
+    return this.request('/messages_/notifications');
+  }
+
+  /** Répond dans une conversation existante (mêmes champs que la messagerie de VPDive). */
+  async messageReply(conversation: string, text: string): Promise<void> {
+    const form = new FormData();
+    form.append('message', text);
+    form.append('type_flux', 'discussion');
+    form.append('message_token', conversation);
+    const res = await this.request('/messages_/new_message', { method: 'POST', body: form });
+    if (res.success === false) throw new VpDiveError(str(res.message) || 'Le message n’a pas été envoyé.', 0);
+  }
+
+  /**
+   * Écrit à une ou plusieurs personnes (jetons utilisateur VPDive) : VPDive ouvre la
+   * conversation au premier message. Destinataires au format de sa messagerie.
+   */
+  async messageStart(userTokens: string[], text: string): Promise<void> {
+    const form = new FormData();
+    form.append('message', text);
+    form.append('message_token', JSON.stringify(userTokens.map((token) => ({ type: 'user', token }))));
+    const res = await this.request('/messages_/new-message-members', { method: 'POST', body: form });
+    if (res.success === false) throw new VpDiveError(str(res.message) || 'Le message n’a pas été envoyé.', 0);
+  }
+
+  /** Jeton utilisateur VPDive d'un membre, à partir de son jeton d'adhésion. */
+  async userTokenOf(uct: string): Promise<string> {
+    const res = await this.request(`/user?uct_token=${encodeURIComponent(uct)}`);
+    const token = str((obj(res.data) ?? res).token);
+    if (!token) throw new VpDiveError('Membre introuvable dans la messagerie VPDive.', 0);
+    return token;
   }
 
   async memberStatus(uct: string): Promise<Pick<MemberInfo, 'seasons' | 'licences'>> {
@@ -890,8 +941,8 @@ class VpDiveClient {
    * returns everyone whose name has a vowel — in practice the whole club
    * (one-letter search measured at 476 members, uncapped, October 2026).
    */
-  async fetchMemberDirectory(): Promise<MemberMatch[]> {
-    const lists = await Promise.all(['a', 'e', 'i', 'o', 'u', 'y'].map((v) => this.searchMembers(v)));
+  async fetchMemberDirectory(route: 'assignment' | 'messages' = 'assignment'): Promise<MemberMatch[]> {
+    const lists = await Promise.all(['a', 'e', 'i', 'o', 'u', 'y'].map((v) => this.searchMembers(v, route)));
     const byId = new Map(lists.flat().map((m) => [m.id, m]));
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
   }

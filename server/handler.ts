@@ -6,10 +6,10 @@
  *   POST ?action=role     {uct, admin?, superAdmin?}   super-admin : donner ou retirer un rôle
  *   GET  ?action=outing&event=<token>     admin ou DP de la sortie : plongées et fiches
  *   POST ?action=outing&event=<token>     {doc, baseRev}  enregistrer (refusé si quelqu'un a enregistré entre-temps)
- *   GET  ?action=chats                    mes conversations (messagerie de l'appli, server/chat.ts)
- *   GET  ?action=chat&id=<conv>           une conversation et ses messages ; la marque comme lue
- *   POST ?action=chat_new  {members, title?, me}   conversation à deux (retrouvée si elle existe) ou groupe
- *   POST ?action=chat_send {id, text}     envoyer un message
+ *   GET  ?action=docs_ignored             admin : membres ignorés du suivi des documents
+ *   POST ?action=docs_ignored {uct, name, ignore}  admin : ignorer / ne plus ignorer
+ *
+ * La messagerie n'est plus ici : l'appli lit et écrit directement celle de VPDive.
  *
  * Les rôles sont rattachés au jeton d'adhésion du membre (uct), le même que
  * l'`id` de la liste des membres : on peut nommer admin quelqu'un qui ne s'est
@@ -24,8 +24,7 @@
  * droits sur vpdive.com, elle perd seulement les écrans admin de l'appli.
  */
 import { HttpError, identify, isDpOf, type Caller } from './auth.js';
-import { getStore } from './store.js';
-import { listConversations, readConversation, sendMessage, startConversation } from './chat.js';
+import { getStore, type Store } from './store.js';
 
 export type AppRole = 'superadmin' | 'admin' | 'member';
 
@@ -88,12 +87,25 @@ const json = (data: unknown, status = 200) =>
 
 const MAX_DOC_BYTES = 400_000;
 
+/**
+ * La messagerie de l'appli est désormais celle de VPDive : les conversations de
+ * l'ancienne messagerie maison (club:<id>:chat…) sont effacées une fois pour toutes,
+ * au premier appel qui suit la mise en ligne.
+ */
+const CHAT_PURGED = 'app:chat-purged-v1';
+async function purgeOldChat(store: Store): Promise<void> {
+  if (await store.get(CHAT_PURGED)) return;
+  const deleted = await store.deleteMatching('club:*:chat*');
+  await store.set(CHAT_PURGED, { at: new Date().toISOString(), deleted });
+}
+
 export async function handle(request: Request): Promise<Response> {
   try {
     const url = new URL(request.url);
     const action = url.searchParams.get('action');
     const caller = await identify(request);
     const store = getStore();
+    await purgeOldChat(store);
     const saved = await store.get<RolesDoc | { version?: number }>(rolesKey(caller));
     // Première version (rôles par identifiant de compte, avant octobre 2026) : on repart de zéro.
     const roles: RolesDoc = saved && saved.version === 2 ? (saved as RolesDoc) : emptyRoles();
@@ -144,18 +156,6 @@ export async function handle(request: Request): Promise<Response> {
       }
       await store.set(rolesKey(caller), roles);
       return json({ roles: roleEntries(roles) });
-    }
-
-    // Messagerie de l'appli : chacun ne voit que ses conversations (server/chat.ts).
-    if (action === 'chats' || action === 'chat' || action === 'chat_new' || action === 'chat_send') {
-      const who = { clubId: caller.clubId, uct: caller.uct, name: caller.name };
-      if (request.method === 'GET' && action === 'chats') return json({ conversations: await listConversations(store, who) });
-      if (request.method === 'GET' && action === 'chat') return json(await readConversation(store, who, url.searchParams.get('id') ?? ''));
-      if (request.method === 'POST') {
-        const body = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
-        if (action === 'chat_new') return json(await startConversation(store, who, body));
-        if (action === 'chat_send') return json({ message: await sendMessage(store, who, body) });
-      }
     }
 
     // Suivi des documents : liste partagée des membres ignorés (admins seulement).

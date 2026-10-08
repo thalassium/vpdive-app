@@ -18,6 +18,7 @@ import { Avatar } from './components/Avatar';
 import { Cromagnon } from './components/Cromagnon';
 import { CoursesView } from './components/views/CoursesView';
 import { MessagesView } from './components/views/MessagesView';
+import { messaging } from './services/messaging';
 import { ProfileView } from './components/views/ProfileView';
 import { vpdive, ymd, SessionExpiredError, DP_ROLE, type CalendarEvent, type MeteoSlot, type Session } from './services/vpdiveApi';
 import { appApi, type Me } from './services/appApi';
@@ -189,18 +190,15 @@ export default function App() {
     window.scrollTo({ top: 0 });
   };
 
-  // Pastille de la messagerie (celle de l'appli) : conversations non lues, relues toutes les 30 secondes.
+  // Pastille de la messagerie (celle de VPDive) : conversations non lues, relues toutes les minutes.
   const refreshUnread = useCallback(() => {
     if (!vpdive.getSession()) return;
-    appApi.chats().then(
-      (list) => setUnread(list.filter((c) => c.unread).length),
-      () => setUnread(0),
-    );
+    messaging.unread().then(setUnread, () => setUnread(0));
   }, []);
   useEffect(() => {
     if (!session) return;
     refreshUnread();
-    const id = window.setInterval(refreshUnread, 30_000);
+    const id = window.setInterval(refreshUnread, 60_000);
     return () => window.clearInterval(id);
   }, [session, refreshUnread]);
 

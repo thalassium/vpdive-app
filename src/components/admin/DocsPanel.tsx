@@ -4,6 +4,7 @@ import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
 import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
+import { messaging } from '../../services/messaging';
 import { bulkReminderText, checkDocs, reminderText, type DocIssue, type DocKind, type DocsStatus } from '../../lib/docsCheck';
 
 interface Me {
@@ -608,8 +609,7 @@ function ReminderSheet({ rows, bulk, me, onClose, onSessionLost }: { rows: Row[]
         errors.push(`${r.name} : pas de compte d’adhérent connu`);
       } else {
         try {
-          const conv = await appApi.chatNew([{ uct: r.uct, name: r.name, picture: r.picture }], { name: me.name, picture: me.picture });
-          await appApi.chatSend(conv.id, text);
+          await messaging.writeTo(r.uct, text);
           sent++;
         } catch (e) {
           if (onSessionLost(e)) return;
