@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, FileText, Mail, MessageCircle, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, EyeOff, FileText, Mail, MessageCircle, RefreshCw, Undo2, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
 import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
-import { appApi } from '../../services/appApi';
+import { appApi, type IgnoredDocs } from '../../services/appApi';
 import { bulkReminderText, checkDocs, reminderText, type DocIssue, type DocKind, type DocsStatus } from '../../lib/docsCheck';
 
 interface Me {
@@ -47,7 +47,7 @@ interface Row {
   concerns: Concern[];
 }
 
-type Filter = 'all' | DocKind;
+type Filter = 'all' | DocKind | 'ignored';
 type Phase = 'events' | 'rosters' | 'status' | 'stopped' | 'done' | 'error';
 
 const DAYS_AHEAD = 60;
@@ -87,6 +87,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'caci', label: 'CACI' },
   { key: 'licence', label: 'Licence' },
   { key: 'adhesion', label: 'Adhésion' },
+  { key: 'ignored', label: 'Ignorés' },
 ];
 
 const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`;
@@ -109,6 +110,44 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   const [rosterErrors, setRosterErrors] = useState<string[]>([]);
   const [statusFailures, setStatusFailures] = useState(0);
   const [filter, setFilter] = useState<Filter>('all');
+  /** Membres ignorés, partagés entre admins (serveur de l'appli). null : pas encore lus. */
+  const [ignored, setIgnored] = useState<IgnoredDocs | null>(null);
+  const [ignoreError, setIgnoreError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    appApi.docsIgnored().then(
+      (list) => live && setIgnored(list),
+      (e) => {
+        if (!live || onSessionLost(e)) return;
+        setIgnored({});
+        setIgnoreError(`Liste des membres ignorés illisible : ${message(e)}`);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [onSessionLost]);
+  const setIgnore = async (row: { uct: string; name: string }, ignore: boolean) => {
+    if (!row.uct) return;
+    const before = ignored ?? {};
+    const optimistic = { ...before };
+    if (ignore) optimistic[row.uct] = { name: row.name, by: me.name, at: new Date().toISOString() };
+    else delete optimistic[row.uct];
+    setIgnored(optimistic);
+    setIgnoreError(null);
+    if (ignore) setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(row.uct);
+      return next;
+    });
+    try {
+      setIgnored(await appApi.setDocsIgnored(row.uct, row.name, ignore));
+    } catch (e) {
+      if (onSessionLost(e)) return;
+      setIgnored(before);
+      setIgnoreError(message(e));
+    }
+  };
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reminder, setReminder] = useState<{ rows: Row[]; bulk: boolean } | null>(null);
 
@@ -276,12 +315,21 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
     );
   }, [outings, statuses]);
 
-  const counts = useMemo(
-    () => ({ caci: rows.filter((r) => hasKind(r, 'caci')).length, licence: rows.filter((r) => hasKind(r, 'licence')).length, adhesion: rows.filter((r) => hasKind(r, 'adhesion')).length }),
-    [rows],
+  // Les membres ignorés sortent des compteurs, des listes et de la relance groupée.
+  const active = useMemo(() => rows.filter((r) => !(r.uct && ignored?.[r.uct])), [rows, ignored]);
+  const ignoredList = useMemo(
+    () =>
+      Object.entries(ignored ?? {})
+        .map(([uct, v]) => ({ uct, ...v, row: rows.find((r) => r.uct === uct) ?? null }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })),
+    [ignored, rows],
   );
-  const shown = useMemo(() => (filter === 'all' ? rows : rows.filter((r) => hasKind(r, filter))), [rows, filter]);
-  const picked = rows.filter((r) => selected.has(r.key));
+  const counts = useMemo(
+    () => ({ caci: active.filter((r) => hasKind(r, 'caci')).length, licence: active.filter((r) => hasKind(r, 'licence')).length, adhesion: active.filter((r) => hasKind(r, 'adhesion')).length }),
+    [active],
+  );
+  const shown = useMemo(() => (filter === 'all' ? active : filter === 'ignored' ? [] : active.filter((r) => hasKind(r, filter))), [active, filter]);
+  const picked = active.filter((r) => selected.has(r.key));
   const allShownPicked = shown.length > 0 && shown.every((r) => selected.has(r.key));
 
   const toggle = (key: string) =>
@@ -349,6 +397,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                     className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
                   >
                     {f.label}
+                    {f.key === 'ignored' && ignoredList.length > 0 && <span className="ml-1 tabular-nums">{ignoredList.length}</span>}
                   </button>
                 ))}
               </div>
@@ -414,27 +463,61 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               </ul>
             </div>
           )}
+          {ignoreError && (
+            <p role="alert" className="px-1 text-sm text-danger">
+              {ignoreError}
+            </p>
+          )}
           {statusFailures > 0 && phase !== 'stopped' && (
             <p className="px-1 text-sm text-muted">{plural(statusFailures, 'fiche membre illisible', 'fiches membres illisibles')} : adhésion non vérifiée.</p>
           )}
 
-          {outings && phase === 'done' && rows.length === 0 && (
+          {filter !== 'ignored' && outings && phase === 'done' && active.length === 0 && (
             <p className="py-10 text-center text-muted">
               {outings.length === 0 ? `Aucune sortie avec des inscrits dans les ${DAYS_AHEAD} prochains jours.` : 'Tous les inscrits sont en règle.'}
             </p>
           )}
-          {outings && rows.length > 0 && shown.length === 0 && <p className="py-10 text-center text-muted">Personne n’est concerné par ce document.</p>}
+          {filter !== 'ignored' && outings && active.length > 0 && shown.length === 0 && <p className="py-10 text-center text-muted">Personne n’est concerné par ce document.</p>}
+
+          {filter === 'ignored' &&
+            (ignoredList.length === 0 ? (
+              <p className="py-10 text-center text-muted">Aucun membre ignoré.</p>
+            ) : (
+              <ul className="space-y-2">
+                {ignoredList.map((i) => (
+                  <li key={i.uct} className="card px-3 py-2.5 flex items-center gap-3">
+                    <Avatar name={i.name} picture={i.row?.picture ?? ''} size="sm" initials={false} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium text-ink leading-snug break-words">{i.name}</span>
+                      <span className="block text-sm text-muted">
+                        Ignoré par {i.by} le {new Date(i.at).toLocaleDateString('fr-FR')}
+                      </span>
+                    </span>
+                    <button type="button" onClick={() => void setIgnore({ uct: i.uct, name: i.name }, false)} className="btn btn-quiet h-9 text-sm shrink-0">
+                      <Undo2 className="w-4 h-4" /> Ne plus ignorer
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ))}
 
           {shown.length > 0 && (
             <ul className="space-y-2">
               {shown.map((r) => (
-                <MemberCard key={r.key} row={r} checked={selected.has(r.key)} onToggle={() => toggle(r.key)} onRemind={() => setReminder({ rows: [r], bulk: false })} />
+                <MemberCard
+                  key={r.key}
+                  row={r}
+                  checked={selected.has(r.key)}
+                  onToggle={() => toggle(r.key)}
+                  onRemind={() => setReminder({ rows: [r], bulk: false })}
+                  onIgnore={r.uct ? () => void setIgnore(r, true) : undefined}
+                />
               ))}
             </ul>
           )}
         </div>
 
-        {rows.length > 0 && (
+        {filter !== 'ignored' && active.length > 0 && (
           <div className="sticky bottom-0 shrink-0 bg-surface border-t border-line px-4 sm:px-6 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="text-base text-ink font-medium">{plural(picked.length, 'sélectionné', 'sélectionnés')}</span>
             <button type="button" onClick={toggleAll} className="btn btn-quiet h-9 text-sm">
@@ -457,8 +540,8 @@ function IssueChip({ issue }: { issue: DocIssue }) {
   return <span className={`rounded-md px-1.5 text-sm ${tone}`}>{issue.text}</span>;
 }
 
-function MemberCard({ row, checked, onToggle, onRemind }: { row: Row; checked: boolean; onToggle: () => void; onRemind: () => void }) {
-  const [next, ...others] = row.concerns;
+function MemberCard({ row, checked, onToggle, onRemind, onIgnore }: { row: Row; checked: boolean; onToggle: () => void; onRemind: () => void; onIgnore?: () => void }) {
+  const next = row.concerns[0];
   return (
     <li className={`card border-l-4 ${row.level === 'red' ? 'border-l-danger' : 'border-l-warn'} px-3 py-2.5 flex items-start gap-3`}>
       <label className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer">
@@ -471,28 +554,23 @@ function MemberCard({ row, checked, onToggle, onRemind }: { row: Row; checked: b
               <IssueChip key={i.kind} issue={i} />
             ))}
           </span>
-          {next && (
-            <span className="mt-1 block text-sm text-muted">
-              {dayLabel(next.outing.date)} · {next.outing.title}
-              {next.waitingList && ' (liste d’attente)'}
-              {others.length > 0 && (
-                <span title={others.map((c) => `${dayLabel(c.outing.date)} · ${c.outing.title}`).join('\n')}>
-                  {' '}
-                  + {plural(others.length, 'autre sortie', 'autres sorties')} ({others.map((c) => dayLabel(c.outing.date)).join(', ')})
-                </span>
-              )}
-            </span>
-          )}
+          {next && <span className="mt-1 block text-sm text-muted">Prochaine sortie : {dayLabel(next.outing.date)}</span>}
         </span>
       </label>
-      <button type="button" onClick={onRemind} className="btn btn-quiet h-9 text-sm shrink-0">
-        Relancer
-      </button>
+      <span className="flex flex-col sm:flex-row items-stretch gap-1.5 shrink-0">
+        <button type="button" onClick={onRemind} className="btn btn-quiet h-9 text-sm">
+          Relancer
+        </button>
+        {onIgnore && (
+          <button type="button" onClick={onIgnore} title="Ne plus afficher ce membre" className="btn btn-quiet h-9 text-sm text-muted">
+            <EyeOff className="w-4 h-4" /> Ignorer
+          </button>
+        )}
+      </span>
     </li>
   );
 }
 
-/** Relance : texte modifiable, envoyé par e-mail (mailto:) ou dans la messagerie de l'appli. */
 function ReminderSheet({ rows, bulk, me, onClose, onSessionLost }: { rows: Row[]; bulk: boolean; me: Me; onClose: () => void; onSessionLost: (e: unknown) => boolean }) {
   const first = rows[0]!;
   const next = first.concerns[0]!;

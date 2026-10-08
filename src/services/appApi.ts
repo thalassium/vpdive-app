@@ -55,6 +55,8 @@ export interface ChatSummary {
 }
 export type ChatThread = ChatSummary & { messages: ChatMessage[] };
 
+export type IgnoredDocs = Record<string, { name: string; by: string; at: string }>;
+
 export class AppApiError extends Error {
   constructor(
     message: string,
@@ -88,6 +90,10 @@ export const appApi = {
   setRole: (uct: string, change: { admin?: boolean; superAdmin?: boolean }) =>
     call<{ roles: RoleEntry[] }>('action=role', { method: 'POST', body: { uct, ...change } }).then((r) => r.roles),
   getOuting: (event: string) => call<{ doc: OutingDoc | null }>(`action=outing&event=${encodeURIComponent(event)}`).then((r) => r.doc),
+  /** Suivi des documents : membres ignorés (uct → nom, qui, quand), partagés entre admins. */
+  docsIgnored: () => call<{ ignored: IgnoredDocs }>('action=docs_ignored').then((r) => r.ignored),
+  setDocsIgnored: (uct: string, name: string, ignore: boolean) =>
+    call<{ ignored: IgnoredDocs }>('action=docs_ignored', { method: 'POST', body: { uct, name, ignore } }).then((r) => r.ignored),
   chats: () => call<{ conversations: ChatSummary[] }>('action=chats').then((r) => r.conversations),
   chat: (id: string) => call<ChatThread>(`action=chat&id=${encodeURIComponent(id)}`),
   /** Une personne : la conversation à deux (retrouvée si elle existe). Plusieurs : un nouveau groupe. */

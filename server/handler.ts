@@ -50,6 +50,9 @@ interface RolesDoc {
 const emptyRoles = (): RolesDoc => ({ version: 2, superAdmins: [], admins: [], revoked: [], known: {} });
 const rolesKey = (c: Caller) => `club:${c.clubId}:roles`;
 const outingKey = (c: Caller, event: string) => `club:${c.clubId}:outing:${event}`;
+/** Membres que les admins ont choisi d'ignorer dans le suivi des documents. */
+const docsIgnoredKey = (c: Caller) => `club:${c.clubId}:docs-ignored`;
+export type IgnoredDoc = Record<string, { name: string; by: string; at: string }>;
 
 const envSuperAdmins = () =>
   (process.env.SUPER_ADMIN_EMAILS ?? '')
@@ -150,6 +153,22 @@ export async function handle(request: Request): Promise<Response> {
         const body = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
         if (action === 'chat_new') return json(await startConversation(store, who, body));
         if (action === 'chat_send') return json({ message: await sendMessage(store, who, body) });
+      }
+    }
+
+    // Suivi des documents : liste partagée des membres ignorés (admins seulement).
+    if (action === 'docs_ignored') {
+      if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
+      const ignored = (await store.get<IgnoredDoc>(docsIgnoredKey(caller))) ?? {};
+      if (request.method === 'GET') return json({ ignored });
+      if (request.method === 'POST') {
+        const body = (await request.json().catch(() => null)) as { uct?: string; name?: string; ignore?: boolean } | null;
+        const uct = body?.uct ?? '';
+        if (!/^[\w-]{20,80}$/.test(uct)) throw new HttpError(400, 'Membre inconnu.');
+        if (body?.ignore) ignored[uct] = { name: String(body.name ?? '').slice(0, 120), by: caller.name || caller.email, at: new Date().toISOString() };
+        else delete ignored[uct];
+        await store.set(docsIgnoredKey(caller), ignored);
+        return json({ ignored });
       }
     }
 
