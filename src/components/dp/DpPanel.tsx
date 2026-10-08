@@ -168,7 +168,7 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
   }
   return (
     <section className="py-2">
-      <h3 className="px-4 pt-2 pb-1 label">{label}</h3>
+      <h3 className="sticky top-0 z-10 bg-surface px-4 pt-2 pb-1 label">{label}</h3>
       {months.map((m) => (
         <div key={m.key}>
           <div className="flex items-center gap-2 px-4 pt-3 pb-1.5" role="separator">

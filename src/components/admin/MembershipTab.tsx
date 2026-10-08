@@ -336,8 +336,10 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
           {shown.length === 0 ? (
             <p className="py-10 text-center text-muted">{rows.length ? 'Personne dans ce filtre.' : 'Aucune adhésion ni licence pour cette saison.'}</p>
           ) : (
-            <div className="lg:rounded-xl lg:border lg:border-line lg:bg-surface overflow-hidden">
-              <div className={`hidden lg:grid ${GRID} gap-4 px-4 py-2.5 border-b border-line bg-raised`}>
+            // Pas d'overflow-hidden ici : la barre de titres reste collée en haut pendant le défilement.
+            <div className="lg:rounded-xl lg:border lg:border-line lg:bg-surface">
+              {/* -top-4 : la zone qui défile a 1 rem de marge interne, la barre doit coller à son bord. */}
+      <div className={`hidden lg:grid ${GRID} gap-4 px-4 py-2.5 border-b border-line bg-raised lg:rounded-t-xl sticky -top-4 z-10`}>
                 {['Personne', 'Fiche VPDive', 'Licence FFESSM', `Adhésion ${seasonLabel(season)}`, 'Brevets'].map((h) => (
                   <span key={h} className="label">
                     {h}
@@ -369,7 +371,7 @@ const EMOJI: Record<Cell['mark'], { sign: string; label: string }> = {
 function PersonRow({ row, season, onChoose }: { row: Row; season: number; onChoose: (uct: string | null) => void }) {
   const { p, match, view, pending } = row;
   return (
-    <li className={`card lg:rounded-none lg:border-0 lg:shadow-none grid gap-3 lg:gap-4 p-4 lg:px-4 lg:py-3 ${GRID} items-start`}>
+    <li className={`card lg:rounded-none lg:last:rounded-b-xl lg:border-0 lg:shadow-none grid gap-3 lg:gap-4 p-4 lg:px-4 lg:py-3 ${GRID} items-start`}>
       <div className="min-w-0">
         <p className="font-semibold text-ink break-words">{p.name}</p>
         <p className="text-sm text-muted">

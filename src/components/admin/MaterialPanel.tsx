@@ -90,7 +90,7 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
           <aside className="hidden md:flex flex-col w-72 shrink-0 border-r border-line overflow-y-auto overscroll-contain">
             {sections.map((s) => (
               <section key={s.title} className="py-2">
-                <h3 className="px-4 pt-2 pb-1 label">{s.title}</h3>
+                <h3 className="sticky top-0 z-10 bg-surface px-4 pt-2 pb-1 label">{s.title}</h3>
                 <ul>
                   {s.list.map((e) => (
                     <li key={e.token}>

@@ -346,7 +346,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
 
   return (
     <RolesContext.Provider value={roleMap}>
-    <div className="space-y-7">
+    <div className="space-y-6">
       {locked && (
         <div className="p-4 rounded-xl bg-ok-soft text-ok flex flex-wrap items-center gap-3">
           <ShieldCheck className="w-5 h-5 shrink-0" />
@@ -365,16 +365,20 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
       {/* 1. Qui plonge : encadrants du plus haut au plus bas, puis plongeurs ; validé par le DP avant les palanquées */}
       {!locked && !rosterOk && (
         <section>
-          <Heading n={1} hint={`${diving.length} à l’eau sur ${roster.length}`}>
+          <SectionHead
+            n={1}
+            tone="mid"
+            hint={`${diving.length} à l’eau sur ${roster.length}`}
+            actions={
+              hasChoices && (
+                <ActionButton onClick={reset} icon={<RotateCcw className="w-4 h-4" />} title="Aptitudes et formations reviennent à celles de VPDive">
+                  Réinitialiser
+                </ActionButton>
+              )
+            }
+          >
             Qui plonge ?
-          </Heading>
-          {hasChoices && (
-            <div className="-mt-1 mb-3">
-              <ActionButton onClick={reset} icon={<RotateCcw className="w-4 h-4" />} title="Aptitudes et formations reviennent à celles de VPDive">
-                Réinitialiser
-              </ActionButton>
-            </div>
-          )}
+          </SectionHead>
           {roster.length === 0 && gone.length === 0 ? (
             <p className="text-muted">Personne n’est encore inscrit à cette sortie.</p>
           ) : (
@@ -416,19 +420,27 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
 
       {!locked && rosterOk && (
         <section>
-          <Heading n={1} hint={`${diving.filter((d) => isInstructor(d) && !d.training).length} encadrant${diving.filter((d) => isInstructor(d) && !d.training).length > 1 ? 's' : ''} · ${diving.filter((d) => d.training).length} en formation`}>
+          <SectionHead
+            n={1}
+            tone="mid"
+            hint={`${diving.filter((d) => isInstructor(d) && !d.training).length} encadrant${diving.filter((d) => isInstructor(d) && !d.training).length > 1 ? 's' : ''} · ${diving.filter((d) => d.training).length} en formation`}
+            actions={
+              <ActionButton onClick={() => setConfirmed(false)} icon={<Pencil className="w-4 h-4" />}>
+                Modifier les plongeurs
+              </ActionButton>
+            }
+          >
             {diving.length} à l’eau
-          </Heading>
-          <ActionButton onClick={() => setConfirmed(false)} icon={<Pencil className="w-4 h-4" />}>
-            Modifier les plongeurs
-          </ActionButton>
+          </SectionHead>
         </section>
       )}
 
       {/* 2. Palanquées : générées ou composées, puis validées */}
       {!locked && rosterOk && !plan && (
         <section>
-          <Heading n={2}>Palanquées</Heading>
+          <SectionHead n={2} tone="deep">
+            Palanquées
+          </SectionHead>
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
@@ -450,33 +462,30 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
 
       {plan && (
         <section>
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            {locked ? (
-              <h3 className="text-lg font-semibold text-brand">
-                {plan.palanquees.length} palanquée{plan.palanquees.length > 1 ? 's' : ''}
-              </h3>
-            ) : (
-              <Heading n={2} hint={`${plan.palanquees.length} palanquée${plan.palanquees.length > 1 ? 's' : ''}`}>
-                Palanquées
-              </Heading>
-            )}
-            {/* Sur téléphone, les actions occupent toute la ligne et se la partagent */}
-            <div className="flex flex-wrap w-full sm:w-auto items-center gap-2">
-              {!locked && (
-                <ActionButton onClick={generate} icon={<Sparkles className="w-4 h-4" />}>
-                  Refaire
+          <SectionHead
+            n={locked ? undefined : 2}
+            tone="deep"
+            hint={locked ? undefined : `${plan.palanquees.length} palanquée${plan.palanquees.length > 1 ? 's' : ''}`}
+            actions={
+              <>
+                {!locked && (
+                  <ActionButton onClick={generate} icon={<Sparkles className="w-4 h-4" />}>
+                    Refaire
+                  </ActionButton>
+                )}
+                {!locked && (
+                  <ActionButton onClick={() => onPlan(addPalanquee(plan, diving))} icon={<Plus className="w-4 h-4" />} title="Nouvelle palanquée">
+                    Palanquée
+                  </ActionButton>
+                )}
+                <ActionButton onClick={share} icon={copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}>
+                  {copied ? 'Texte copié' : 'Partager'}
                 </ActionButton>
-              )}
-              {!locked && (
-                <ActionButton onClick={() => onPlan(addPalanquee(plan, diving))} icon={<Plus className="w-4 h-4" />} title="Nouvelle palanquée">
-                  Palanquée
-                </ActionButton>
-              )}
-              <ActionButton onClick={share} icon={copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}>
-                {copied ? 'Texte copié' : 'Partager'}
-              </ActionButton>
-            </div>
-          </div>
+              </>
+            }
+          >
+            {locked ? `${plan.palanquees.length} palanquée${plan.palanquees.length > 1 ? 's' : ''}` : 'Palanquées'}
+          </SectionHead>
 
           <div className="grid md:grid-cols-2 gap-3">
             {plan.palanquees.map((p, i) => (
@@ -555,7 +564,9 @@ function RolesSection({
   const byId = new Map(roster.map((r) => [r.id, r]));
   return (
     <section>
-      <h3 className="text-lg font-semibold text-brand mb-2">Rôles de la sortie</h3>
+      <SectionHead tone="surface" hint="DP, pilote, sécurité surface">
+        Rôles de la sortie
+      </SectionHead>
       <ul className="card border-l-4 border-l-brand divide-y divide-line">
         {DIVE_ROLES.map((role) => {
           const ids = roles[role.id] ?? [];
@@ -808,8 +819,8 @@ function GuestForm({ onAdd }: { onAdd: (g: Guest) => void }) {
 function RosterGroup({ title, count, training = true, children }: { title: string; count: number; training?: boolean; children: ReactNode }) {
   return (
     <div>
-      {/* Titres de colonne alignés sur les menus (même largeur, même retrait que les lignes). */}
-      <div className="flex items-end gap-1.5 mb-2 pr-[calc(0.75rem+1px)] sm:pr-[calc(0.875rem+1px)]">
+      {/* Titres de colonne alignés sur les menus (même largeur, même retrait que les lignes) ; la barre reste visible pendant le défilement. */}
+      <div className="sticky top-0 z-10 bg-canvas flex items-end gap-1.5 pt-2 pb-1.5 mb-1 pr-[calc(0.75rem+1px)] sm:pr-[calc(0.875rem+1px)] print:static">
         <h4 className="label flex-1">
           {title} <span className="font-normal">· {count}</span>
         </h4>
@@ -1140,14 +1151,31 @@ function MoveSelect({
   );
 }
 
-export function Heading({ n, hint, children }: { n: number; hint?: string; children: ReactNode }) {
+/**
+ * Bandeau de titre d'un bloc de l'écran DP, d'un bord à l'autre de la zone :
+ * c'est lui qui sépare les blocs. Sa couleur suit la coupe de mer des
+ * statistiques, de la surface vers le fond au fil des étapes : rôles de la
+ * sortie (surface), qui plonge (on descend), palanquées (au fond). Le rose
+ * reste aux pavillons P1, P2… des palanquées.
+ */
+const TONE: Record<'surface' | 'mid' | 'deep', string> = { surface: 'var(--sea-12)', mid: 'var(--sea-40)', deep: 'var(--sea-60)' };
+
+export function SectionHead({ n, tone, hint, actions, children }: { n?: number; tone: keyof typeof TONE; hint?: string; actions?: ReactNode; children: ReactNode }) {
+  const color = TONE[tone];
   return (
-    <div className="flex items-center justify-between gap-2 mb-3">
-      <h3 className="flex items-center gap-2.5 text-lg font-semibold text-brand">
-        <span className="w-6 h-6 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">{n}</span>
+    <div className="relative -mx-5 sm:-mx-6 mb-4 px-5 sm:px-6 py-2.5 bg-raised border-y border-line flex flex-wrap items-center gap-x-3 gap-y-2 print:mx-0 print:px-0 print:bg-transparent print:border-0">
+      <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: color }} />
+      <h3 className="flex items-center gap-2.5 text-base sm:text-lg font-semibold text-brand leading-tight">
+        {n !== undefined && (
+          <span className="w-6 h-6 rounded-full text-white text-sm font-bold flex items-center justify-center shrink-0" style={{ background: color }}>
+            {n}
+          </span>
+        )}
         {children}
       </h3>
-      {hint && <span className="text-sm text-muted text-right">{hint}</span>}
+      {hint && <span className="text-sm text-muted">{hint}</span>}
+      {/* Sur téléphone, les actions prennent la ligne suivante et se la partagent. */}
+      {actions && <div className="flex flex-wrap w-full sm:w-auto sm:ml-auto items-center gap-2">{actions}</div>}
     </div>
   );
 }

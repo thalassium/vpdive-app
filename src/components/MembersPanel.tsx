@@ -207,7 +207,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
           {groups.map(({ label, list }) =>
             list.length === 0 && label ? null : (
               <section key={label || 'results'}>
-                {label && <h3 className="label sticky top-0 z-10 bg-surface px-3 pt-3 pb-1">{label}</h3>}
+                {label && <h3 className="label sticky -top-3 z-10 bg-surface px-3 pt-3 pb-1">{label}</h3>}
                 <ul>
                   {list.map((m) => (
                     <MemberRow

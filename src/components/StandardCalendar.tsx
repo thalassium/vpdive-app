@@ -332,6 +332,10 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
  * L'agenda en lignes, comme les vues « planning » des agendas mobiles : une
  * colonne de date par jour, puis une ligne par sortie (heure, titre, un seul
  * état). Le lieu et le détail sont dans la fiche, à un tap.
+ *
+ * Deux poids de filet disent la hiérarchie sans titre : un filet plein entre
+ * les jours, un filet atténué entre les sorties d'un même jour ; la gouttière
+ * de date, légèrement teintée, tient le jour d'un seul bloc.
  */
 export function AgendaList({
   dates,
@@ -358,7 +362,7 @@ export function AgendaList({
             aria-label={dayLabel(date)}
             className="grid grid-cols-[3.25rem_1fr] sm:grid-cols-[4rem_1fr]"
           >
-            <div className="flex flex-col items-center gap-1 pt-2.5 pb-2 border-r border-line">
+            <div className="flex flex-col items-center gap-1 pt-2.5 pb-2 border-r border-line bg-raised/60">
               <span className="text-sm text-muted leading-none">{d.toLocaleDateString('fr-FR', { weekday: 'short' })}</span>
               <span
                 className={`w-8 h-8 inline-flex items-center justify-center rounded-full text-xl font-semibold tabular-nums leading-none ${
@@ -374,7 +378,7 @@ export function AgendaList({
                 </span>
               )}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 divide-y divide-line/60">
               {(byDay[date] ?? []).map((ev) => (
                 <EventRow key={ev.token} ev={ev} onClick={() => onOpenEvent(ev)} />
               ))}
@@ -413,7 +417,7 @@ function Skeletons() {
     <div className="card divide-y divide-line overflow-hidden animate-pulse" aria-hidden>
       {[0, 1, 2].map((i) => (
         <div key={i} className="grid grid-cols-[3.25rem_1fr] sm:grid-cols-[4rem_1fr] h-24">
-          <div className="border-r border-line" />
+          <div className="border-r border-line bg-raised/60" />
           <div className="p-3 space-y-3">
             <div className="h-4 w-3/4 rounded-md bg-tint" />
             <div className="h-4 w-1/2 rounded-md bg-tint" />
