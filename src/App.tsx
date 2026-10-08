@@ -390,8 +390,11 @@ export default function App() {
         <svg aria-hidden className="absolute bottom-full inset-x-0 w-full h-6 text-band" viewBox="0 0 1440 24" preserveAspectRatio="none">
           <path fill="currentColor" d="M0 14 C 180 2 360 2 540 12 S 900 24 1080 12 S 1320 4 1440 10 V24 H0 Z" />
         </svg>
-        {/* Le Cromagnon navigue sur la vague du pied de page */}
-        <Cromagnon className="absolute bottom-full right-[6%] mb-1 w-40 sm:w-52 text-brand pointer-events-none" />
+        {/*
+          Le Cromagnon dans le creux de la vague : le point le plus bas de la courbe (x = 810 sur 1440, soit 56 %)
+          n'est qu'à 4 px au-dessus du bandeau, la coque repose sur la surface au lieu de disparaître dedans.
+        */}
+        <Cromagnon className="absolute bottom-full left-[calc(56%-5rem)] sm:left-[calc(56%-6.5rem)] -mb-0.5 w-40 sm:w-52 text-brand pointer-events-none" />
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
           <Logo tone="white" className="h-12 opacity-90" />
           <div className="text-center sm:text-right space-y-1">
