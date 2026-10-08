@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { aptitudesFromLabels, depthOf, proposePalanquees, validate, type Diver, type Plan } from './palanquees';
-import { NO_TRAINING, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setExtra, setType } from './palanqueeEdit';
+import { NO_TRAINING, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setExtra, setType, trainingMenuFor } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
@@ -264,4 +264,22 @@ test('changer d’encadrant : l’ancien prend la place laissée quand il le peu
   assert.equal(moved.palanquees.find((p) => p.id === 't2')!.guide?.id, a.id);
   assert.equal(moved.palanquees.find((p) => p.id === 't1')!.guide, null, 'les FN3 attendent un enseignant');
   assert.deepEqual(moved.unassigned.map((u) => u.diver.id), [e2.id]);
+});
+
+test('F# : seulement les formations au-dessus du niveau du plongeur', () => {
+  const menu = (...labels: string[]) => trainingMenuFor(aptitudesFromLabels(labels)).flatMap((g) => g.options.map((o) => o.value));
+  assert.deepEqual(menu(), ['FN1', 'FN2', 'FPA20', 'FPE40', 'FN3', 'FPA40', 'FPE60', 'FPA60', 'FN4'], 'sans niveau : tout');
+  assert.deepEqual(menu('P1'), ['FN2', 'FPA20', 'FPE40', 'FN3', 'FPA40', 'FPE60', 'FPA60', 'FN4']);
+  assert.deepEqual(menu('PA20'), ['FN2', 'FPE40', 'FN3', 'FPA40', 'FPE60', 'FPA60', 'FN4'], 'un PA20 ne voit jamais le Niveau 1');
+  assert.deepEqual(menu('PE40'), ['FN2', 'FPA20', 'FN3', 'FPA40', 'FPE60', 'FPA60', 'FN4']);
+  assert.deepEqual(menu('P2'), ['FN3', 'FPA40', 'FPE60', 'FPA60', 'FN4']);
+  assert.deepEqual(menu('P2', 'PA40'), ['FN3', 'FPE60', 'FPA60', 'FN4']);
+  assert.deepEqual(menu('P3'), ['FN4']);
+});
+
+test('encadrant : jamais en formation, ni F# choisi, ni prépa VPDive', () => {
+  const r = { ...entry('e', 'Encadrant', ['P4']), training: ['Prépa N4'] };
+  const [d] = rosterToDivers([r], { training: { e: 'FN4' } });
+  assert.equal(d!.training, 0);
+  assert.deepEqual(d!.labels, ['P4']);
 });

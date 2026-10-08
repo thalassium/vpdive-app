@@ -3,7 +3,7 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, canGuideExploration, canTeach, extraLabel, guideLabel, kindLabel, memberLabel, prerogativeLabel, settleKind, studentsOf, toTeaching, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, canGuideExploration, canTeach, extraLabel, guideLabel, isInstructor, kindLabel, memberLabel, prerogativeLabel, settleKind, studentsOf, toTeaching, type Aptitudes, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -31,6 +31,48 @@ export const TRAINING_MENU: { title: string; options: { value: (typeof TRAINING_
   { title: 'Niveau 3', options: [{ value: 'FN3', label: 'Niveau 3' }, { value: 'FPA40', label: 'PA40' }, { value: 'FPE60', label: 'PE60' }, { value: 'FPA60', label: 'PA60' }] },
   { title: 'Niveau 4', options: [{ value: 'FN4', label: 'Niveau 4' }] },
 ];
+type Training = (typeof TRAINING_OPTIONS)[number];
+
+/**
+ * Ordre des formations, par bloc de prérequis :
+ * N1 · PA20 = PE40 · N2 · PA40 · PE60 = PA60 · N3 · N4.
+ */
+const TRAINING_RANK: Record<Training, number> = { FN1: 1, FPA20: 2, FPE40: 2, FN2: 3, FPA40: 4, FPE60: 5, FPA60: 5, FN3: 6, FN4: 7 };
+
+/** Ce que la prérogative du plongeur lui donne déjà : inutile de s'y former. */
+function holds(t: Training, a: Pick<Aptitudes, 'pe' | 'pa' | 'guide'>): boolean {
+  switch (t) {
+    case 'FN1':
+      return a.pe >= 20;
+    case 'FPA20':
+      return a.pa >= 20;
+    case 'FPE40':
+      return a.pe >= 40;
+    case 'FN2':
+      return a.pe >= 40 && a.pa >= 20;
+    case 'FPA40':
+      return a.pa >= 40;
+    case 'FPE60':
+      return a.pe >= 60;
+    case 'FPA60':
+      return a.pa >= 60;
+    case 'FN3':
+      return a.pe >= 60 && a.pa >= 60;
+    case 'FN4':
+      return a.guide === 'GP' || a.guide === 'E3' || a.guide === 'E4';
+  }
+}
+
+/**
+ * Formations proposées à un plongeur : celles qu'il n'a pas encore, à partir
+ * de son niveau — un PA20 ne voit ni le Niveau 1, ni le PA20, mais voit le
+ * PE40 (même bloc) et la suite. Sans niveau connu : toutes.
+ */
+export function trainingMenuFor(a: Pick<Aptitudes, 'pe' | 'pa' | 'guide'>): typeof TRAINING_MENU {
+  const rank = Math.max(0, ...TRAINING_OPTIONS.filter((t) => holds(t, a)).map((t) => TRAINING_RANK[t]));
+  return TRAINING_MENU.map((g) => ({ ...g, options: g.options.filter((o) => !holds(o.value, a) && TRAINING_RANK[o.value] >= rank) })).filter((g) => g.options.length > 0);
+}
+
 /** « N2 », « PA20 » : la formation telle qu'on la lit sur le bouton. */
 export const trainingShort = (value: string): string => (value.startsWith('FN') ? `N${value.slice(2)}` : value.slice(1));
 /** « Pas en formation » choisi par le DP : l'emporte sur une prépa VPDive. */
@@ -58,8 +100,10 @@ export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = 
     const forced = settings.levels?.[r.id];
     const base = forced ? [forced] : r.levels;
     // Les « prépas » VPDive comptent aussi (« Prépa N2 » vaut FN2), sauf si le DP
-    // a choisi « Pas en formation » pour cette sortie (NO_TRAINING).
-    const choice = settings.training?.[r.id];
+    // a choisi « Pas en formation » pour cette sortie (NO_TRAINING). Un encadrant
+    // n'est jamais en formation : ni F#, ni prépa.
+    const instructor = isInstructor(aptitudesFromLabels(base));
+    const choice = instructor ? NO_TRAINING : settings.training?.[r.id];
     const fn = choice === NO_TRAINING ? undefined : choice;
     const labels = [...base, ...(fn ? [fn] : choice === NO_TRAINING ? [] : r.training)];
     return {

@@ -44,6 +44,7 @@ import {
   setExtra,
   removeGuide,
   setType,
+  trainingMenuFor,
 } from '../../lib/palanqueeEdit';
 import { DIVE_ROLES, dayParticipants, defaultRoles, rolesOf, toggleRole, type Dive, type DiveRole, type OutingDoc, type Roles } from '../../lib/outing';
 import { Menu } from '../Menu';
@@ -195,6 +196,13 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
     const fn = fnChoice === NO_TRAINING ? undefined : fnChoice;
     const prepa = aptitudesFromLabels(r.training).training;
     const current = fn ?? (prepa && fnChoice !== NO_TRAINING ? `FN${prepa}` : '');
+    // Formations au-dessus du niveau retenu (VPDive ou choisi à la main) ; la formation en cours reste proposée.
+    const offered = trainingMenuFor(aptitudesFromLabels(forcedRaw ? [forcedRaw] : r.levels));
+    const trainingGroups = TRAINING_MENU.map((g) => ({
+      title: g.title,
+      options: g.options.filter((o) => o.value === current || offered.some((og) => og.options.some((x) => x.value === o.value))),
+    })).filter((g) => g.options.length > 0);
+    const instructor = isInstructor(d);
     const setLevel = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'levels', d.id, v) });
     const setTraining = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) });
     // Sous le nom : mineur, liste d'attente, et le niveau tel que VPDive l'écrit (P2, PADI - AOW…).
@@ -243,7 +251,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             { title: 'Encadrant', selected: forcedRaw, onSelect: setLevel, options: PREROGATIVE_OPTIONS.instructors.map((v) => ({ value: v, label: v })) },
           ]}
         />
-        {/* F# : formation du jour, vers un niveau (FN2) ou une aptitude (FPA20). Un moniteur aussi peut être élève ce jour-là. */}
+        {/* F# : formation du jour, vers un niveau (FN2) ou une aptitude (FPA20), au-dessus du niveau du plongeur. Pas pour un encadrant. */}
+        {!instructor && (
         <Menu
           ariaLabel={`Formation de ${d.name}`}
           triggerClassName={`btn h-9 px-1.5 gap-0.5 text-sm ${FN_COL} ${current ? 'border border-brand bg-tint text-brand' : 'btn-quiet text-muted'}`}
@@ -259,7 +268,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
               onSelect: setTraining,
               options: prepa ? [{ value: NO_TRAINING, label: 'Pas en formation' }, { value: '', label: `Prépa N${prepa}`, hint: 'VPDive' }] : [{ value: '', label: 'Pas en formation' }],
             },
-            ...TRAINING_MENU.map((group) => ({
+            ...trainingGroups.map((group) => ({
               title: group.title,
               selected: current,
               onSelect: setTraining,
@@ -267,6 +276,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             })),
           ]}
         />
+        )}
       </li>
     );
   };
@@ -299,7 +309,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             <p className="text-muted">Personne n’est encore inscrit à cette sortie.</p>
           ) : (
             <div className="space-y-4">
-              <RosterGroup title="Encadrants" count={divers.filter(isInstructor).length}>
+              <RosterGroup title="Encadrants" count={divers.filter(isInstructor).length} training={false}>
                 {divers.filter(isInstructor).sort(byRank).map(rosterRow)}
               </RosterGroup>
               <RosterGroup title="Plongeurs" count={divers.filter((d) => !isInstructor(d)).length}>
@@ -508,7 +518,7 @@ function RolesSection({ roster, roles, excluded, onRoles }: { roster: RosterEntr
   );
 }
 
-function RosterGroup({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+function RosterGroup({ title, count, training = true, children }: { title: string; count: number; training?: boolean; children: ReactNode }) {
   return (
     <div>
       {/* Titres de colonne alignés sur les menus (même largeur, même retrait que les lignes). */}
@@ -519,7 +529,7 @@ function RosterGroup({ title, count, children }: { title: string; count: number;
         {count > 0 && (
           <>
             <span className={`label text-center ${APT_COL}`}>Apt.</span>
-            <span className={`label text-center ${FN_COL}`}>F#</span>
+            {training && <span className={`label text-center ${FN_COL}`}>F#</span>}
           </>
         )}
       </div>
