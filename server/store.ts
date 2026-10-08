@@ -13,6 +13,9 @@ export interface Store {
   set<T>(key: string, value: T): Promise<void>;
   /** Supprime les clés qui correspondent au motif (« * » = n'importe quoi) ; renvoie leur nombre. */
   deleteMatching(pattern: string): Promise<number>;
+  /** Pose un verrou s'il est libre (il expire de lui-même après `ttlMs`) ; false si quelqu'un le tient déjà. */
+  lock(key: string, ttlMs: number): Promise<boolean>;
+  unlock(key: string): Promise<void>;
 }
 
 /** Motif à étoiles (« club:*:chat* ») → expression régulière ancrée. */
@@ -56,11 +59,17 @@ function redisStore(): Store | null {
       } while (String(cursor) !== '0');
       return deleted;
     },
+    // SET NX PX : posé seulement si la clé n'existe pas, avec expiration.
+    lock: async (key, ttlMs) => (await redis.set(key, 1, { nx: true, px: ttlMs })) === 'OK',
+    unlock: async (key) => {
+      await redis.del(key);
+    },
   };
 }
 
-function fileStore(): Store {
-  const file = '.data/app-store.json';
+/** Stockage local dans un fichier JSON (verrous en mémoire : un seul processus en développement). */
+export function fileStore(file = '.data/app-store.json'): Store {
+  const locks = new Map<string, number>();
   const read = async (): Promise<Record<string, unknown>> => {
     const { readFile } = await import('node:fs/promises');
     try {
@@ -69,25 +78,36 @@ function fileStore(): Store {
       return {};
     }
   };
+  const write = async (all: Record<string, unknown>) => {
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    const { dirname } = await import('node:path');
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, JSON.stringify(all, null, 2));
+  };
   return {
     get: async <T,>(key: string) => ((await read())[key] as T) ?? null,
     set: async (key, value) => {
-      const { mkdir, writeFile } = await import('node:fs/promises');
       const all = await read();
       all[key] = value;
-      await mkdir('.data', { recursive: true });
-      await writeFile(file, JSON.stringify(all, null, 2));
+      await write(all);
     },
     deleteMatching: async (pattern) => {
-      const { mkdir, writeFile } = await import('node:fs/promises');
       const all = await read();
       const re = globToRegExp(pattern);
       const keys = Object.keys(all).filter((k) => re.test(k));
       if (!keys.length) return 0;
       for (const k of keys) delete all[k];
-      await mkdir('.data', { recursive: true });
-      await writeFile(file, JSON.stringify(all, null, 2));
+      await write(all);
       return keys.length;
+    },
+    lock: async (key, ttlMs) => {
+      const until = locks.get(key);
+      if (until !== undefined && until > Date.now()) return false;
+      locks.set(key, Date.now() + ttlMs);
+      return true;
+    },
+    unlock: async (key) => {
+      locks.delete(key);
     },
   };
 }

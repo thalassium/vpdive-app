@@ -75,4 +75,13 @@ export const appApi = {
   /** Refused with status 409 (body.doc = the newer version) when someone saved in between. */
   saveOuting: (event: string, doc: OutingDoc, baseRev: number) =>
     call<{ doc: OutingDoc }>(`action=outing&event=${encodeURIComponent(event)}`, { method: 'POST', body: { doc, baseRev } }).then((r) => r.doc),
+  /**
+   * Logout: the server drops its cached copy of this session. Call it before
+   * vpdive.logout() (the headers are still needed). Never rejects: fire-and-forget safe.
+   */
+  logout: (): Promise<void> =>
+    call<{ ok: boolean }>('action=logout', { method: 'POST' }).then(
+      () => undefined,
+      () => undefined,
+    ),
 };

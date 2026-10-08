@@ -84,6 +84,11 @@ export async function identify(request: Request): Promise<Caller> {
   return caller;
 }
 
+/** Déconnexion : on oublie ce jeton, le prochain appel qui le présente sera revérifié auprès de VPDive. */
+export function forget(authHeader: string): void {
+  cache.delete(authHeader);
+}
+
 /** L'appelant est-il inscrit comme « Directeur de plongée » sur cette sortie dans VPDive ? */
 export async function isDpOf(caller: Caller, eventToken: string): Promise<boolean> {
   if (!/^[\w-]{10,80}$/.test(eventToken)) return false;

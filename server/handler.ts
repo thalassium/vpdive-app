@@ -2,6 +2,7 @@
  * API de l'appli (/api/app), au-dessus de VPDive :
  *
  *   GET  ?action=me                       qui je suis, mon rôle dans l'appli
+ *   POST ?action=logout                   déconnexion : le serveur oublie la session mise en cache
  *   GET  ?action=roles                    admin : les membres qui ont un rôle dans l'appli
  *   POST ?action=role     {uct, admin?, superAdmin?}   super-admin : donner ou retirer un rôle
  *   GET  ?action=outing&event=<token>     admin ou DP de la sortie : plongées et fiches
@@ -22,32 +23,46 @@
  *
  * Retirer le rôle admin ici ne change rien dans VPDive : la personne garde ses
  * droits sur vpdive.com, elle perd seulement les écrans admin de l'appli.
+ *
+ * Clés du stockage, par club :
+ *   club:<id>:roles                  rôles donnés / retirés (écrit seulement par ?action=role)
+ *   club:<id>:known                  ce que l'appli sait de chaque membre connecté (écrit à chaque passage)
+ *   club:<id>:outing:<event>         fiche de la sortie
+ *   club:<id>:outing:<event>:lock    verrou le temps d'un enregistrement
+ *   club:<id>:docs-ignored           suivi des documents
  */
-import { HttpError, identify, isDpOf, type Caller } from './auth.js';
+import { HttpError, forget, identify, isDpOf, type Caller } from './auth.js';
 import { getStore, type Store } from './store.js';
 
 export type AppRole = 'superadmin' | 'admin' | 'member';
 
 /** Ce que l'appli sait d'un membre qui s'est connecté (pour les admins VPDive et les super-admins par e-mail). */
-interface KnownMember {
+export interface KnownMember {
   email: string;
   name: string;
   vpdiveAdmin: boolean;
   lastSeen: string;
 }
+export type KnownMap = Record<string, KnownMember>;
 
-interface RolesDoc {
+export interface RolesDoc {
   version: 2;
   superAdmins: string[];
   /** Nommés admin dans l'appli. */
   admins: string[];
   /** Admins VPDive à qui le rôle admin de l'appli a été retiré. */
   revoked: string[];
-  known: Record<string, KnownMember>;
+  /**
+   * Ancien emplacement des membres connus (avant la clé club:<id>:known) :
+   * fusionné dans la nouvelle clé à la première lecture, retiré d'ici au
+   * prochain enregistrement d'un rôle.
+   */
+  known?: KnownMap;
 }
 
-const emptyRoles = (): RolesDoc => ({ version: 2, superAdmins: [], admins: [], revoked: [], known: {} });
+const emptyRoles = (): RolesDoc => ({ version: 2, superAdmins: [], admins: [], revoked: [] });
 const rolesKey = (c: Caller) => `club:${c.clubId}:roles`;
+const knownKey = (c: Caller) => `club:${c.clubId}:known`;
 const outingKey = (c: Caller, event: string) => `club:${c.clubId}:outing:${event}`;
 /** Membres que les admins ont choisi d'ignorer dans le suivi des documents. */
 const docsIgnoredKey = (c: Caller) => `club:${c.clubId}:docs-ignored`;
@@ -59,25 +74,25 @@ const envSuperAdmins = () =>
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
 
-const lockedSuper = (uct: string, roles: RolesDoc) => {
-  const email = roles.known[uct]?.email;
+export const lockedSuper = (uct: string, known: KnownMap) => {
+  const email = known[uct]?.email;
   return !!email && envSuperAdmins().includes(email);
 };
 
-function roleOf(uct: string, roles: RolesDoc): AppRole {
-  if (roles.superAdmins.includes(uct) || lockedSuper(uct, roles)) return 'superadmin';
-  if (roles.admins.includes(uct) || (roles.known[uct]?.vpdiveAdmin && !roles.revoked.includes(uct))) return 'admin';
+export function roleOf(uct: string, roles: RolesDoc, known: KnownMap): AppRole {
+  if (roles.superAdmins.includes(uct) || lockedSuper(uct, known)) return 'superadmin';
+  if (roles.admins.includes(uct) || (known[uct]?.vpdiveAdmin && !roles.revoked.includes(uct))) return 'admin';
   return 'member';
 }
 
 /** Les membres qui ont un rôle (et les admins VPDive à qui on l'a retiré), pour la liste des membres. */
-function roleEntries(roles: RolesDoc) {
-  const ucts = new Set([...roles.superAdmins, ...roles.admins, ...roles.revoked, ...Object.keys(roles.known).filter((u) => roles.known[u]!.vpdiveAdmin || lockedSuper(u, roles))]);
+export function roleEntries(roles: RolesDoc, known: KnownMap) {
+  const ucts = new Set([...roles.superAdmins, ...roles.admins, ...roles.revoked, ...Object.keys(known).filter((u) => known[u]!.vpdiveAdmin || lockedSuper(u, known))]);
   return [...ucts].map((uct) => ({
     uct,
-    role: roleOf(uct, roles),
-    vpdiveAdmin: !!roles.known[uct]?.vpdiveAdmin,
-    lockedSuperAdmin: lockedSuper(uct, roles),
+    role: roleOf(uct, roles, known),
+    vpdiveAdmin: !!known[uct]?.vpdiveAdmin,
+    lockedSuperAdmin: lockedSuper(uct, known),
     revoked: roles.revoked.includes(uct),
   }));
 }
@@ -87,36 +102,97 @@ const json = (data: unknown, status = 200) =>
 
 const MAX_DOC_BYTES = 400_000;
 
+/** Corps JSON d'une requête : null s'il est vide ou n'est pas un objet ; 400 s'il est illisible. */
+export function parseBody(text: string): Record<string, unknown> | null {
+  if (!text.trim()) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new HttpError(400, 'Contenu illisible.');
+  }
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+}
+
+const LOCK_TTL_MS = 3_000;
+const LOCK_WAIT_MS = 1_500;
+const LOCK_RETRY_MS = 100;
+
+/** Essaie de prendre le verrou pendant `waitMs` au plus (un essai toutes les `retryMs`). */
+export async function acquireLock(store: Store, key: string, waitMs = LOCK_WAIT_MS, retryMs = LOCK_RETRY_MS): Promise<boolean> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    if (await store.lock(key, LOCK_TTL_MS)) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, retryMs));
+  }
+}
+
 /**
  * La messagerie de l'appli est désormais celle de VPDive : les conversations de
  * l'ancienne messagerie maison (club:<id>:chat…) sont effacées une fois pour toutes,
- * au premier appel qui suit la mise en ligne.
+ * au premier appel qui suit la mise en ligne. Une fois fait, on ne relit plus la
+ * marque tant que l'instance reste chaude.
  */
 const CHAT_PURGED = 'app:chat-purged-v1';
+let purged = false;
 async function purgeOldChat(store: Store): Promise<void> {
-  if (await store.get(CHAT_PURGED)) return;
-  const deleted = await store.deleteMatching('club:*:chat*');
-  await store.set(CHAT_PURGED, { at: new Date().toISOString(), deleted });
+  if (purged) return;
+  if (!(await store.get(CHAT_PURGED))) {
+    const deleted = await store.deleteMatching('club:*:chat*');
+    await store.set(CHAT_PURGED, { at: new Date().toISOString(), deleted });
+  }
+  purged = true;
 }
 
-export async function handle(request: Request): Promise<Response> {
+/**
+ * Rôles et membres connus du club. Les membres connus ont leur propre clé
+ * (écrite à chaque passage) pour ne pas écraser un changement de rôle en cours.
+ * Un ancien document qui les contient encore est fusionné une fois dans la nouvelle clé.
+ */
+async function loadRoles(store: Store, caller: Caller): Promise<{ roles: RolesDoc; known: KnownMap }> {
+  const [savedRoles, savedKnown] = await Promise.all([store.get<RolesDoc | { version?: number }>(rolesKey(caller)), store.get<KnownMap>(knownKey(caller))]);
+  // Première version (rôles par identifiant de compte, avant octobre 2026) : on repart de zéro.
+  const roles: RolesDoc = savedRoles && savedRoles.version === 2 ? (savedRoles as RolesDoc) : emptyRoles();
+  let known: KnownMap = savedKnown ?? {};
+  if (savedKnown === null && roles.known) {
+    known = { ...roles.known };
+    await store.set(knownKey(caller), known);
+  }
+  return { roles, known };
+}
+
+/** Ce dont `handle` a besoin ; remplaçable dans les tests (pas de VPDive ni de base). */
+export interface Deps {
+  identify(request: Request): Promise<Caller>;
+  isDpOf(caller: Caller, eventToken: string): Promise<boolean>;
+  store(): Store;
+}
+
+export const handle = (request: Request): Promise<Response> => handleWith(request, { identify, isDpOf, store: getStore });
+
+export async function handleWith(request: Request, deps: Deps): Promise<Response> {
   try {
     const url = new URL(request.url);
     const action = url.searchParams.get('action');
-    const caller = await identify(request);
-    const store = getStore();
+    const caller = await deps.identify(request);
+
+    if (action === 'logout' && request.method === 'POST') {
+      forget(request.headers.get('authorization') ?? '');
+      return json({ ok: true });
+    }
+
+    const store = deps.store();
     await purgeOldChat(store);
-    const saved = await store.get<RolesDoc | { version?: number }>(rolesKey(caller));
-    // Première version (rôles par identifiant de compte, avant octobre 2026) : on repart de zéro.
-    const roles: RolesDoc = saved && saved.version === 2 ? (saved as RolesDoc) : emptyRoles();
+    const { roles, known } = await loadRoles(store, caller);
 
     // Chaque passage met à jour ce que l'appli sait de la personne (admin VPDive, e-mail).
-    const known = roles.known[caller.uct];
-    if (!known || known.vpdiveAdmin !== caller.vpdiveAdmin || known.email !== caller.email || Date.now() - Date.parse(known.lastSeen) > 600_000) {
-      roles.known[caller.uct] = { email: caller.email, name: caller.name, vpdiveAdmin: caller.vpdiveAdmin, lastSeen: new Date().toISOString() };
-      await store.set(rolesKey(caller), roles);
+    const me = known[caller.uct];
+    if (!me || me.vpdiveAdmin !== caller.vpdiveAdmin || me.email !== caller.email || Date.now() - Date.parse(me.lastSeen) > 600_000) {
+      known[caller.uct] = { email: caller.email, name: caller.name, vpdiveAdmin: caller.vpdiveAdmin, lastSeen: new Date().toISOString() };
+      await store.set(knownKey(caller), known);
     }
-    const role = roleOf(caller.uct, roles);
+    const role = roleOf(caller.uct, roles, known);
 
     if (action === 'me' && request.method === 'GET') {
       return json({ id: caller.id, uct: caller.uct, email: caller.email, name: caller.name, vpdiveAdmin: caller.vpdiveAdmin, role });
@@ -125,18 +201,18 @@ export async function handle(request: Request): Promise<Response> {
     if (action === 'roles' && request.method === 'GET') {
       if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
       // Dernière connexion à l'appli (à 10 minutes près) de chaque membre qui l'a ouverte.
-      const seen = Object.fromEntries(Object.entries(roles.known).map(([u, k]) => [u, k.lastSeen]));
-      return json({ roles: roleEntries(roles), seen });
+      const seen = Object.fromEntries(Object.entries(known).map(([u, k]) => [u, k.lastSeen]));
+      return json({ roles: roleEntries(roles, known), seen });
     }
 
     if (action === 'role' && request.method === 'POST') {
       if (role !== 'superadmin') throw new HttpError(403, 'Réservé aux super-admins.');
-      const body = (await request.json().catch(() => null)) as { uct?: string; admin?: boolean; superAdmin?: boolean } | null;
+      const body = parseBody(await request.text()) as { uct?: string; admin?: boolean; superAdmin?: boolean } | null;
       const uct = body?.uct ?? '';
       if (!/^[\w-]{20,80}$/.test(uct)) throw new HttpError(400, 'Membre inconnu.');
       const removing = body?.superAdmin === false || body?.admin === false;
       if (removing && uct === caller.uct) throw new HttpError(400, 'Vous ne pouvez pas retirer vos propres rôles.');
-      if (removing && lockedSuper(uct, roles)) throw new HttpError(400, 'Super-admin défini dans les réglages Vercel (SUPER_ADMIN_EMAILS) : à retirer là-bas.');
+      if (removing && lockedSuper(uct, known)) throw new HttpError(400, 'Super-admin défini dans les réglages Vercel (SUPER_ADMIN_EMAILS) : à retirer là-bas.');
       const add = (list: string[]) => [...new Set([...list, uct])];
       const drop = (list: string[]) => list.filter((x) => x !== uct);
       if (body?.superAdmin === true) {
@@ -154,8 +230,10 @@ export async function handle(request: Request): Promise<Response> {
         roles.superAdmins = drop(roles.superAdmins);
         roles.revoked = add(roles.revoked);
       }
+      // Les membres connus vivent désormais dans leur propre clé : on ne les réécrit plus ici.
+      delete roles.known;
       await store.set(rolesKey(caller), roles);
-      return json({ roles: roleEntries(roles) });
+      return json({ roles: roleEntries(roles, known) });
     }
 
     // Suivi des documents : liste partagée des membres ignorés (admins seulement).
@@ -164,7 +242,7 @@ export async function handle(request: Request): Promise<Response> {
       const ignored = (await store.get<IgnoredDoc>(docsIgnoredKey(caller))) ?? {};
       if (request.method === 'GET') return json({ ignored });
       if (request.method === 'POST') {
-        const body = (await request.json().catch(() => null)) as { uct?: string; name?: string; ignore?: boolean } | null;
+        const body = parseBody(await request.text()) as { uct?: string; name?: string; ignore?: boolean } | null;
         const uct = body?.uct ?? '';
         if (!/^[\w-]{20,80}$/.test(uct)) throw new HttpError(400, 'Membre inconnu.');
         if (body?.ignore) ignored[uct] = { name: String(body.name ?? '').slice(0, 120), by: caller.name || caller.email, at: new Date().toISOString() };
@@ -177,33 +255,42 @@ export async function handle(request: Request): Promise<Response> {
     if (action === 'outing') {
       const event = url.searchParams.get('event') ?? '';
       if (!/^[\w-]{10,80}$/.test(event)) throw new HttpError(400, 'Sortie inconnue.');
-      if (role === 'member' && !(await isDpOf(caller, event))) {
+      if (role === 'member' && !(await deps.isDpOf(caller, event))) {
         throw new HttpError(403, 'Réservé aux admins et au directeur de plongée de la sortie.');
       }
       const key = outingKey(caller, event);
-      const current = await store.get<{ rev: number }>(key);
 
-      if (request.method === 'GET') return json({ doc: current });
+      if (request.method === 'GET') return json({ doc: await store.get<{ rev: number }>(key) });
 
       if (request.method === 'POST') {
         const text = await request.text();
         if (text.length > MAX_DOC_BYTES) throw new HttpError(413, 'Fiche trop volumineuse.');
-        const body = JSON.parse(text) as { doc?: Record<string, unknown>; baseRev?: number };
-        if (!body.doc || typeof body.doc !== 'object') throw new HttpError(400, 'Contenu manquant.');
-        const rev = current?.rev ?? 0;
-        if ((body.baseRev ?? 0) !== rev) {
-          return json({ error: 'Quelqu’un a modifié cette sortie entre-temps. Rechargez pour voir sa version.', doc: current }, 409);
+        const body = parseBody(text) as { doc?: Record<string, unknown>; baseRev?: number } | null;
+        if (!body?.doc || typeof body.doc !== 'object') throw new HttpError(400, 'Contenu manquant.');
+        const conflict = (current: unknown) =>
+          json({ error: 'Quelqu’un a modifié cette sortie entre-temps. Rechargez pour voir sa version.', doc: current }, 409);
+        // Lecture, comparaison et écriture sous verrou : deux enregistrements simultanés ne peuvent pas se croiser.
+        const lockKey = `${key}:lock`;
+        if (!(await acquireLock(store, lockKey))) return conflict(await store.get<{ rev: number }>(key));
+        try {
+          const current = await store.get<{ rev: number }>(key);
+          const rev = current?.rev ?? 0;
+          if ((body.baseRev ?? 0) !== rev) return conflict(current);
+          const doc = { ...body.doc, rev: rev + 1, updatedAt: new Date().toISOString(), updatedBy: caller.name || caller.email };
+          await store.set(key, doc);
+          return json({ doc });
+        } finally {
+          // Si le relâchement échoue, le verrou expire de lui-même (LOCK_TTL_MS).
+          await store.unlock(lockKey).catch((e) => console.error('[api/app] unlock', e));
         }
-        const doc = { ...body.doc, rev: rev + 1, updatedAt: new Date().toISOString(), updatedBy: caller.name || caller.email };
-        await store.set(key, doc);
-        return json({ doc });
       }
     }
 
     throw new HttpError(404, 'Action inconnue.');
   } catch (e) {
     if (e instanceof HttpError) return json({ error: e.message }, e.status);
-    console.error(e);
-    return json({ error: e instanceof Error ? e.message : 'Erreur serveur.' }, 500);
+    // Le détail reste dans les journaux ; le client n'en voit qu'un message générique.
+    console.error('[api/app]', e);
+    return json({ error: 'Erreur serveur.' }, 500);
   }
 }
