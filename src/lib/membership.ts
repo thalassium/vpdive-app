@@ -386,7 +386,8 @@ export interface VpRecord {
   birthday: string;
   /** Saisons d'adhésion (« 2027 »…). */
   seasons: string[];
-  licences: { number: string; organization: string; expires: string }[];
+  /** `id` et `verified` (vérifiée auprès de la FFESSM) : VPDive sait alors l'actualiser seul. */
+  licences: { number: string; organization: string; expires: string; id?: number; verified?: boolean }[];
   insurance: string;
   insuranceYear: number | null;
   /** Statut « Membre » (sinon Invité). */
@@ -565,3 +566,67 @@ export const viewOf = (p: Person, r: VpRecord | null, season: number, brevets: R
 export const needsVpdiveFix = (v: PersonView) => [v.licence, v.adhesion, v.brevets].some((i) => i.vpdive.mark === 'missing' || i.vpdive.mark === 'diff');
 /** Oubli probable : payé sur HelloAsso mais pas pris à la FFESSM (ou l'inverse). */
 export const federationIssue = (v: PersonView) => v.licence.ffessm.mark === 'missing' || v.licence.ffessm.mark === 'diff';
+
+// ── Corrections rapides (étape 3) et arbitrage (étape 4) ──────────
+
+/**
+ * Une correction sans risque, à pousser dans VPDive d'un clic (avec la liste,
+ * en lot) : elle n'ajoute qu'une valeur connue et sûre à la fiche d'un membre
+ * reconnu avec certitude, sans rien retirer.
+ *   season     ajouter la saison payée sur HelloAsso (geste d'août compris)
+ *   insurance  reporter l'assurance prise à la FFESSM
+ *   licence    prolonger la licence déjà vérifiée : VPDive la relit lui-même à la FFESSM
+ */
+export type FixKind = 'season' | 'insurance' | 'licence';
+export interface Fix {
+  kind: FixKind;
+  before: string;
+  after: string;
+  /** Licence à actualiser (kind « licence »). */
+  licenceId?: number;
+}
+
+/** Les corrections rapides d'une personne (aucune si elle n'est pas reconnue avec certitude). */
+export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: number): Fix[] {
+  if (match.status !== 'sure' || !r) return [];
+  const out: Fix[] = [];
+  const label = seasonLabel(season);
+  if (p.ha?.adhesion && !r.seasons.includes(String(season))) {
+    const had = r.seasons.slice(0, 2).map((x) => seasonLabel(Number(x))).join(', ');
+    out.push({ kind: 'season', before: had ? `saisons ${had}` : 'aucune saison', after: `+ ${label}${p.ha.bonus ? ' (payée en août)' : ''}` });
+  }
+  const wanted = p.ffessm ? vpdiveInsurance(p.ffessm.insurance) : null;
+  if (wanted && r.insurance !== wanted) out.push({ kind: 'insurance', before: r.insurance || 'aucune', after: wanted });
+  if (p.ffessm) {
+    const same = r.licences.find((l) => flatLicence(l.number) === flatLicence(p.ffessm!.licence));
+    if (same && same.verified && same.id && (!same.expires || same.expires < licenceEnd(season))) {
+      out.push({ kind: 'licence', before: same.expires ? `jusqu’au ${frDate(same.expires)}` : 'sans date de fin', after: `jusqu’au 31/12/${season}`, licenceId: same.id });
+    }
+  }
+  return out;
+}
+
+/** Ce qui se décide au cas par cas, à la main (dans l'appli ou sur VPDive / Mon Club). */
+export type CaseKind = 'homonym' | 'absent' | 'guest' | 'licence-add' | 'licence-manual' | 'not-taken' | 'unpaid' | 'season-unpaid' | 'brevets' | 'no-licence';
+export interface Case {
+  kind: CaseKind;
+  text: string;
+}
+
+export function arbitrageCases(p: Person, match: Match, r: VpRecord | null, v: PersonView, fixes: Fix[]): Case[] {
+  const out: Case[] = [];
+  if (match.status === 'confirm') out.push({ kind: 'homonym', text: 'Plusieurs membres VPDive possibles : choisir le bon.' });
+  if (match.status === 'missing' && !match.why) out.push({ kind: 'absent', text: 'Pas de fiche VPDive à ce nom : créer ou inviter la personne, ou la chercher sous un autre nom.' });
+  if (v.licence.ffessm.mark === 'missing') out.push({ kind: 'not-taken', text: 'Licence payée sur HelloAsso, pas prise à la FFESSM : à prendre sur Mon Club.' });
+  if (v.licence.ffessm.mark === 'diff') out.push({ kind: 'unpaid', text: 'Licence prise à la FFESSM sans paiement HelloAsso.' });
+  if (!p.ha?.licence && !p.ha?.pass && !p.ffessm && p.ha?.adhesion) out.push({ kind: 'no-licence', text: 'Ni licence ni Pass plongée payés au club : licence prise dans un autre club ?' });
+  if (!r) return out;
+  if (!r.member && p.ha?.adhesion) out.push({ kind: 'guest', text: 'Statut Invité dans VPDive : à passer en Membre.' });
+  if (v.licence.vpdive.mark === 'missing') out.push({ kind: 'licence-add', text: `Licence ${p.ffessm?.licence ?? 'FFESSM'} absente de la fiche VPDive : à ajouter.` });
+  if (v.licence.vpdive.mark === 'diff' && !fixes.some((f) => f.kind === 'licence')) {
+    out.push({ kind: 'licence-manual', text: `Licence dans VPDive : ${v.licence.vpdive.text} (pas d’actualisation automatique : licence non vérifiée ou autre numéro).` });
+  }
+  if (v.adhesion.vpdive.mark === 'diff' && r.member) out.push({ kind: 'season-unpaid', text: `Saison ${v.adhesion.vpdive.text.replace('saison sans paiement', 'présente dans VPDive sans adhésion HelloAsso')}.` });
+  if (v.brevets.vpdive.mark === 'missing' || v.brevets.vpdive.mark === 'diff') out.push({ kind: 'brevets', text: `Brevets FFESSM à ajouter dans VPDive : ${v.brevets.vpdive.text.replace(/^(absents|manque)\s*:?\s*/, '')}.` });
+  return out;
+}

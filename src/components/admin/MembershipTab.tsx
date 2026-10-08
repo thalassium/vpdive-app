@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, FileUp, Loader2, RefreshCw, Search, Settings, UserX, X } from 'lucide-react';
+import { AlertTriangle, ExternalLink, FileUp, Loader2, RefreshCw, Search, Settings, UserX, X } from 'lucide-react';
 import { BrevetMapView } from './BrevetMapView';
 import { Avatar } from '../Avatar';
 import { MemberSearch } from '../dp/MemberSearch';
 import { vpdive } from '../../services/vpdiveApi';
 import { appApi, type FfessmImport } from '../../services/appApi';
 import {
+  arbitrageCases,
+  quickFixes,
   brevetsByLicence,
   buildPeople,
   candidatesFor,
@@ -18,7 +20,11 @@ import {
   seasonOf,
   viewOf,
   type BrevetMap,
+  type Case,
+  type CaseKind,
   type Cell,
+  type Fix,
+  type FixKind,
   type FfessmBrevet,
   type HaItem,
   type ItemView,
@@ -32,18 +38,16 @@ import {
 import { normalizeName } from '../../lib/fuzzy';
 
 /**
- * Onglet « Adhésions » : chaque personne de la saison vue par HelloAsso (ce qui
- * est payé), la FFESSM (la licence prise, export Mon Club déposé ici) et VPDive
- * (la fiche), avec ce qu'il reste à corriger. Rien n'est écrit dans VPDive :
- * c'est l'étape suivante. Les fiches VPDive sont lues une à une, avec une pause
- * (pare-feu), et gardées 6 h dans la session.
+ * Gestion des adhésions, étapes 2 à 4 : chaque personne de la saison vue par
+ * HelloAsso (ce qui est payé), la FFESSM (la licence prise, export Mon Club
+ * déposé ici) et VPDive (la fiche). Voir MembershipTab plus bas.
  */
 
 const READ_GAP_MS = 500;
 const MAX_FAILURES = 3;
 const CACHE_TTL_MS = 6 * 3600_000;
-// v2 : la fiche garde aussi les niveaux (comparés aux brevets FFESSM).
-const cacheKey = (uct: string) => `member-record:v2:${uct}`;
+// v3 : la fiche garde aussi les niveaux (brevets) et l'identifiant / la vérification FFESSM des licences.
+const cacheKey = (uct: string) => `member-record:v3:${uct}`;
 function readCache(uct: string): VpRecord | null {
   try {
     const v = JSON.parse(sessionStorage.getItem(cacheKey(uct)) ?? 'null') as { at: number; record: VpRecord } | null;
@@ -63,17 +67,58 @@ const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const frDay = (ymd: string) => (ymd ? ymd.slice(0, 10).split('-').reverse().join('/') : '');
 
-type Filter = 'todo' | 'confirm' | 'federation' | 'missing' | 'all';
+export type MembershipStep = 'diagnostic' | 'quickfix' | 'arbitrage';
+type Filter = 'gaps' | 'ok' | 'all';
 interface Row {
   p: Person;
   match: Match;
   record: VpRecord | null;
   view: PersonView;
+  fixes: Fix[];
+  cases: Case[];
   /** Fiches des candidats pas encore lues : le rapprochement peut encore changer. */
   pending: boolean;
 }
 
-export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) => boolean }) {
+const VPDIVE_MEMBER = (uct: string) => `https://septentrion-env.vpdive.com/app/member/${encodeURIComponent(uct)}`;
+
+const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
+  season: { title: `Saison d’adhésion à ajouter`, help: 'Adhésion payée sur HelloAsso (geste d’août compris), saison absente de la fiche VPDive.' },
+  licence: { title: 'Licence FFESSM à prolonger', help: 'Licence déjà vérifiée par VPDive auprès de la FFESSM : VPDive relit lui-même sa nouvelle validité.' },
+  insurance: { title: 'Assurance à reporter', help: 'Assurance prise à la FFESSM (export Mon Club), différente de celle de la fiche VPDive.' },
+};
+const CASE_TITLE: Record<CaseKind, string> = {
+  homonym: 'Homonymes : choisir le bon membre',
+  absent: 'Pas de fiche VPDive',
+  guest: 'Statut Invité à passer en Membre',
+  'licence-add': 'Licence absente de la fiche VPDive',
+  'licence-manual': 'Licence à mettre à jour à la main',
+  'not-taken': 'Licence payée, pas prise à la FFESSM',
+  unpaid: 'Licence prise sans paiement HelloAsso',
+  'season-unpaid': 'Saison sans adhésion HelloAsso',
+  brevets: 'Brevets à ajouter dans VPDive',
+  'no-licence': 'Ni licence ni Pass payés au club',
+};
+const CASE_ORDER: CaseKind[] = ['homonym', 'absent', 'guest', 'licence-add', 'licence-manual', 'not-taken', 'unpaid', 'brevets', 'season-unpaid', 'no-licence'];
+
+/**
+ * Étapes 2 à 4 de la gestion des adhésions, sur les mêmes données (lues une
+ * fois, gardées tant que la fenêtre est ouverte) :
+ *   diagnostic  chaque personne vue par HelloAsso, la FFESSM et VPDive (✅ ❌ ⚠️)
+ *   quickfix    les corrections sans risque, par type, à pousser dans VPDive
+ *   arbitrage   le cas par cas, à décider à la main
+ * Les fiches VPDive sont lues une à une, avec une pause (pare-feu), et gardées
+ * 6 h dans la session ; « Relire les fiches » les relit après des corrections.
+ */
+export function MembershipTab({
+  step,
+  onCounts,
+  onSessionLost,
+}: {
+  step: MembershipStep;
+  onCounts?: (c: { fixes: number; cases: number }) => void;
+  onSessionLost: (e: unknown) => boolean;
+}) {
   // Une seule saison : celle en cours (l'export FFESSM déposé est celui de la saison).
   const season = useMemo(() => seasonOf(new Date().toISOString().slice(0, 10)), []);
   const [items, setItems] = useState<HaItem[] | null>(null);
@@ -89,13 +134,15 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
   const [records, setRecords] = useState<Record<string, VpRecord>>({});
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>('todo');
+  const [filter, setFilter] = useState<Filter>('gaps');
   const [query, setQuery] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** Corrections cochées (clé : personne + type). */
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const lost = useRef(onSessionLost);
   lost.current = onSessionLost;
 
-  // Une fois : export FFESSM, membres VPDive, rapprochements choisis.
+  // Une fois : exports FFESSM, correspondance des brevets, membres VPDive, rapprochements choisis.
   useEffect(() => {
     appApi.ffessmImport().then(setFfessm, (e) => lost.current(e) || setLoadError(message(e)));
     appApi.ffessmBrevets().then(setBrevetsImport, (e) => lost.current(e) || setLoadError(message(e)));
@@ -104,7 +151,6 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
     vpdive.fetchMemberDirectory().then(setDirectory, (e) => lost.current(e) || setLoadError(message(e)));
   }, []);
 
-  // HelloAsso, à chaque saison choisie.
   const loadHelloasso = useCallback(() => {
     setItems(null);
     setHaError(null);
@@ -128,13 +174,14 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
   }, [people, directory, links]);
 
   const run = useRef(0);
-  const readRecords = useCallback(async (ids: string[]) => {
+  /** Lit les fiches ; `fresh` : sans le cache (après des corrections ou des validations). */
+  const readRecords = useCallback(async (ids: string[], fresh = false) => {
     const id = ++run.current;
     setReadError(null);
     const cached: Record<string, VpRecord> = {};
     const todo: string[] = [];
     for (const u of ids) {
-      const c = readCache(u);
+      const c = fresh ? null : readCache(u);
       if (c) cached[u] = c;
       else todo.push(u);
     }
@@ -181,28 +228,21 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
       const match = matchPerson(p, directory, records, links[p.key]);
       const record = match.member ? (records[match.member.id] ?? null) : null;
       const cands = links[p.key] ? [] : candidatesFor(p, directory);
-      return { p, match, record, view: viewOf(p, record, season, brevets, brevetMap), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
+      const view = viewOf(p, record, season, brevets, brevetMap);
+      const fixes = quickFixes(p, match, record, season);
+      return { p, match, record, view, fixes, cases: arbitrageCases(p, match, record, view, fixes), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
     });
   }, [people, directory, links, records, season, brevets, brevetMap]);
 
-  const counts = useMemo(
-    () => ({
-      todo: rows.filter((r) => needsVpdiveFix(r.view)).length,
-      confirm: rows.filter((r) => r.match.status === 'confirm').length,
-      federation: rows.filter((r) => federationIssue(r.view)).length,
-      missing: rows.filter((r) => r.match.status === 'missing').length,
-      all: rows.length,
-    }),
-    [rows],
-  );
+  const fixCount = rows.reduce((n, r) => n + r.fixes.length, 0);
+  const caseCount = rows.filter((r) => r.cases.length > 0).length;
+  useEffect(() => {
+    if (rows.length) onCounts?.({ fixes: fixCount, cases: caseCount });
+  }, [rows.length, fixCount, caseCount, onCounts]);
+
+  const hasGap = (r: Row) => needsVpdiveFix(r.view) || federationIssue(r.view) || r.match.status !== 'sure';
   const q = normalizeName(query);
-  const shown = rows.filter((r) => {
-    if (q && !normalizeName(`${r.p.name} ${r.match.member?.name ?? ''} ${r.p.ffessm?.licence ?? ''}`).includes(q)) return false;
-    if (filter === 'todo') return needsVpdiveFix(r.view);
-    if (filter === 'federation') return federationIssue(r.view);
-    if (filter === 'confirm' || filter === 'missing') return r.match.status === filter;
-    return true;
-  });
+  const matches = (r: Row) => !q || normalizeName(`${r.p.name} ${r.match.member?.name ?? ''} ${r.p.ffessm?.licence ?? ''}`).includes(q);
 
   const choose = async (p: Person, uct: string | null) => {
     try {
@@ -211,15 +251,10 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
       if (!lost.current(e)) setLoadError(message(e));
     }
   };
+  /** Relit sans cache les fiches des membres reconnus (après corrections ou validations). */
+  const refresh = () => void readRecords([...new Set(rows.map((r) => r.match.member?.id).filter((x): x is string => !!x))], true);
 
   const loading = !people || !directory || !links;
-  const FILTERS: { key: Filter; label: string }[] = [
-    { key: 'todo', label: 'À corriger dans VPDive' },
-    { key: 'confirm', label: 'À confirmer' },
-    { key: 'federation', label: 'Licence non prise' },
-    { key: 'missing', label: 'Absents de VPDive' },
-    { key: 'all', label: 'Tous' },
-  ];
 
   if (configOpen) {
     return (
@@ -233,128 +268,258 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
     );
   }
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-        <p className="text-sm text-ink">
-          Saison <strong className="font-semibold">{seasonLabel(season)}</strong>
-          <span className="text-muted"> · ✅ conforme · ❌ absent · ⚠️ différent</span>
-        </p>
-        <div className="space-y-1.5">
-          <FfessmImportBox
-            what="licences"
-            current={ffessm}
-            parse={parseFfessmCsv}
-            save={appApi.saveFfessmImport}
-            onImported={setFfessm}
-            onSessionLost={onSessionLost}
-          />
-          <FfessmImportBox
-            what="brevets"
-            current={brevetsImport}
-            parse={parseFfessmBrevets}
-            save={appApi.saveFfessmBrevets}
-            onImported={setBrevetsImport}
-            onSessionLost={onSessionLost}
-          />
-        </div>
-        <button type="button" onClick={() => setConfigOpen(true)} className="icon-btn ml-auto" aria-label="Réglages : correspondance des brevets" title="Correspondance des brevets">
-          <Settings className="w-5 h-5" />
-        </button>
-      </div>
-
-      {(loadError || haError) && (
-        <div role="alert" className="p-3 rounded-xl bg-danger-soft text-danger text-sm flex flex-wrap items-center gap-3">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span className="flex-1 min-w-0">{haError ? `HelloAsso : ${haError}` : loadError}</span>
-          {haError && (
-            <button type="button" onClick={loadHelloasso} className="btn btn-quiet h-8 text-sm">
-              <RefreshCw className="w-4 h-4" /> Réessayer
-            </button>
-          )}
-        </div>
-      )}
-
-      {loading ? (
-        !haError && !loadError && <p className="py-12 text-center text-muted">Lecture de HelloAsso et des membres VPDive…</p>
+  const progressBar = (progress || readError) && (
+    <div className="flex flex-wrap items-center gap-3 text-sm text-muted" aria-live="polite">
+      {progress ? (
+        <>
+          <span className="tabular-nums">
+            Lecture des fiches VPDive… {progress.done}/{progress.total}
+          </span>
+          <span aria-hidden className="h-1 w-32 rounded-full bg-line overflow-hidden">
+            <span className="block h-full bg-fill transition-[width]" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              run.current++;
+              setProgress(null);
+              setReadError('Lecture arrêtée.');
+            }}
+            className="btn btn-quiet h-8 text-sm"
+          >
+            Arrêter
+          </button>
+        </>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-3">
-            <div role="radiogroup" aria-label="Filtrer" className="inline-flex flex-wrap rounded-lg border border-field-border bg-surface p-1">
-              {FILTERS.map((f) => (
-                <button
-                  key={f.key}
-                  type="button"
-                  role="radio"
-                  aria-checked={filter === f.key}
-                  onClick={() => setFilter(f.key)}
-                  className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
-                >
-                  {f.label} <span className="tabular-nums">{counts[f.key]}</span>
-                </button>
-              ))}
-            </div>
-            <label className="relative flex-1 min-w-[12rem] max-w-xs ml-auto">
-              <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom ou n° de licence" aria-label="Chercher" className="field w-full h-9 pl-9" />
-            </label>
-          </div>
-
-          {(progress || readError) && (
-            <div className="flex flex-wrap items-center gap-3 text-sm text-muted" aria-live="polite">
-              {progress ? (
-                <>
-                  <span className="tabular-nums">
-                    Lecture des fiches VPDive… {progress.done}/{progress.total}
-                  </span>
-                  <span aria-hidden className="h-1 w-32 rounded-full bg-line overflow-hidden">
-                    <span className="block h-full bg-fill transition-[width]" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      run.current++;
-                      setProgress(null);
-                      setReadError('Lecture arrêtée.');
-                    }}
-                    className="btn btn-quiet h-8 text-sm"
-                  >
-                    Arrêter
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="text-danger">{readError}</span>
-                  <button type="button" onClick={() => void readRecords(wanted.filter((u) => !records[u]))} className="btn btn-quiet h-8 text-sm">
-                    <RefreshCw className="w-4 h-4" /> Reprendre
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
-          {shown.length === 0 ? (
-            <p className="py-10 text-center text-muted">{rows.length ? 'Personne dans ce filtre.' : 'Aucune adhésion ni licence pour cette saison.'}</p>
-          ) : (
-            // Pas d'overflow-hidden ici : la barre de titres reste collée en haut pendant le défilement.
-            <div className="lg:rounded-xl lg:border lg:border-line lg:bg-surface">
-              {/* -top-4 : la zone qui défile a 1 rem de marge interne, la barre doit coller à son bord. */}
-      <div className={`hidden lg:grid ${GRID} gap-4 px-4 py-2.5 border-b border-line bg-raised lg:rounded-t-xl sticky -top-4 z-10`}>
-                {['Personne', 'Fiche VPDive', 'Licence FFESSM', `Adhésion ${seasonLabel(season)}`, 'Brevets'].map((h) => (
-                  <span key={h} className="label">
-                    {h}
-                  </span>
-                ))}
-              </div>
-              <ul className="space-y-3 lg:space-y-0 lg:divide-y lg:divide-line">
-                {shown.map((r) => (
-                  <PersonRow key={r.p.key} row={r} season={season} onChoose={(uct) => void choose(r.p, uct)} />
-                ))}
-              </ul>
-            </div>
-          )}
+          <span className="text-danger">{readError}</span>
+          <button type="button" onClick={() => void readRecords(wanted.filter((u) => !records[u]))} className="btn btn-quiet h-8 text-sm">
+            <RefreshCw className="w-4 h-4" /> Reprendre
+          </button>
         </>
       )}
+    </div>
+  );
+
+  const errors = (loadError || haError) && (
+    <div role="alert" className="p-3 rounded-xl bg-danger-soft text-danger text-sm flex flex-wrap items-center gap-3">
+      <AlertTriangle className="w-4 h-4 shrink-0" />
+      <span className="flex-1 min-w-0">{haError ? `HelloAsso : ${haError}` : loadError}</span>
+      {haError && (
+        <button type="button" onClick={loadHelloasso} className="btn btn-quiet h-8 text-sm">
+          <RefreshCw className="w-4 h-4" /> Réessayer
+        </button>
+      )}
+    </div>
+  );
+
+  const search = (
+    <label className="relative flex-1 min-w-[12rem] max-w-xs ml-auto">
+      <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom ou n° de licence" aria-label="Chercher" className="field w-full h-9 pl-9" />
+    </label>
+  );
+
+  // ── 2. Diagnostic ──
+  if (step === 'diagnostic') {
+    const counts = { gaps: rows.filter(hasGap).length, ok: rows.filter((r) => !hasGap(r)).length, all: rows.length };
+    const shown = rows.filter((r) => matches(r) && (filter === 'all' || (filter === 'gaps') === hasGap(r)));
+    const FILTERS: { key: Filter; label: string }[] = [
+      { key: 'gaps', label: 'Avec des écarts' },
+      { key: 'ok', label: 'Conformes' },
+      { key: 'all', label: 'Tous' },
+    ];
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+          <p className="text-sm text-ink">
+            Saison <strong className="font-semibold">{seasonLabel(season)}</strong>
+            <span className="text-muted"> · ✅ conforme · ❌ absent · ⚠️ différent</span>
+          </p>
+          <div className="space-y-1.5">
+            <FfessmImportBox what="licences" current={ffessm} parse={parseFfessmCsv} save={appApi.saveFfessmImport} onImported={setFfessm} onSessionLost={onSessionLost} />
+            <FfessmImportBox what="brevets" current={brevetsImport} parse={parseFfessmBrevets} save={appApi.saveFfessmBrevets} onImported={setBrevetsImport} onSessionLost={onSessionLost} />
+          </div>
+          <button type="button" onClick={() => setConfigOpen(true)} className="icon-btn ml-auto" aria-label="Réglages : correspondance des brevets" title="Correspondance des brevets">
+            <Settings className="w-5 h-5" />
+          </button>
+        </div>
+        {errors}
+        {loading ? (
+          !haError && !loadError && <p className="py-12 text-center text-muted">Lecture de HelloAsso et des membres VPDive…</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <div role="radiogroup" aria-label="Filtrer" className="inline-flex flex-wrap rounded-lg border border-field-border bg-surface p-1">
+                {FILTERS.map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    role="radio"
+                    aria-checked={filter === f.key}
+                    onClick={() => setFilter(f.key)}
+                    className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+                  >
+                    {f.label} <span className="tabular-nums">{counts[f.key]}</span>
+                  </button>
+                ))}
+              </div>
+              {search}
+            </div>
+            {progressBar}
+            {shown.length === 0 ? (
+              <p className="py-10 text-center text-muted">{rows.length ? 'Personne dans ce filtre.' : 'Aucune adhésion ni licence pour cette saison.'}</p>
+            ) : (
+              // Pas d'overflow-hidden ici : la barre de titres reste collée en haut pendant le défilement.
+              <div className="lg:rounded-xl lg:border lg:border-line lg:bg-surface">
+                {/* -top-4 : la zone qui défile a 1 rem de marge interne, la barre doit coller à son bord. */}
+                <div className={`hidden lg:grid ${GRID} gap-4 px-4 py-2.5 border-b border-line bg-raised lg:rounded-t-xl sticky -top-4 z-10`}>
+                  {['Personne', 'Fiche VPDive', 'Licence FFESSM', `Adhésion ${seasonLabel(season)}`, 'Brevets'].map((h) => (
+                    <span key={h} className="label">
+                      {h}
+                    </span>
+                  ))}
+                </div>
+                <ul className="space-y-3 lg:space-y-0 lg:divide-y lg:divide-line">
+                  {shown.map((r) => (
+                    <PersonRow key={r.p.key} row={r} season={season} />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  const refreshButton = (
+    <button type="button" onClick={refresh} disabled={!!progress || loading} className="btn btn-quiet h-9 text-sm" title="Relit les fiches VPDive, sans le cache de la session">
+      <RefreshCw className="w-4 h-4" /> Relire les fiches VPDive
+    </button>
+  );
+
+  // ── 3. Corrections rapides ──
+  if (step === 'quickfix') {
+    const keyOf = (r: Row, f: Fix) => `${r.p.key}|${f.kind}`;
+    const groups = (['season', 'licence', 'insurance'] as FixKind[])
+      .map((kind) => ({ kind, list: rows.filter((r) => matches(r)).flatMap((r) => r.fixes.filter((f) => f.kind === kind).map((f) => ({ r, f }))) }))
+      .filter((g) => g.list.length > 0);
+    const toggle = (k: string) => setPicked((s) => new Set(s.has(k) ? [...s].filter((x) => x !== k) : [...s, k]));
+    const selected = groups.flatMap((g) => g.list).filter(({ r, f }) => picked.has(keyOf(r, f)));
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-muted max-w-2xl">
+            Corrections sans risque : une valeur connue ajoutée à la fiche d’un membre reconnu avec certitude, sans rien retirer. Après les avoir appliquées, relisez les fiches pour
+            mettre le diagnostic à jour.
+          </p>
+          {search}
+        </div>
+        {errors}
+        {progressBar}
+        {loading ? (
+          !haError && !loadError && <p className="py-12 text-center text-muted">Lecture de HelloAsso et des membres VPDive…</p>
+        ) : groups.length === 0 ? (
+          <p className="py-10 text-center text-muted">{progress ? 'Lecture des fiches en cours…' : 'Aucune correction rapide à faire.'}</p>
+        ) : (
+          groups.map(({ kind, list }) => {
+            const all = list.every(({ r, f }) => picked.has(keyOf(r, f)));
+            return (
+              <section key={kind} className="card overflow-hidden">
+                <header className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 bg-raised border-b border-line">
+                  <label className="inline-flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={all}
+                      onChange={() => setPicked((s) => new Set(all ? [...s].filter((k) => !list.some(({ r, f }) => keyOf(r, f) === k)) : [...s, ...list.map(({ r, f }) => keyOf(r, f))]))}
+                      className="w-5 h-5 accent-[var(--fill)]"
+                    />
+                    <span className="font-semibold text-brand">{FIX_TITLE[kind].title}</span>
+                    <span className="text-sm text-muted tabular-nums">· {list.length}</span>
+                  </label>
+                  <span className="basis-full sm:basis-auto sm:ml-auto text-sm text-muted">{FIX_TITLE[kind].help}</span>
+                </header>
+                <ul className="divide-y divide-line">
+                  {list.map(({ r, f }) => (
+                    <li key={keyOf(r, f)}>
+                      <label className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 cursor-pointer hover:bg-raised/60">
+                        <input type="checkbox" checked={picked.has(keyOf(r, f))} onChange={() => toggle(keyOf(r, f))} className="w-5 h-5 accent-[var(--fill)]" />
+                        <span className="w-56 min-w-0 font-medium text-ink truncate">{r.match.member?.name ?? r.p.name}</span>
+                        <span className="text-sm text-muted">{f.before}</span>
+                        <span aria-hidden className="text-muted">→</span>
+                        <span className="text-sm font-semibold text-ok">{f.after}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })
+        )}
+        <div className="sticky -bottom-4 z-10 -mx-3 sm:-mx-5 px-3 sm:px-5 py-3 bg-surface border-t border-line flex flex-wrap items-center gap-3">
+          <button type="button" disabled title="Arrive après le test d’écriture sur une fiche" className="btn btn-primary">
+            Appliquer dans VPDive ({selected.length})
+          </button>
+          {refreshButton}
+          <span className="text-sm text-muted">L’écriture dans VPDive arrive après un test sur une fiche ; en attendant, la liste dit ce qu’il y a à faire.</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 4. Arbitrage ──
+  const caseGroups = CASE_ORDER.map((kind) => ({ kind, list: rows.filter((r) => matches(r) && r.cases.some((c) => c.kind === kind)) })).filter((g) => g.list.length > 0);
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-sm text-muted max-w-2xl">Le cas par cas : ce qui demande une décision ou une saisie à la main, dans l’appli, sur la fiche VPDive ou sur Mon Club.</p>
+        {search}
+      </div>
+      {errors}
+      {progressBar}
+      {loading ? (
+        !haError && !loadError && <p className="py-12 text-center text-muted">Lecture de HelloAsso et des membres VPDive…</p>
+      ) : caseGroups.length === 0 ? (
+        <p className="py-10 text-center text-muted">{progress ? 'Lecture des fiches en cours…' : 'Rien à arbitrer.'}</p>
+      ) : (
+        caseGroups.map(({ kind, list }) => (
+          <section key={kind} className="card overflow-hidden">
+            <header className="flex items-center gap-2 px-4 py-2.5 bg-raised border-b border-line">
+              <span className="font-semibold text-brand">{CASE_TITLE[kind]}</span>
+              <span className="text-sm text-muted tabular-nums">· {list.length}</span>
+            </header>
+            <ul className="divide-y divide-line">
+              {list.map((r) => {
+                const c = r.cases.find((x) => x.kind === kind)!;
+                return (
+                  <li key={r.p.key} className="px-4 py-3 grid gap-2 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,16rem)] items-start">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-ink break-words">{r.p.name}</p>
+                      <p className="text-sm text-muted">{r.p.birthDate ? `né(e) le ${frDay(r.p.birthDate)}` : ''}</p>
+                    </div>
+                    <p className="text-sm text-ink">{c.text}</p>
+                    <div className="min-w-0">
+                      {kind === 'homonym' || kind === 'absent' ? (
+                        <VpdiveCell match={r.match} pending={r.pending} onChoose={(uct) => void choose(r.p, uct)} />
+                      ) : kind === 'not-taken' || kind === 'unpaid' ? (
+                        <a href="https://monclub.ffessm.fr" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-brand underline underline-offset-2">
+                          Ouvrir Mon Club <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      ) : r.match.member ? (
+                        <a href={VPDIVE_MEMBER(r.match.member.id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-brand underline underline-offset-2">
+                          Ouvrir la fiche VPDive <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ))
+      )}
+      <div className="flex flex-wrap items-center gap-3">{refreshButton}</div>
     </div>
   );
 }
@@ -368,7 +533,7 @@ const EMOJI: Record<Cell['mark'], { sign: string; label: string }> = {
 };
 
 /** Une personne : bureau = une ligne de tableau ; téléphone = une carte, blocs empilés. */
-function PersonRow({ row, season, onChoose }: { row: Row; season: number; onChoose: (uct: string | null) => void }) {
+function PersonRow({ row, season }: { row: Row; season: number }) {
   const { p, match, view, pending } = row;
   return (
     <li className={`card lg:rounded-none lg:last:rounded-b-xl lg:border-0 lg:shadow-none grid gap-3 lg:gap-4 p-4 lg:px-4 lg:py-3 ${GRID} items-start`}>
@@ -380,7 +545,7 @@ function PersonRow({ row, season, onChoose }: { row: Row; season: number; onChoo
         </p>
       </div>
       <Block title="Fiche VPDive">
-        <VpdiveCell match={match} pending={pending} onChoose={onChoose} />
+        <VpdiveStatus match={match} pending={pending} />
       </Block>
       <Block title="Licence FFESSM">
         <Item view={view.licence} pending={pending} />
@@ -430,7 +595,28 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** Le membre VPDive : sûr (avec la preuve), à choisir parmi les homonymes, ou introuvable (recherche à la main). */
+/** Diagnostic : le membre VPDive retenu, ou ce qui reste à trancher (à l'étape Arbitrage). */
+function VpdiveStatus({ match, pending }: { match: Match; pending: boolean }) {
+  if (match.status === 'sure' && match.member) {
+    return (
+      <div className="flex items-start gap-2 min-w-0">
+        <Avatar name={match.member.name} picture={match.member.picture} size="sm" initials={false} className="shrink-0" />
+        <div className="min-w-0 text-sm">
+          <p className="font-medium text-ink truncate">{match.member.name}</p>
+          <p className="text-muted">{match.why}</p>
+        </div>
+      </div>
+    );
+  }
+  if (pending) return <p className="text-sm text-muted">Lecture des fiches…</p>;
+  return (
+    <p className="text-sm text-warn font-medium inline-flex items-center gap-1.5">
+      <UserX className="w-4 h-4" /> {match.status === 'confirm' ? 'Homonymes : à trancher (étape 4)' : match.why || 'Pas de fiche VPDive (étape 4)'}
+    </p>
+  );
+}
+
+/** Arbitrage : le membre VPDive sûr, à choisir parmi les homonymes, ou introuvable (recherche à la main). */
 function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boolean; onChoose: (uct: string | null) => void }) {
   const [searching, setSearching] = useState(false);
   if (searching) {

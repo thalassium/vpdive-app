@@ -7,18 +7,29 @@ import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
 import { messaging } from '../../services/messaging';
 import { bulkReminderText, checkDocs, reminderText, seasonOfOuting, type DocIssue, type DocKind, type DocsStatus } from '../../lib/docsCheck';
-import { MembershipTab } from './MembershipTab';
+import { MembershipTab, type MembershipStep } from './MembershipTab';
 import { PendingDocumentsTab, RegistrationRequestsTab } from './PendingTabs';
 import type { PendingValidation } from '../../services/vpdiveApi';
 import type { RegistrationRequest } from '../../services/appApi';
 
-type Tab = 'requests' | 'documents' | 'adhesions' | 'relance';
-const SUBTITLE: Record<Tab, string> = {
-  requests: 'Demandes d’inscription au club à accepter (membre ou invité) ou refuser.',
-  documents: 'Documents et déclarations déposés par les membres, à valider pour que VPDive en tienne compte.',
-  adhesions: 'Chaque membre vu par HelloAsso (paiements), la FFESSM (licence) et VPDive (fiche), et ce qu’il reste à corriger.',
-  relance: '',
+/**
+ * Le parcours, dans l'ordre : 1 à traiter (sinon VPDive ignore la personne ou
+ * le document), 2 diagnostic, 3 corrections rapides (puis relire les fiches),
+ * 4 arbitrage. La relance des inscrits aux prochaines sorties est à part.
+ */
+type Tab = 'todo' | MembershipStep | 'relance';
+const SUBTITLE: Record<Exclude<Tab, 'relance'>, string> = {
+  todo: 'À valider avant les vérifications : tant qu’elles ne sont pas traitées, VPDive ignore ces personnes et ces documents.',
+  diagnostic: 'Chaque membre vu par HelloAsso (paiements), la FFESSM (licence) et VPDive (fiche).',
+  quickfix: 'Les corrections sans risque à pousser dans VPDive, puis relire les fiches.',
+  arbitrage: 'Le cas par cas, à décider à la main.',
 };
+const STEPS: [MembershipStep | 'todo', string][] = [
+  ['todo', 'À traiter'],
+  ['diagnostic', 'Diagnostic'],
+  ['quickfix', 'Corrections rapides'],
+  ['arbitrage', 'Arbitrage'],
+];
 
 interface Me {
   uct: string;
@@ -121,7 +132,10 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
    * sont pas validés, les vérifications les voient manquants). Puis les
    * vérifications : Adhésions (HelloAsso × FFESSM × VPDive) et Relance.
    */
-  const [tab, setTab] = useState<Tab>('requests');
+  const [tab, setTab] = useState<Tab>('todo');
+  const isStep = tab === 'diagnostic' || tab === 'quickfix' || tab === 'arbitrage';
+  /** Compteurs des étapes 3 et 4, calculés par l'onglet des adhésions (monté dès l'ouverture). */
+  const [stepCounts, setStepCounts] = useState<{ fixes: number; cases: number } | null>(null);
   /** L'admin a choisi un onglet : on ne le change plus pour lui. */
   const chosen = useRef(false);
   const [requests, setRequests] = useState<RegistrationRequest[] | null>(null);
@@ -145,7 +159,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   // À l'ouverture : le premier onglet qui a quelque chose à traiter, sinon les adhésions.
   useEffect(() => {
     if (chosen.current || requests === null || pendingDocs === null) return;
-    setTab(requests.length ? 'requests' : pendingDocs.length ? 'documents' : 'adhesions');
+    setTab(requests.length || pendingDocs.length ? 'todo' : 'diagnostic');
   }, [requests, pendingDocs]);
   /** La relance ne lit VPDive qu'une fois son onglet ouvert. */
   const [relanceOpened, setRelanceOpened] = useState(false);
@@ -413,57 +427,53 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               </button>
             </div>
           </div>
-          {/* Onglets : d'abord le groupe « à traiter d'abord » (teinte d'alerte), puis les vérifications. */}
-          <div role="tablist" aria-label="Gestion des adhésions" className="mt-3 flex items-end gap-2 border-b border-line -mb-4 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <div className="flex items-end shrink-0 rounded-t-lg bg-warn-soft px-1 pt-1" role="presentation">
-              <span className="hidden md:inline self-center px-2 text-xs font-semibold text-warn">À traiter d’abord</span>
-              {(
-                [
-                  ['requests', 'Membres à valider', requests?.length],
-                  ['documents', 'Documents en attente', pendingDocs?.length],
-                ] as const
-              ).map(([key, text, count]) => (
+          {/* Onglets : les quatre étapes dans l'ordre (la première, prioritaire, en teinte d'alerte), puis la relance. */}
+          <div role="tablist" aria-label="Gestion des adhésions" className="mt-3 flex items-end gap-1 border-b border-line -mb-4 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {STEPS.map(([key, text], i) => {
+              const count = key === 'todo' ? (requests && pendingDocs ? requests.length + pendingDocs.length : undefined) : key === 'quickfix' ? stepCounts?.fixes : key === 'arbitrage' ? stepCounts?.cases : undefined;
+              const first = key === 'todo';
+              const on = tab === key;
+              return (
                 <button
                   key={key}
                   type="button"
                   role="tab"
-                  aria-selected={tab === key}
+                  aria-selected={on}
                   onClick={() => {
                     chosen.current = true;
                     setTab(key);
                   }}
-                  className={`h-9 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap inline-flex items-center gap-1.5 transition-colors ${
-                    tab === key ? 'border-warn text-warn bg-surface rounded-t-md' : 'border-transparent text-warn/80 hover:text-warn'
+                  className={`h-10 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 inline-flex items-center gap-2 rounded-t-md transition-colors ${
+                    first ? (on ? 'border-warn text-warn bg-warn-soft' : 'border-transparent text-warn bg-warn-soft/60 hover:bg-warn-soft') : on ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'
                   }`}
                 >
+                  <span
+                    aria-hidden
+                    className={`w-5 h-5 rounded-full text-xs font-bold inline-flex items-center justify-center ${first ? 'bg-surface text-warn border border-warn/40' : on ? 'bg-fill text-white' : 'bg-raised text-muted'}`}
+                  >
+                    {i + 1}
+                  </span>
                   {text}
                   {count !== undefined && count > 0 && (
-                    <span className="min-w-5 h-5 px-1.5 rounded-full border border-warn/40 bg-surface text-xs tabular-nums inline-flex items-center justify-center">{count}</span>
+                    <span className={`min-w-5 h-5 px-1.5 rounded-full text-xs tabular-nums inline-flex items-center justify-center border ${first ? 'border-warn/40 bg-surface' : 'border-line bg-surface text-ink'}`}>{count}</span>
                   )}
                 </button>
-              ))}
-            </div>
-            {(
-              [
-                ['adhesions', 'Adhésions'],
-                ['relance', 'Relance'],
-              ] as const
-            ).map(([key, text]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={tab === key}
-                onClick={() => {
-                  chosen.current = true;
-                  setTab(key);
-                  if (key === 'relance') setRelanceOpened(true);
-                }}
-                className={`h-10 px-4 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 transition-colors ${tab === key ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'}`}
-              >
-                {text}
-              </button>
-            ))}
+              );
+            })}
+            <span aria-hidden className="self-center w-px h-6 bg-line mx-2 shrink-0" />
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'relance'}
+              onClick={() => {
+                chosen.current = true;
+                setTab('relance');
+                setRelanceOpened(true);
+              }}
+              className={`h-10 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 transition-colors ${tab === 'relance' ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'}`}
+            >
+              Relance
+            </button>
           </div>
           {tab === 'relance' && outings && (
             <div className="mt-7 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -499,19 +509,27 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
           )}
         </header>
 
-        {tab === 'requests' ? (
-          <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4">
-            <RegistrationRequestsTab requests={requests} error={requestsError} onReload={loadRequests} onChange={setRequests} onSessionLost={onSessionLost} />
+        {tab === 'todo' && (
+          <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4 space-y-8">
+            <section>
+              <h3 className="text-lg font-semibold text-brand mb-2">
+                Membres à valider {requests && requests.length > 0 && <span className="text-muted font-normal tabular-nums">· {requests.length}</span>}
+              </h3>
+              <RegistrationRequestsTab requests={requests} error={requestsError} onReload={loadRequests} onChange={setRequests} onSessionLost={onSessionLost} />
+            </section>
+            <section>
+              <h3 className="text-lg font-semibold text-brand mb-2">
+                Documents en attente {pendingDocs && pendingDocs.length > 0 && <span className="text-muted font-normal tabular-nums">· {pendingDocs.length}</span>}
+              </h3>
+              <PendingDocumentsTab items={pendingDocs} error={docsError} onReload={loadPendingDocs} onChange={setPendingDocs} onSessionLost={onSessionLost} />
+            </section>
           </div>
-        ) : tab === 'documents' ? (
-          <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4">
-            <PendingDocumentsTab items={pendingDocs} error={docsError} onReload={loadPendingDocs} onChange={setPendingDocs} onSessionLost={onSessionLost} />
-          </div>
-        ) : tab === 'adhesions' ? (
-          <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4">
-            <MembershipTab onSessionLost={onSessionLost} />
-          </div>
-        ) : (
+        )}
+        {/* Étapes 2 à 4 : un seul onglet des adhésions, monté dès l'ouverture (données lues une fois, compteurs dans les onglets). */}
+        <div className={isStep ? 'flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4' : 'hidden'}>
+          <MembershipTab step={isStep ? (tab as MembershipStep) : 'diagnostic'} onCounts={setStepCounts} onSessionLost={onSessionLost} />
+        </div>
+        {tab === 'relance' && (
         <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-4 py-3 space-y-3">
           {(loading || verifying || phase === 'stopped') && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted px-1" aria-live="polite">

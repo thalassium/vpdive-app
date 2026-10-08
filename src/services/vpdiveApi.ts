@@ -1027,7 +1027,17 @@ class VpDiveClient {
       email: info.email,
       birthday: info.birthday,
       seasons: info.seasons,
-      licences: info.licences.map((l) => ({ number: l.number, organization: l.organization, expires: l.expires })),
+      // L'identifiant et la vérification FFESSM viennent de la fiche brute : ils disent si VPDive sait actualiser la licence.
+      licences: (Array.isArray(u.licenses) ? u.licenses : [])
+        .map(obj)
+        .filter((l): l is Json => !!l && !!str(l.number))
+        .map((l) => ({
+          number: str(l.number).trim(),
+          organization: str(obj(l.organization)?.name).trim(),
+          expires: str(l.expiration_date).slice(0, 10),
+          id: num(l.id) ?? undefined,
+          verified: l.ffessm_verified === true,
+        })),
       insurance: info.insurance,
       insuranceYear: info.insuranceYear,
       member: obj(u.user_club_traceability)?.allMembers === true,

@@ -13,6 +13,8 @@ import {
   hasBrevet,
   parseFfessmBrevets,
   restoreAccents,
+  quickFixes,
+  arbitrageCases,
   matchPerson,
   parseFfessmCsv,
   seasonOf,
@@ -184,4 +186,34 @@ test('rapprochement : toujours vers un compte Membre ; un invité homonyme n’e
   const two = matchPerson(st!, [...dir, { id: 'm2', name: 'SARTORETTO Stéphane', picture: '' }], { guest: rec({ member: false }), member: rec({}), m2: rec({}) });
   assert.equal(two.status, 'confirm');
   assert.deepEqual(two.candidates.map((c) => c.id).sort(), ['m2', 'member']);
+});
+
+test('corrections rapides : saison, assurance, licence vérifiée à prolonger ; jamais sans rapprochement sûr', () => {
+  const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Loisir 2', category: '', pricing: 'Normal' };
+  const [lea] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [row], 2027);
+  const member = { id: 'u1', name: 'MARTIN Léa', picture: '' };
+  const sure = { status: 'sure' as const, member, why: 'même date de naissance', candidates: [] };
+  const rec: VpRecord = { email: '', birthday: '', seasons: ['2026'], licences: [{ number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2026-12-31', id: 7, verified: true }], insurance: '', insuranceYear: null, member: true, levels: [] };
+  const fixes = quickFixes(lea!, sure, rec, 2027);
+  assert.deepEqual(fixes.map((f) => [f.kind, f.after]), [['season', '+ 2026/2027'], ['insurance', 'Assurance Loisir 2'], ['licence', 'jusqu’au 31/12/2027']]);
+  assert.equal(fixes[2]!.licenceId, 7);
+  assert.deepEqual(quickFixes(lea!, { ...sure, status: 'confirm', member: null }, rec, 2027), [], 'pas de correction tant que le membre est à confirmer');
+  // Licence non vérifiée : pas d'actualisation automatique, c'est un arbitrage.
+  const manual = { ...rec, licences: [{ ...rec.licences[0]!, verified: false }] };
+  const f2 = quickFixes(lea!, sure, manual, 2027);
+  assert.ok(!f2.some((f) => f.kind === 'licence'));
+  const cases = arbitrageCases(lea!, sure, manual, viewOf(lea!, manual, 2027, null), f2);
+  assert.deepEqual(cases.map((c) => c.kind), ['licence-manual']);
+});
+
+test('arbitrage : homonymes, absent, invité, licence non prise, licence à ajouter', () => {
+  const [lea] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [], 2027);
+  const rec: VpRecord = { email: '', birthday: '', seasons: ['2027'], licences: [], insurance: '', insuranceYear: null, member: false, levels: [] };
+  const v = viewOf(lea!, rec, 2027, null);
+  const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
+  assert.deepEqual(arbitrageCases(lea!, sure, rec, v, []).map((c) => c.kind), ['not-taken', 'guest', 'licence-add']);
+  const nobody = { status: 'missing' as const, member: null, why: '', candidates: [] };
+  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null), []).map((c) => c.kind), ['absent', 'not-taken']);
+  const decided = { status: 'missing' as const, member: null, why: 'pas dans VPDive, selon Lucas', candidates: [] };
+  assert.ok(!arbitrageCases(lea!, decided, null, viewOf(lea!, null, 2027, null), []).some((c) => c.kind === 'absent'), 'déjà tranché');
 });
