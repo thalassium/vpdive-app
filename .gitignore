@@ -13,5 +13,6 @@ fixtures/*
 
 # Exports FFESSM / HelloAsso déposés pour la gestion des adhésions : données personnelles
 ListeLicences*.csv
+ListeBrevets*.csv
 *.licences.csv
 imports/

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, Check, FileUp, Loader2, RefreshCw, Search, UserX, X } from 'lucide-react';
+import { AlertTriangle, FileUp, Loader2, RefreshCw, Search, UserX, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
 import { MemberSearch } from '../dp/MemberSearch';
 import { vpdive } from '../../services/vpdiveApi';
@@ -7,14 +7,17 @@ import { appApi, type FfessmImport } from '../../services/appApi';
 import {
   buildPeople,
   candidatesFor,
-  gapsFor,
-  haInsurance,
+  federationIssue,
   matchPerson,
+  needsVpdiveFix,
   parseFfessmCsv,
   seasonLabel,
   seasonOf,
-  type Gap,
+  viewOf,
+  type Cell,
   type HaItem,
+  type ItemView,
+  type PersonView,
   type LinkChoice,
   type Match,
   type Person,
@@ -34,7 +37,8 @@ import { normalizeName } from '../../lib/fuzzy';
 const READ_GAP_MS = 500;
 const MAX_FAILURES = 3;
 const CACHE_TTL_MS = 6 * 3600_000;
-const cacheKey = (uct: string) => `member-record:${uct}`;
+// v2 : la fiche garde aussi les niveaux (comparés aux brevets FFESSM).
+const cacheKey = (uct: string) => `member-record:v2:${uct}`;
 function readCache(uct: string): VpRecord | null {
   try {
     const v = JSON.parse(sessionStorage.getItem(cacheKey(uct)) ?? 'null') as { at: number; record: VpRecord } | null;
@@ -54,18 +58,19 @@ const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const frDay = (ymd: string) => (ymd ? ymd.slice(0, 10).split('-').reverse().join('/') : '');
 
-type Filter = 'todo' | 'confirm' | 'missing' | 'warn' | 'all';
+type Filter = 'todo' | 'confirm' | 'federation' | 'missing' | 'all';
 interface Row {
   p: Person;
   match: Match;
   record: VpRecord | null;
-  gaps: Gap[];
+  view: PersonView;
   /** Fiches des candidats pas encore lues : le rapprochement peut encore changer. */
   pending: boolean;
 }
 
 export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) => boolean }) {
-  const [season, setSeason] = useState(() => seasonOf(new Date().toISOString().slice(0, 10)));
+  // Une seule saison : celle en cours (l'export FFESSM déposé est celui de la saison).
+  const season = useMemo(() => seasonOf(new Date().toISOString().slice(0, 10)), []);
   const [items, setItems] = useState<HaItem[] | null>(null);
   const [haError, setHaError] = useState<string | null>(null);
   const [ffessm, setFfessm] = useState<FfessmImport | null | undefined>(undefined);
@@ -164,16 +169,16 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
       const match = matchPerson(p, directory, records, links[p.key]);
       const record = match.member ? (records[match.member.id] ?? null) : null;
       const cands = links[p.key] ? [] : candidatesFor(p, directory);
-      return { p, match, record, gaps: gapsFor(p, record, season), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
+      return { p, match, record, view: viewOf(p, record, season, null), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
     });
   }, [people, directory, links, records, season]);
 
   const counts = useMemo(
     () => ({
-      todo: rows.filter((r) => r.gaps.some((g) => g.level === 'todo')).length,
+      todo: rows.filter((r) => needsVpdiveFix(r.view)).length,
       confirm: rows.filter((r) => r.match.status === 'confirm').length,
+      federation: rows.filter((r) => federationIssue(r.view)).length,
       missing: rows.filter((r) => r.match.status === 'missing').length,
-      warn: rows.filter((r) => r.gaps.some((g) => g.level === 'warn')).length,
       all: rows.length,
     }),
     [rows],
@@ -181,8 +186,8 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
   const q = normalizeName(query);
   const shown = rows.filter((r) => {
     if (q && !normalizeName(`${r.p.name} ${r.match.member?.name ?? ''} ${r.p.ffessm?.licence ?? ''}`).includes(q)) return false;
-    if (filter === 'todo') return r.gaps.some((g) => g.level === 'todo');
-    if (filter === 'warn') return r.gaps.some((g) => g.level === 'warn');
+    if (filter === 'todo') return needsVpdiveFix(r.view);
+    if (filter === 'federation') return federationIssue(r.view);
     if (filter === 'confirm' || filter === 'missing') return r.match.status === filter;
     return true;
   });
@@ -196,12 +201,10 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
   };
 
   const loading = !people || !directory || !links;
-  const current = seasonOf(new Date().toISOString().slice(0, 10));
-  const seasons = [current, current - 1, current - 2];
   const FILTERS: { key: Filter; label: string }[] = [
-    { key: 'todo', label: 'À corriger' },
+    { key: 'todo', label: 'À corriger dans VPDive' },
     { key: 'confirm', label: 'À confirmer' },
-    { key: 'warn', label: 'Oublis probables' },
+    { key: 'federation', label: 'Licence non prise' },
     { key: 'missing', label: 'Absents de VPDive' },
     { key: 'all', label: 'Tous' },
   ];
@@ -209,16 +212,10 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-        <label className="flex items-center gap-2 text-sm text-muted">
-          Saison
-          <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="field h-9 py-0">
-            {seasons.map((s) => (
-              <option key={s} value={s}>
-                {seasonLabel(s)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <p className="text-sm text-ink">
+          Saison <strong className="font-semibold">{seasonLabel(season)}</strong>
+          <span className="text-muted"> · ✅ conforme · ❌ absent · ⚠️ différent</span>
+        </p>
         <FfessmImportBox current={ffessm} onImported={setFfessm} onSessionLost={onSessionLost} />
       </div>
 
@@ -296,8 +293,8 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
             <p className="py-10 text-center text-muted">{rows.length ? 'Personne dans ce filtre.' : 'Aucune adhésion ni licence pour cette saison.'}</p>
           ) : (
             <div className="lg:rounded-xl lg:border lg:border-line lg:bg-surface overflow-hidden">
-              <div className="hidden lg:grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.4fr)] gap-4 px-4 py-2.5 border-b border-line bg-raised">
-                {['Personne', 'HelloAsso', 'FFESSM', 'VPDive', 'À faire'].map((h) => (
+              <div className={`hidden lg:grid ${GRID} gap-4 px-4 py-2.5 border-b border-line bg-raised`}>
+                {['Personne', 'Fiche VPDive', 'Licence FFESSM', `Adhésion ${seasonLabel(season)}`, 'Brevets'].map((h) => (
                   <span key={h} className="label">
                     {h}
                   </span>
@@ -305,7 +302,7 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
               </div>
               <ul className="space-y-3 lg:space-y-0 lg:divide-y lg:divide-line">
                 {shown.map((r) => (
-                  <PersonRow key={r.p.key} row={r} season={season} hasFfessm={!!ffessm} onChoose={(uct) => void choose(r.p, uct)} />
+                  <PersonRow key={r.p.key} row={r} season={season} onChoose={(uct) => void choose(r.p, uct)} />
                 ))}
               </ul>
             </div>
@@ -316,12 +313,19 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
   );
 }
 
+const GRID = 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.9fr)]';
+const EMOJI: Record<Cell['mark'], { sign: string; label: string }> = {
+  ok: { sign: '✅', label: 'conforme' },
+  missing: { sign: '❌', label: 'absent' },
+  diff: { sign: '⚠️', label: 'différent' },
+  na: { sign: '·', label: 'sans objet' },
+};
+
 /** Une personne : bureau = une ligne de tableau ; téléphone = une carte, blocs empilés. */
-function PersonRow({ row, season, hasFfessm, onChoose }: { row: Row; season: number; hasFfessm: boolean; onChoose: (uct: string | null) => void }) {
-  const { p, match, record, gaps, pending } = row;
-  const ha = p.ha;
+function PersonRow({ row, season, onChoose }: { row: Row; season: number; onChoose: (uct: string | null) => void }) {
+  const { p, match, view, pending } = row;
   return (
-    <li className="card lg:rounded-none lg:border-0 lg:shadow-none grid gap-3 lg:gap-4 p-4 lg:px-4 lg:py-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.4fr)] items-start">
+    <li className={`card lg:rounded-none lg:border-0 lg:shadow-none grid gap-3 lg:gap-4 p-4 lg:px-4 lg:py-3 ${GRID} items-start`}>
       <div className="min-w-0">
         <p className="font-semibold text-ink break-words">{p.name}</p>
         <p className="text-sm text-muted">
@@ -329,56 +333,45 @@ function PersonRow({ row, season, hasFfessm, onChoose }: { row: Row; season: num
           {p.email && <span className="block truncate">{p.email}</span>}
         </p>
       </div>
-
-      <Block title="HelloAsso">
-        {ha ? (
-          <ul className="flex flex-wrap gap-1.5">
-            {ha.adhesion && <Chip tone="ok">{ha.bonus ? 'Adhésion (août)' : 'Adhésion'}</Chip>}
-            {ha.licence && <Chip tone="ok">{ha.licence.tier.replace(/\s*\(.*\)$/, '').replace('Licence FFESSM', 'Licence')}</Chip>}
-            {ha.pass && <Chip tone="ok">Pass plongée</Chip>}
-            {ha.insurance && <Chip tone="ok">{haInsurance(ha.insurance.tier) ?? 'Assurance'}</Chip>}
-          </ul>
-        ) : (
-          <span className="text-sm text-muted">Aucun paiement</span>
-        )}
+      <Block title="Fiche VPDive">
+        <VpdiveCell match={match} pending={pending} onChoose={onChoose} />
       </Block>
-
-      <Block title="FFESSM">
-        {p.ffessm ? (
-          <p className="text-sm text-ink">
-            <span className="font-semibold tabular-nums">{p.ffessm.licence}</span>
-            <span className="block text-muted">
-              {p.ffessm.insurance}
-              {/pass/i.test(p.ffessm.pricing) && ' · réduction Pass'}
-              {p.joinedByNameOnly && ' · réuni par le nom'}
-            </span>
-          </p>
-        ) : (
-          <span className="text-sm text-muted">{hasFfessm ? `Pas de licence ${seasonLabel(season)}` : 'Export à déposer'}</span>
-        )}
+      <Block title="Licence FFESSM">
+        <Item view={view.licence} pending={pending} />
+        {p.ffessm && p.ffessm.insurance !== 'Aucune' && <p className="mt-0.5 text-sm text-muted">Assurance {p.ffessm.insurance}</p>}
       </Block>
-
-      <Block title="VPDive">
-        <VpdiveCell match={match} record={record} pending={pending} season={season} onChoose={onChoose} />
+      <Block title={`Adhésion ${seasonLabel(season)}`}>
+        <Item view={view.adhesion} pending={pending} />
       </Block>
-
-      <Block title="À faire">
-        {match.status !== 'sure' && gaps.length === 0 ? (
-          <span className="text-sm text-muted">{pending ? '…' : match.status === 'confirm' ? 'Membre VPDive à confirmer' : 'Pas de fiche VPDive : à créer ou inviter'}</span>
-        ) : gaps.length === 0 ? (
-          pending ? <span className="text-sm text-muted">…</span> : <span className="text-sm text-ok inline-flex items-center gap-1"><Check className="w-4 h-4" /> À jour</span>
-        ) : (
-          <ul className="space-y-1">
-            {gaps.map((g) => (
-              <li key={g.text} className={`text-sm ${g.level === 'todo' ? 'text-ink' : g.level === 'warn' ? 'text-warn font-medium' : 'text-muted'}`}>
-                {g.level === 'todo' ? '• ' : g.level === 'warn' ? '⚠ ' : ''}
-                {g.text}
-              </li>
-            ))}
-          </ul>
-        )}
+      <Block title="Brevets">
+        <Item view={view.brevets} pending={pending} />
       </Block>
     </li>
+  );
+}
+
+/** Un élément : une ligne par source qui a quelque chose à dire, avec ✅ ❌ ⚠️. */
+function Item({ view, pending }: { view: ItemView; pending: boolean }) {
+  const lines = (
+    [
+      ['HelloAsso', view.helloasso],
+      ['FFESSM', view.ffessm],
+      ['VPDive', view.vpdive],
+    ] as const
+  ).filter(([, c]) => c.mark !== 'na' || c.text !== '—');
+  if (!lines.length) return <span className="text-sm text-muted">—</span>;
+  return (
+    <ul className="space-y-0.5 text-sm">
+      {lines.map(([source, c]) => (
+        <li key={source} className="flex items-baseline gap-1.5 min-w-0">
+          <span className="w-16 shrink-0 text-muted">{source}</span>
+          <span aria-label={EMOJI[c.mark].label} title={EMOJI[c.mark].label} className={`shrink-0 w-4 text-center ${c.mark === 'na' ? 'text-muted' : ''}`}>
+            {source === 'VPDive' && pending && c.mark === 'na' ? '…' : EMOJI[c.mark].sign}
+          </span>
+          <span className={`min-w-0 break-words ${c.mark === 'missing' ? 'text-danger font-medium' : c.mark === 'diff' ? 'text-warn font-medium' : c.mark === 'ok' ? 'text-ink' : 'text-muted'}`}>{c.text}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -391,12 +384,8 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Chip({ tone, children }: { tone: 'ok' | 'muted'; children: ReactNode }) {
-  return <li className={`rounded-md px-1.5 text-sm leading-6 ${tone === 'ok' ? 'bg-tint text-brand font-medium' : 'text-muted'}`}>{children}</li>;
-}
-
 /** Le membre VPDive : sûr (avec la preuve), à choisir parmi les homonymes, ou introuvable (recherche à la main). */
-function VpdiveCell({ match, record, pending, season, onChoose }: { match: Match; record: VpRecord | null; pending: boolean; season: number; onChoose: (uct: string | null) => void }) {
+function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boolean; onChoose: (uct: string | null) => void }) {
   const [searching, setSearching] = useState(false);
   if (searching) {
     return (
@@ -424,12 +413,6 @@ function VpdiveCell({ match, record, pending, season, onChoose }: { match: Match
               </button>
             )}
           </p>
-          {record && (
-            <p className="text-muted">
-              {record.seasons.includes(String(season)) ? `Saison ${seasonLabel(season)}` : `Saisons : ${record.seasons.slice(0, 2).map((s) => seasonLabel(Number(s))).join(', ') || 'aucune'}`}
-              {!record.member && ' · Invité'}
-            </p>
-          )}
         </div>
       </div>
     );

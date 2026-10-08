@@ -968,6 +968,7 @@ class VpDiveClient {
       insurance: info.insurance,
       insuranceYear: info.insuranceYear,
       member: obj(u.user_club_traceability)?.allMembers === true,
+      levels: (({ levels, teaching, qualifications }) => [...teaching, ...levels, ...qualifications])(profileOf(u)),
     };
   }
 

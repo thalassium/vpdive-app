@@ -1,8 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  adhesionView,
+  brevetsView,
   buildPeople,
-  gapsFor,
+  federationIssue,
+  licenceView,
+  needsVpdiveFix,
+  viewOf,
   matchPerson,
   parseFfessmCsv,
   seasonOf,
@@ -86,7 +91,7 @@ test('rapprochement VPDive : sûr par licence, naissance ou e-mail ; sinon à co
     { id: 'u1', name: 'MARTIN Léa', picture: '' },
     { id: 'u2', name: 'MARTIN Lea', picture: '' },
   ];
-  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: [], licences: [], insurance: '', insuranceYear: null, member: true, ...over });
+  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: [], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
   const [lea] = buildPeople([item({})], [], 2027);
   assert.equal(matchPerson(lea!, dir, {}).status, 'confirm', 'deux homonymes, rien pour trancher');
   const byBirth = matchPerson(lea!, dir, { u2: rec({ birthday: '1990-04-02' }), u1: rec({}) });
@@ -98,19 +103,34 @@ test('rapprochement VPDive : sûr par licence, naissance ou e-mail ; sinon à co
   assert.equal(matchPerson(lea!, [], {}).status, 'missing');
 });
 
-test('écarts : saison, statut, licence à reporter, licence payée mais non prise, assurance', () => {
-  const rows = [{ licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Loisir 2', category: '', pricing: 'Normal' }];
-  const [lea] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], rows, 2027);
-  const r: VpRecord = { email: '', birthday: '', seasons: ['2026'], licences: [{ number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2026-12-31' }], insurance: '', insuranceYear: null, member: false };
-  const texts = gapsFor(lea!, r, 2027).map((g) => `${g.level}:${g.text}`);
-  assert.deepEqual(texts, [
-    'todo:Saison 2026/2027 à ajouter',
-    'todo:Statut Invité dans VPDive : à passer en Membre',
-    'todo:Licence A-16-733717 : validité à porter au 31/12/2027',
-    'todo:Assurance « Loisir 2 » à porter dans VPDive',
-  ]);
-  const ok: VpRecord = { ...r, seasons: ['2027'], member: true, licences: [{ ...r.licences[0]!, expires: '2027-12-31' }], insurance: 'Assurance Loisir 2' };
-  assert.deepEqual(gapsFor(lea!, ok, 2027), []);
+test('licence : HelloAsso fait foi ; FFESSM non prise ❌ ; VPDive absente ❌, ancienne date ⚠️, à jour ✅', () => {
+  const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Loisir 2', category: '', pricing: 'Normal' };
+  const [lea] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [row], 2027);
+  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: [], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
+  const marks = (v: ReturnType<typeof licenceView>) => [v.helloasso.mark, v.ffessm.mark, v.vpdive.mark].join(' ');
+  assert.equal(marks(licenceView(lea!, rec({}), 2027)), 'ok ok missing');
+  assert.equal(licenceView(lea!, rec({}), 2027).helloasso.text, 'Adulte');
+  const old = rec({ licences: [{ number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2026-12-31' }] });
+  assert.equal(marks(licenceView(lea!, old, 2027)), 'ok ok diff');
+  const fine = rec({ licences: [{ number: 'A16733717', organization: 'F.F.E.S.S.M.', expires: '2027-12-31' }] });
+  assert.equal(marks(licenceView(lea!, fine, 2027)), 'ok ok ok');
   const [forgot] = buildPeople([item({ tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [], 2027);
-  assert.deepEqual(gapsFor(forgot!, null, 2027).map((g) => g.level), ['warn']);
+  const v = licenceView(forgot!, null, 2027);
+  assert.equal(v.ffessm.mark, 'missing');
+  assert.ok(federationIssue({ licence: v, adhesion: v, brevets: v }));
+});
+
+test('adhésion : saison absente ❌, statut Invité ⚠️, à jour ✅ ; brevets FFESSM comparés aux niveaux VPDive', () => {
+  const [lea] = buildPeople([item({})], [{ licence: 'A-1-12345', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' }], 2027);
+  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: [], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
+  assert.equal(adhesionView(lea!, rec({}), 2027).vpdive.mark, 'missing');
+  assert.equal(adhesionView(lea!, rec({ seasons: ['2027'], member: false }), 2027).vpdive.mark, 'diff');
+  assert.equal(adhesionView(lea!, rec({ seasons: ['2027'] }), 2027).vpdive.mark, 'ok');
+  const brevets = { 'A-1-12345': ['Niveau 2', 'Nitrox'] };
+  assert.equal(brevetsView(lea!, rec({ levels: ['niveau 2', 'NITROX'] }), brevets).vpdive.mark, 'ok');
+  assert.equal(brevetsView(lea!, rec({ levels: ['Niveau 2'] }), brevets).vpdive.text, 'manque Nitrox');
+  assert.equal(brevetsView(lea!, rec({}), brevets).vpdive.mark, 'missing');
+  assert.equal(brevetsView(lea!, rec({}), null).ffessm.text, 'export à déposer');
+  const v = viewOf(lea!, rec({ seasons: ['2027'] }), 2027, null);
+  assert.equal(needsVpdiveFix(v), true, 'licence absente de VPDive');
 });

@@ -268,6 +268,8 @@ export interface VpRecord {
   insuranceYear: number | null;
   /** Statut « Membre » (sinon Invité). */
   member: boolean;
+  /** Niveaux et diplômes tels que VPDive les nomme (pour comparer aux brevets FFESSM). */
+  levels: string[];
 }
 
 /** Les membres VPDive dont le nom ressemble, du plus proche au moins proche. */
@@ -325,14 +327,24 @@ export function matchPerson(p: Person, directory: VpMember[], records: Record<st
   return { status: 'confirm', member: null, why: '', candidates: proven.length ? proven.map((x) => x.m) : candidates };
 }
 
-// ── Écarts à corriger ────────────────────────────────────────────
+// ── Trois éléments par membre : licence, adhésion, brevets ───────
 
-export type GapKind = 'adhesion' | 'licence' | 'assurance' | 'statut' | 'pass';
-export interface Gap {
-  kind: GapKind;
-  /** todo : à corriger dans VPDive ; warn : oubli probable ailleurs ; info : pour mémoire. */
-  level: 'todo' | 'warn' | 'info';
+/**
+ * Pour chaque élément, ce que dit chaque source :
+ *   ok       présent et conforme (✅)
+ *   missing  absent alors qu'il devrait y être (❌)
+ *   diff     présent mais différent (⚠️)
+ *   na       sans objet pour cette source (—)
+ */
+export type Mark = 'ok' | 'missing' | 'diff' | 'na';
+export interface Cell {
+  mark: Mark;
   text: string;
+}
+export interface ItemView {
+  helloasso: Cell;
+  ffessm: Cell;
+  vpdive: Cell;
 }
 
 /** Libellé VPDive d'une assurance FFESSM (« Loisir 3 Top » → « Assurance Loisir 3 TOP ») ; null pour « Aucune ». */
@@ -345,29 +357,83 @@ export function vpdiveInsurance(ffessm: string): string | null {
 
 /** Fin de validité d'une licence FFESSM de la saison : 31 décembre de l'année de fin. */
 export const licenceEnd = (season: number) => `${season}-12-31`;
+const NA: Cell = { mark: 'na', text: '—' };
+const frDate = (ymd: string) => ymd.split('-').reverse().join('/');
+/** « Licence FFESSM ADULTE (+ de 16ans) » → « Adulte ». */
+const licenceTier = (tier: string) => {
+  const m = /licence\s+ffessm\s+(\S+)/i.exec(tier);
+  return m ? m[1]!.charAt(0).toUpperCase() + m[1]!.slice(1).toLowerCase() : 'Licence';
+};
+const isFfessmLicence = (l: { number: string; organization: string }) => /F\.?F\.?E\.?S\.?S\.?M/i.test(l.organization) || /^A-?\d{2}-?\d{5,}$/i.test(l.number.trim());
 
-export function gapsFor(p: Person, r: VpRecord | null, season: number): Gap[] {
-  const gaps: Gap[] = [];
-  const label = seasonLabel(season);
-  const ha = p.ha;
-  if (ha?.adhesion && r && !r.seasons.includes(String(season))) {
-    gaps.push({ kind: 'adhesion', level: 'todo', text: `Saison ${label} à ajouter${ha.bonus ? ' (payée en août : geste du club)' : ''}` });
-  }
-  if (!ha?.adhesion && r?.seasons.includes(String(season))) {
-    gaps.push({ kind: 'adhesion', level: 'info', text: `Saison ${label} dans VPDive sans adhésion HelloAsso` });
-  }
-  if (ha?.adhesion && r && !r.member) gaps.push({ kind: 'statut', level: 'todo', text: 'Statut Invité dans VPDive : à passer en Membre' });
-  if (ha?.licence && !p.ffessm) gaps.push({ kind: 'licence', level: 'warn', text: 'Licence payée sur HelloAsso, absente de l’export FFESSM' });
-  if (p.ffessm && r) {
-    const mine = r.licences.find((l) => flatLicence(l.number) === flatLicence(p.ffessm!.licence));
-    if (!mine) gaps.push({ kind: 'licence', level: 'todo', text: `Licence ${p.ffessm.licence} à ajouter (jusqu’au 31/12/${season})` });
-    else if (!mine.expires || mine.expires < licenceEnd(season)) gaps.push({ kind: 'licence', level: 'todo', text: `Licence ${p.ffessm.licence} : validité à porter au 31/12/${season}` });
-  }
-  if (p.ffessm && ha && !ha.licence && !ha.pass) gaps.push({ kind: 'licence', level: 'info', text: 'Licence FFESSM sans paiement HelloAsso' });
-  const wanted = p.ffessm ? vpdiveInsurance(p.ffessm.insurance) : null;
-  if (wanted && r && r.insurance !== wanted) gaps.push({ kind: 'assurance', level: 'todo', text: `Assurance « ${wanted.replace('Assurance ', '')} » à porter dans VPDive` });
-  const paidInsurance = ha?.insurance ? haInsurance(ha.insurance.tier) : null;
-  if (paidInsurance && !wanted) gaps.push({ kind: 'assurance', level: 'warn', text: `Assurance ${paidInsurance} payée, absente à la FFESSM` });
-  if (ha?.pass) gaps.push({ kind: 'pass', level: 'info', text: 'Pass plongée payé' });
-  return gaps;
+/**
+ * Licence FFESSM. Fait foi : HelloAsso (licence payée pour la saison). On
+ * vérifie qu'elle a bien été prise à la FFESSM pour la saison, puis portée
+ * dans VPDive (même numéro, valable jusqu'au 31/12 de l'année de fin).
+ */
+export function licenceView(p: Person, r: VpRecord | null, season: number): ItemView {
+  const paid = p.ha?.licence;
+  const pass = p.ha?.pass;
+  const helloasso: Cell = paid ? { mark: 'ok', text: licenceTier(paid.tier) } : pass ? { mark: 'na', text: 'Pass plongée' } : { mark: 'missing', text: 'non payée' };
+  const row = p.ffessm;
+  const ffessm: Cell = row
+    ? { mark: paid ? 'ok' : 'diff', text: paid ? row.licence : `${row.licence} · prise sans paiement` }
+    : paid
+      ? { mark: 'missing', text: 'non prise' }
+      : NA;
+  if (!r) return { helloasso, ffessm, vpdive: { mark: 'na', text: 'fiche à trouver' } };
+  const expected = paid || row;
+  const end = licenceEnd(season);
+  const ffessmOnes = r.licences.filter(isFfessmLicence);
+  const same = row ? ffessmOnes.find((l) => flatLicence(l.number) === flatLicence(row.licence)) : ffessmOnes.find((l) => l.expires >= end);
+  let vpdive: Cell;
+  if (same && same.expires >= end) vpdive = { mark: expected ? 'ok' : 'diff', text: `jusqu’au ${frDate(same.expires)}` };
+  else if (same) vpdive = { mark: 'diff', text: same.expires ? `jusqu’au ${frDate(same.expires)}` : 'sans date de fin' };
+  else if (ffessmOnes.length) vpdive = { mark: expected ? 'diff' : 'na', text: `autre n° ${ffessmOnes[0]!.number}` };
+  else vpdive = expected ? { mark: 'missing', text: 'absente' } : NA;
+  return { helloasso, ffessm, vpdive };
 }
+
+/** Adhésion de la saison. Fait foi : HelloAsso (geste d'août compris) ; VPDive doit avoir la saison et le statut Membre. */
+export function adhesionView(p: Person, r: VpRecord | null, season: number): ItemView {
+  const a = p.ha?.adhesion;
+  const helloasso: Cell = a ? { mark: 'ok', text: p.ha!.bonus ? 'payée en août' : 'payée' } : { mark: 'missing', text: 'non payée' };
+  if (!r) return { helloasso, ffessm: NA, vpdive: { mark: 'na', text: 'fiche à trouver' } };
+  const has = r.seasons.includes(String(season));
+  let vpdive: Cell;
+  if (has && r.member) vpdive = { mark: a ? 'ok' : 'diff', text: a ? `saison ${seasonLabel(season)}` : 'saison sans paiement' };
+  else if (has) vpdive = { mark: 'diff', text: 'statut Invité' };
+  else vpdive = a ? { mark: 'missing', text: `saison ${seasonLabel(season)} absente${r.member ? '' : ' · Invité'}` } : NA;
+  return { helloasso, ffessm: NA, vpdive };
+}
+
+/** Brevets. Fait foi : la FFESSM (export des brevets) ; VPDive doit avoir les mêmes. */
+export function brevetsView(p: Person, r: VpRecord | null, brevets: Record<string, string[]> | null): ItemView {
+  const helloasso = NA;
+  if (!brevets) return { helloasso, ffessm: { mark: 'na', text: 'export à déposer' }, vpdive: NA };
+  const fed = p.ffessm ? (brevets[p.ffessm.licence] ?? []) : [];
+  const ffessm: Cell = fed.length ? { mark: 'ok', text: fed.join(', ') } : NA;
+  if (!r || !fed.length) return { helloasso, ffessm, vpdive: r ? NA : { mark: 'na', text: 'fiche à trouver' } };
+  const mine = new Set(r.levels.map(levelKey));
+  const lacking = fed.filter((b) => !mine.has(levelKey(b)));
+  const vpdive: Cell = !lacking.length ? { mark: 'ok', text: 'à jour' } : lacking.length === fed.length ? { mark: 'missing', text: `absents : ${lacking.join(', ')}` } : { mark: 'diff', text: `manque ${lacking.join(', ')}` };
+  return { helloasso, ffessm, vpdive };
+}
+/** Nom de brevet comparable d'une source à l'autre (accents, ponctuation). */
+const levelKey = (s: string) => normalizeName(s).replace(/\s+/g, '');
+
+export interface PersonView {
+  licence: ItemView;
+  adhesion: ItemView;
+  brevets: ItemView;
+}
+export const viewOf = (p: Person, r: VpRecord | null, season: number, brevets: Record<string, string[]> | null): PersonView => ({
+  licence: licenceView(p, r, season),
+  adhesion: adhesionView(p, r, season),
+  brevets: brevetsView(p, r, brevets),
+});
+
+/** À corriger dans VPDive : un élément ❌ ou ⚠️ côté VPDive. */
+export const needsVpdiveFix = (v: PersonView) => [v.licence, v.adhesion, v.brevets].some((i) => i.vpdive.mark === 'missing' || i.vpdive.mark === 'diff');
+/** Oubli probable : payé sur HelloAsso mais pas pris à la FFESSM (ou l'inverse). */
+export const federationIssue = (v: PersonView) => v.licence.ffessm.mark === 'missing' || v.licence.ffessm.mark === 'diff';
