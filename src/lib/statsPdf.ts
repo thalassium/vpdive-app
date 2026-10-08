@@ -341,8 +341,11 @@ export function statsPdf(stats: Stats, { from, to, partial }: StatsPdfOptions): 
     { title: 'Encadrants', rows: stats.instructors },
     { title: 'Les plus assidus', rows: stats.regulars },
   ];
-  const rankH = 14 + Math.max(1, ...rankings.map((r) => r.rows.length)) * 6.2 + 8;
-  ensure(rankH);
+  // Les ex aequo allongent parfois une liste : on resserre les lignes pour rester sur la page.
+  const longest = Math.max(1, ...rankings.map((r) => r.rows.length));
+  const room = PAGE.h - PAGE.margin - 6 - y - 26;
+  const rowH = Math.min(6.2, Math.max(4.8, room / longest));
+  ensure(26 + longest * rowH);
   font(8.5, MUTED);
   text('Classements en nombre de sorties', PAGE.margin, y + 3);
   y += 6;
@@ -357,15 +360,17 @@ export function statsPdf(stats: Stats, { from, to, partial }: StatsPdfOptions): 
     }
     const max = Math.max(1, ...r.rows.map((p) => p.count));
     r.rows.forEach((p, k) => {
+      // Rang avec ex aequo : 1, 2, 2, 4…
+      const rank = 1 + r.rows.findIndex((q) => q.count === p.count);
       font(8.5, MUTED);
-      text(`${k + 1}`, x + 3, cy + 3, { align: 'right' });
+      text(k > 0 && r.rows[k - 1]!.count === p.count ? '' : `${rank}`, x + 3, cy + 3, { align: 'right' });
       font(8.5, INK);
       pdf.text(fit(p.name, colW - 14), x + 5, cy + 3);
       font(8.5, INK, true);
       text(n(p.count), x + colW, cy + 3, { align: 'right' });
       rounded(x + 5, cy + 4.2, colW - 5, 0.8, 0.4, LINE);
       rounded(x + 5, cy + 4.2, ((colW - 5) * p.count) / max, 0.8, 0.4, NAVY);
-      cy += 6.2;
+      cy += rowH;
     });
     if (r.note) {
       font(7.5, MUTED);

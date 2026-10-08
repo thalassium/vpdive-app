@@ -119,3 +119,13 @@ test('monthSeries : chaque mois de la période, même sans sortie, et dates en f
   assert.equal(dateFr('2026-01-01'), '1er janvier');
   assert.equal(dateFr('2026-10-08', true), '8 octobre 2026');
 });
+
+test('classements : les ex aequo du dernier rang restent, l’alphabet ne départage pas', () => {
+  // 12 plongeurs : A…H font 3 sorties, I…L en font 2 (ex aequo pour la 10e place), M en fait 1.
+  const names = 'ABCDEFGHIJKLM'.split('');
+  const visits: Record<string, number> = Object.fromEntries(names.map((x, i) => [x, i < 8 ? 3 : i < 12 ? 2 : 1]));
+  const events = [0, 1, 2].map((k) => ev(`e${k}`, `2026-0${k + 3}-07T08:00:00`));
+  const rosters = Object.fromEntries(events.map((e, k) => [e.token, names.filter((x) => visits[x]! > k).map((x) => p(x, ['P2']))]));
+  const s = computeStats(events, rosters);
+  assert.deepEqual(s.regulars.map((r) => r.id), names.slice(0, 12), 'I, J, K et L restent tous les quatre');
+});

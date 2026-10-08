@@ -234,11 +234,14 @@ export function computeStats(
     if (target && !s) tally(training, `N${target}`);
   }
 
-  const top = (map: Map<string, { person: StatStaff; count: number }>, n: number) =>
-    [...map.values()]
-      .sort((a, b) => b.count - a.count || a.person.name.localeCompare(b.person.name, 'fr'))
-      .slice(0, n)
+  // Les n premiers, plus les ex aequo du dernier : l'ordre alphabétique ne départage personne (jusqu'à 2n lignes).
+  const top = (map: Map<string, { person: StatStaff; count: number }>, n: number) => {
+    const all = [...map.values()].sort((a, b) => b.count - a.count || a.person.name.localeCompare(b.person.name, 'fr'));
+    const last = all[n - 1]?.count;
+    return all
+      .filter((x, i) => i < n || (x.count === last && i < 2 * n))
       .map(({ person, count }) => ({ id: person.id, name: person.name, ...(person.picture ? { picture: person.picture } : {}), count }));
+  };
 
   return {
     outings: sorted.length,
