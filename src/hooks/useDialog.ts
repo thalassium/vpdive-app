@@ -118,7 +118,8 @@ export function useDialog({ onClose, canClose, label }: Options): { ref: RefObje
         entry();
       }, 0);
     };
-    entry();
+    // Déjà posée (React remonte le dialogue en développement) : pas de seconde entrée.
+    if (history.state?.dialog !== id) entry();
     window.addEventListener('popstate', onPop);
 
     return () => {
@@ -129,7 +130,13 @@ export function useDialog({ onClose, canClose, label }: Options): { ref: RefObje
       if (i !== -1) opened.splice(i, 1);
       unlockScroll();
       // Fermé par un bouton : on retire l'entrée d'historique (le popstate qui en résulte ne nous trouve plus).
-      if (!closedByPop && history.state?.dialog === id) history.back();
+      // Un peu plus tard, et seulement si le dialogue n'a pas été remonté entre-temps : en
+      // développement, React démonte puis remonte aussitôt chaque composant ; un retour
+      // immédiat arrivait après le remontage et refermait la fenêtre à peine ouverte.
+      if (!closedByPop)
+        setTimeout(() => {
+          if (!opened.includes(id) && history.state?.dialog === id) history.back();
+        }, 0);
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true });
     };
   }, [id, opener]);
