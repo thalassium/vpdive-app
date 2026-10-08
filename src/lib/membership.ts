@@ -170,6 +170,17 @@ export function parseFfessmCsv(text: string): { rows: FfessmRow[]; period: strin
   return { rows, period };
 }
 
+/**
+ * L'export Mon Club perd ses accents (« Plong�e », « m�tres ») : un « é »
+ * le plus souvent, un « è » devant « tres » / « re ». La comparaison les ignore
+ * de toute façon ; c'est pour l'affichage.
+ */
+export const restoreAccents = (s: string) =>
+  s
+    .replace(/�(?=(tres|re)\b)/g, 'è')
+    .replace(/�/g, 'é')
+    .trim();
+
 /** Un brevet délivré, d'après l'export « Liste des brevets » de Mon Club. */
 export interface FfessmBrevet {
   /** Licence du plongeur breveté. */
@@ -184,7 +195,7 @@ export interface FfessmBrevet {
  * L'export des brevets a la même forme que celui des licences : chaque valeur
  * derrière son libellé (« Niveau », « Date Obtention »…). Le plongeur suit le
  * libellé « Plongeur » : son n° de licence, sa civilité, son nom ; puis vient le
- * moniteur. Les accents perdus à l'export (« confirm� ») redeviennent des « e ».
+ * moniteur. Les accents perdus à l'export sont rétablis (restoreAccents).
  */
 export function parseFfessmBrevets(text: string): { rows: FfessmBrevet[]; period: string } {
   const lines = text.replace(/^\ufeff/, '').split(/\r?\n/).filter((l) => l.trim());
@@ -192,7 +203,7 @@ export function parseFfessmBrevets(text: string): { rows: FfessmBrevet[]; period
   const rows: FfessmBrevet[] = [];
   let period = '';
   for (const line of lines) {
-    const cells = csvLine(line, sep).map((c) => c.replace(/\ufffd/g, 'e').trim());
+    const cells = csvLine(line, sep).map(restoreAccents);
     const at = (name: string) => cells.findIndex((c) => label(c) === name);
     period ||= cells.find((c) => /^du \d{2}\/\d{2}\/\d{4} au \d{2}\/\d{2}\/\d{4}$/i.test(c)) ?? '';
     const diver = at('plongeur');
@@ -243,8 +254,33 @@ const vpdiveCodes = (name: string): string[] =>
     return [code, ...code.split(/[\s-]+/)];
   });
 
-/** VPDive a-t-il ce brevet FFESSM ? Par code ; à défaut, tous les mots du brevet dans un nom de niveau. */
-export function hasBrevet(levels: string[], brevet: string): boolean {
+/**
+ * Correspondance choisie par les admins (roue crantée de la gestion des
+ * adhésions) : brevet FFESSM, tel que l'export l'écrit → niveaux VPDive qui le
+ * valent. Un brevet absent de la table suit la règle automatique (codes).
+ */
+export type BrevetMap = Record<string, string[]>;
+
+/** Nom de niveau comparable : sans accents, casse ni fédération en fin de nom (« … F.F.E.S.S.M. »). */
+const levelName = (s: string) =>
+  plain(s)
+    .replace(/\s+[a-z.]*\.[a-z.]*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** Niveaux VPDive que la règle automatique accepte pour ce brevet (pour les montrer dans la table). */
+export const automaticLevels = (brevet: string, names: string[]): string[] => {
+  const codes = brevetCodes(brevet);
+  return codes.length ? names.filter((n) => vpdiveCodes(n).some((c) => codes.includes(c))) : [];
+};
+
+/** VPDive a-t-il ce brevet FFESSM ? D'après la table des admins ; sinon par code ; sinon par les mots du brevet. */
+export function hasBrevet(levels: string[], brevet: string, map: BrevetMap = {}): boolean {
+  const chosen = map[brevet];
+  if (chosen?.length) {
+    const mine = new Set(levels.map(levelName));
+    return chosen.some((n) => mine.has(levelName(n)));
+  }
   const codes = brevetCodes(brevet);
   if (codes.length) {
     const mine = new Set(levels.flatMap(vpdiveCodes));
@@ -495,13 +531,13 @@ export function adhesionView(p: Person, r: VpRecord | null, season: number): Ite
 }
 
 /** Brevets. Fait foi : la FFESSM (export des brevets) ; VPDive doit avoir les mêmes. */
-export function brevetsView(p: Person, r: VpRecord | null, brevets: Record<string, string[]> | null): ItemView {
+export function brevetsView(p: Person, r: VpRecord | null, brevets: Record<string, string[]> | null, map: BrevetMap = {}): ItemView {
   const helloasso = NA;
   if (!brevets) return { helloasso, ffessm: { mark: 'na', text: 'export à déposer' }, vpdive: NA };
   const fed = p.ffessm ? (brevets[p.ffessm.licence] ?? []) : [];
   const ffessm: Cell = fed.length ? { mark: 'ok', text: fed.join(', ') } : NA;
   if (!r || !fed.length) return { helloasso, ffessm, vpdive: r ? NA : { mark: 'na', text: 'fiche à trouver' } };
-  const lacking = fed.filter((b) => !hasBrevet(r.levels, b));
+  const lacking = fed.filter((b) => !hasBrevet(r.levels, b, map));
   const vpdive: Cell = !lacking.length ? { mark: 'ok', text: 'à jour' } : lacking.length === fed.length ? { mark: 'missing', text: `absents : ${lacking.join(', ')}` } : { mark: 'diff', text: `manque ${lacking.join(', ')}` };
   return { helloasso, ffessm, vpdive };
 }
@@ -511,10 +547,10 @@ export interface PersonView {
   adhesion: ItemView;
   brevets: ItemView;
 }
-export const viewOf = (p: Person, r: VpRecord | null, season: number, brevets: Record<string, string[]> | null): PersonView => ({
+export const viewOf = (p: Person, r: VpRecord | null, season: number, brevets: Record<string, string[]> | null, map: BrevetMap = {}): PersonView => ({
   licence: licenceView(p, r, season),
   adhesion: adhesionView(p, r, season),
-  brevets: brevetsView(p, r, brevets),
+  brevets: brevetsView(p, r, brevets, map),
 });
 
 /** À corriger dans VPDive : un élément ❌ ou ⚠️ côté VPDive. */

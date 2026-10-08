@@ -955,6 +955,14 @@ class VpDiveClient {
     return token;
   }
 
+  /** Référentiel des niveaux du club, par activité et fédération (« PLONGEE SCAPHANDRE (F.F.E.S.S.M.) - Pratique » → noms). */
+  async capacityNames(): Promise<{ group: string; names: string[] }[]> {
+    const res = await this.request('/user/settings/capacities');
+    return Object.entries(res)
+      .map(([group, v]) => ({ group, names: Object.keys(obj(v) ?? {}) }))
+      .filter((g) => g.names.length > 0);
+  }
+
   /** Fiche d'un membre pour la gestion des adhésions : saisons, licences, assurance, statut Membre, e-mail, naissance. */
   async memberRecord(uct: string): Promise<VpRecord> {
     const res = await this.request(`/user?uct_token=${encodeURIComponent(uct)}`);

@@ -8,9 +8,11 @@ import {
   licenceView,
   needsVpdiveFix,
   viewOf,
+  automaticLevels,
   brevetsByLicence,
   hasBrevet,
   parseFfessmBrevets,
+  restoreAccents,
   matchPerson,
   parseFfessmCsv,
   seasonOf,
@@ -145,12 +147,22 @@ test('export des brevets : plongeur, brevet, date ; comparaison par code avec le
   ].join('\n');
   const { rows, period } = parseFfessmBrevets(csv);
   assert.equal(period, 'Du 08/10/2025 au 08/10/2026');
-  assert.deepEqual(rows, [{ licence: 'A-21-942895', name: 'DI SANTO Carla', brevet: 'Plongeur Nitrox confirme', obtainedAt: '2026-05-12' }]);
-  assert.deepEqual(brevetsByLicence([...rows, ...rows]), { 'A-21-942895': ['Plongeur Nitrox confirme'] });
-  assert.ok(hasBrevet(['P - Plongeur Nitrox Confirmé (PNC) F.F.E.S.S.M.'], 'Plongeur Nitrox confirme'));
+  assert.deepEqual(rows, [{ licence: 'A-21-942895', name: 'DI SANTO Carla', brevet: 'Plongeur Nitrox confirmé', obtainedAt: '2026-05-12' }]);
+  assert.deepEqual(brevetsByLicence([...rows, ...rows]), { 'A-21-942895': ['Plongeur Nitrox confirmé'] });
+  assert.ok(hasBrevet(['P - Plongeur Nitrox Confirmé (PNC) F.F.E.S.S.M.'], 'Plongeur Nitrox confirmé'));
+  assert.equal(restoreAccents('Plongeur en autonomie 40 m�tres'), 'Plongeur en autonomie 40 mètres');
   assert.ok(!hasBrevet(['P - Plongeur Nitrox (base) (PN) F.F.E.S.S.M.'], 'Plongeur Nitrox confirme'));
   assert.ok(hasBrevet(['P - Réaction et intervention face à un accident - Plongée (RIFA-P) F.F.E.S.S.M.'], 'RIFA Plongee'));
   assert.ok(hasBrevet(['P - Plongeur(se) Niveau 1 (P1-N1) (P1) F.F.E.S.S.M.'], 'Niveau 1'));
   assert.ok(!hasBrevet(['TSC - Tir sur cible - Tireur Niveau 1 (T1) F.F.E.S.S.M.'], 'Niveau 1'));
   assert.ok(hasBrevet(['P - Plongeur Autonome 40 mètres (PA40)'], 'Plongeur en autonomie 40 metres'));
+});
+
+test('table des brevets : le choix des admins prime sur la règle automatique', () => {
+  const names = ['P - Plongeur(se) Niveau 1 (P1-N1) (P1) F.F.E.S.S.M.', 'P-Plongeur Niveau 1 (P1-N1) (P1-ANMP) A.N.M.P.', 'TSC - Tir sur cible - Tireur Niveau 1 (T1) F.F.E.S.S.M.'];
+  assert.deepEqual(automaticLevels('Niveau 1', names), names.slice(0, 2));
+  const map = { 'Plongeur Or': ['EB - Jeune plongeur bio (PBJ) F.F.E.S.S.M.'] };
+  assert.ok(hasBrevet(['EB - Jeune plongeur bio (PBJ)'], 'Plongeur Or', map), 'nom sans la fédération en fin');
+  assert.ok(!hasBrevet(['P - Plongeur Or (POR) F.F.E.S.S.M.'], 'Plongeur Or', map), 'la table remplace la règle');
+  assert.ok(hasBrevet(['P - Plongeur Or (POR) F.F.E.S.S.M.'], 'Plongeur Or'), 'sans table : règle automatique');
 });

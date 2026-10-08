@@ -88,6 +88,8 @@ export const appApi = {
   ffessmBrevets: () => call<{ import: FfessmImport<FfessmBrevet> | null }>('action=ffessm&kind=brevets').then((r) => r.import),
   saveFfessmBrevets: (rows: FfessmBrevet[], period: string) =>
     call<{ import: FfessmImport<FfessmBrevet> }>('action=ffessm&kind=brevets', { method: 'POST', body: { rows, period } }).then((r) => r.import),
+  brevetMap: () => call<{ map: Record<string, string[]> }>('action=brevet_map').then((r) => r.map),
+  setBrevetMap: (brevet: string, levels: string[]) => call<{ map: Record<string, string[]> }>('action=brevet_map', { method: 'POST', body: { brevet, levels } }).then((r) => r.map),
   memberLinks: () => call<{ links: Record<string, LinkChoice> }>('action=member_links').then((r) => r.links),
   setMemberLink: (key: string, uct: string | null) => call<{ links: Record<string, LinkChoice> }>('action=member_links', { method: 'POST', body: { key, uct } }).then((r) => r.links),
   docsIgnored: () => call<{ ignored: IgnoredDocs }>('action=docs_ignored').then((r) => r.ignored),

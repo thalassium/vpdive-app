@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, FileUp, Loader2, RefreshCw, Search, UserX, X } from 'lucide-react';
+import { AlertTriangle, FileUp, Loader2, RefreshCw, Search, Settings, UserX, X } from 'lucide-react';
+import { BrevetMapView } from './BrevetMapView';
 import { Avatar } from '../Avatar';
 import { MemberSearch } from '../dp/MemberSearch';
 import { vpdive } from '../../services/vpdiveApi';
@@ -16,6 +17,7 @@ import {
   seasonLabel,
   seasonOf,
   viewOf,
+  type BrevetMap,
   type Cell,
   type FfessmBrevet,
   type HaItem,
@@ -79,6 +81,9 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
   const [ffessm, setFfessm] = useState<FfessmImport | null | undefined>(undefined);
   const [brevetsImport, setBrevetsImport] = useState<FfessmImport<FfessmBrevet> | null | undefined>(undefined);
   const brevets = useMemo(() => (brevetsImport ? brevetsByLicence(brevetsImport.rows) : null), [brevetsImport]);
+  /** Correspondance des brevets choisie par les admins (roue crantée). */
+  const [brevetMap, setBrevetMap] = useState<BrevetMap>({});
+  const [configOpen, setConfigOpen] = useState(false);
   const [directory, setDirectory] = useState<VpMember[] | null>(null);
   const [links, setLinks] = useState<Record<string, LinkChoice> | null>(null);
   const [records, setRecords] = useState<Record<string, VpRecord>>({});
@@ -94,6 +99,7 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
   useEffect(() => {
     appApi.ffessmImport().then(setFfessm, (e) => lost.current(e) || setLoadError(message(e)));
     appApi.ffessmBrevets().then(setBrevetsImport, (e) => lost.current(e) || setLoadError(message(e)));
+    appApi.brevetMap().then(setBrevetMap, (e) => lost.current(e) || setLoadError(message(e)));
     appApi.memberLinks().then(setLinks, (e) => lost.current(e) || setLoadError(message(e)));
     vpdive.fetchMemberDirectory().then(setDirectory, (e) => lost.current(e) || setLoadError(message(e)));
   }, []);
@@ -175,9 +181,9 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
       const match = matchPerson(p, directory, records, links[p.key]);
       const record = match.member ? (records[match.member.id] ?? null) : null;
       const cands = links[p.key] ? [] : candidatesFor(p, directory);
-      return { p, match, record, view: viewOf(p, record, season, brevets), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
+      return { p, match, record, view: viewOf(p, record, season, brevets, brevetMap), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
     });
-  }, [people, directory, links, records, season, brevets]);
+  }, [people, directory, links, records, season, brevets, brevetMap]);
 
   const counts = useMemo(
     () => ({
@@ -215,6 +221,18 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
     { key: 'all', label: 'Tous' },
   ];
 
+  if (configOpen) {
+    return (
+      <BrevetMapView
+        brevets={[...new Set((brevetsImport?.rows ?? []).map((r) => r.brevet))]}
+        map={brevetMap}
+        onSave={async (brevet, levels) => setBrevetMap(await appApi.setBrevetMap(brevet, levels))}
+        onClose={() => setConfigOpen(false)}
+        onSessionLost={onSessionLost}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
@@ -240,6 +258,9 @@ export function MembershipTab({ onSessionLost }: { onSessionLost: (e: unknown) =
             onSessionLost={onSessionLost}
           />
         </div>
+        <button type="button" onClick={() => setConfigOpen(true)} className="icon-btn ml-auto" aria-label="Réglages : correspondance des brevets" title="Correspondance des brevets">
+          <Settings className="w-5 h-5" />
+        </button>
       </div>
 
       {(loadError || haError) && (

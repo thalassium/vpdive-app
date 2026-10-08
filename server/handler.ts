@@ -12,6 +12,8 @@
  *   GET  ?action=helloasso&season=2027    admin : adhésions HelloAsso de la saison (server/helloasso.ts)
  *   GET  ?action=ffessm&kind=licences|brevets         admin : dernier export FFESSM déposé
  *   POST ?action=ffessm&kind=licences|brevets {rows, period}  admin : déposer un export de Mon Club (lu dans l'appli)
+ *   GET  ?action=brevet_map               admin : correspondance brevets FFESSM → niveaux VPDive
+ *   POST ?action=brevet_map {brevet, levels}  admin : la fixer pour un brevet ([] : revenir à la règle automatique)
  *   GET  ?action=member_links             admin : rapprochements choisis à la main (personne → membre VPDive)
  *   POST ?action=member_links {key, uct}  admin : choisir (uct, ou 'none' : pas dans VPDive) ; uct null pour oublier
  *
@@ -38,6 +40,7 @@
  *   club:<id>:ffessm                 export FFESSM des licences déposé (gestion des adhésions)
  *   club:<id>:ffessm-brevets         export FFESSM des brevets déposé
  *   club:<id>:member-links           rapprochements choisis à la main
+ *   club:<id>:brevet-map             correspondance des brevets
  *   app:helloasso-token              jeton HelloAsso en cours
  */
 import { HttpError, forget, identify, isDpOf, type Caller } from './auth.js';
@@ -79,6 +82,7 @@ const docsIgnoredKey = (c: Caller) => `club:${c.clubId}:docs-ignored`;
 export type IgnoredDoc = Record<string, { name: string; by: string; at: string }>;
 const ffessmKey = (c: Caller, kind: string) => `club:${c.clubId}:ffessm${kind === 'brevets' ? '-brevets' : ''}`;
 const linksKey = (c: Caller) => `club:${c.clubId}:member-links`;
+const brevetMapKey = (c: Caller) => `club:${c.clubId}:brevet-map`;
 export type MemberLinks = Record<string, { uct: string; by: string; at: string }>;
 
 const envSuperAdmins = () =>
@@ -290,6 +294,23 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
         const doc = { rows: body.rows, period: String(body.period ?? '').slice(0, 80), by: caller.name || caller.email, at: new Date().toISOString() };
         await store.set(ffessmKey(caller, kind), doc);
         return json({ import: doc });
+      }
+    }
+
+    if (action === 'brevet_map') {
+      if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
+      const map = (await store.get<Record<string, string[]>>(brevetMapKey(caller))) ?? {};
+      if (request.method === 'GET') return json({ map });
+      if (request.method === 'POST') {
+        const body = parseBody(await request.text()) as { brevet?: unknown; levels?: unknown } | null;
+        const brevet = String(body?.brevet ?? '').trim().slice(0, 160);
+        const levels = Array.isArray(body?.levels) ? body.levels.map((l) => String(l).trim().slice(0, 200)).filter(Boolean).slice(0, 20) : null;
+        if (!brevet || !levels) throw new HttpError(400, 'Correspondance illisible.');
+        if (levels.length) map[brevet] = levels;
+        else delete map[brevet];
+        if (Object.keys(map).length > 300) throw new HttpError(413, 'Trop de correspondances.');
+        await store.set(brevetMapKey(caller), map);
+        return json({ map });
       }
     }
 
