@@ -167,7 +167,29 @@ await probe('27_search_user', 'POST', '/search/user', { query: 'ma', route: 'ass
 // VPDive has no JSON member list. Does a one-letter search return everyone, or is it capped?
 await probe('28_search_user_one_letter', 'POST', '/search/user', { query: 'e', route: 'assignment' });
 
-// ── 5. Done ───────────────────────────────────────────────────
+// ── 5. Messagerie (lecture seule) ─────────────────────────────
+// Les routes de la messagerie de vpdive.com (relevées dans son code). Rien n'est
+// envoyé ; ouvrir le détail d'une conversation peut la marquer comme lue.
+const firstToken = (body: unknown): string => {
+  // { messages: { catégorie: { section: { jeton: conversation } } } }
+  for (const l1 of Object.values(asObj(asObj(body)?.messages) ?? {})) {
+    for (const l2 of Object.values(asObj(l1) ?? {})) {
+      for (const [key, c] of Object.entries(asObj(l2) ?? {})) {
+        const tok = asObj(c)?.token;
+        return typeof tok === 'string' ? tok : key;
+      }
+    }
+  }
+  return '';
+};
+const discussions = await probe('30_messages_discussions', 'GET', '/messages/messages');
+const groups = await probe('31_messages_groups', 'GET', '/messages/groups');
+const discussionToken = firstToken(discussions.body);
+if (discussionToken) await probe('32_messages_detail_discussion', 'GET', `/messages/detail/messages/${discussionToken}`);
+const groupToken = firstToken(groups.body);
+if (groupToken) await probe('33_messages_detail_group', 'GET', `/messages/detail/groups/${groupToken}`);
+
+// ── 6. Done ───────────────────────────────────────────────────
 await call('GET', '/logout'); // revoke the probe's JWT
 finish();
 

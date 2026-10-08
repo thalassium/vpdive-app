@@ -289,7 +289,11 @@ export function MessagesView({ onSessionLost, onRead }: { onSessionLost: (e: unk
 
       {failedFirst ? (
         <div className="card p-4 sm:p-6 space-y-4">
-          <p className="text-base text-ink">La messagerie VPDive n'a pas pu être chargée.</p>
+          <div>
+            <p className="text-base text-ink">La messagerie VPDive n'a pas pu être chargée.</p>
+            {/* Le détail (code HTTP, message de VPDive) aide à savoir ce qui bloque. */}
+            <p className="mt-1 text-sm text-muted break-words">{listError}</p>
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <button type="button" onClick={() => void loadList()} className="btn btn-quiet">
               Réessayer
