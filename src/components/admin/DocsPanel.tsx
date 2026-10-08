@@ -8,6 +8,17 @@ import { appApi, type IgnoredDocs } from '../../services/appApi';
 import { messaging } from '../../services/messaging';
 import { bulkReminderText, checkDocs, reminderText, seasonOfOuting, type DocIssue, type DocKind, type DocsStatus } from '../../lib/docsCheck';
 import { MembershipTab } from './MembershipTab';
+import { PendingDocumentsTab, RegistrationRequestsTab } from './PendingTabs';
+import type { PendingValidation } from '../../services/vpdiveApi';
+import type { RegistrationRequest } from '../../services/appApi';
+
+type Tab = 'requests' | 'documents' | 'adhesions' | 'relance';
+const SUBTITLE: Record<Tab, string> = {
+  requests: 'Demandes d’inscription au club à accepter (membre ou invité) ou refuser.',
+  documents: 'Documents et déclarations déposés par les membres, à valider pour que VPDive en tienne compte.',
+  adhesions: 'Chaque membre vu par HelloAsso (paiements), la FFESSM (licence) et VPDive (fiche), et ce qu’il reste à corriger.',
+  relance: '',
+};
 
 interface Me {
   uct: string;
@@ -105,8 +116,37 @@ const hasKind = (r: Row, kind: DocKind) => r.issues.some((i) => i.kind === kind 
  * avec une pause, et les fiches membres sont gardées 6 h dans la session.
  */
 export function DocsPanel({ me, onClose, onSessionLost }: Props) {
-  /** Adhésions (HelloAsso × FFESSM × VPDive) ou Relance (inscrits des prochaines semaines). */
-  const [tab, setTab] = useState<'adhesions' | 'relance'>('adhesions');
+  /**
+   * À traiter d'abord : membres à valider, documents en attente (tant qu'ils ne
+   * sont pas validés, les vérifications les voient manquants). Puis les
+   * vérifications : Adhésions (HelloAsso × FFESSM × VPDive) et Relance.
+   */
+  const [tab, setTab] = useState<Tab>('requests');
+  /** L'admin a choisi un onglet : on ne le change plus pour lui. */
+  const chosen = useRef(false);
+  const [requests, setRequests] = useState<RegistrationRequest[] | null>(null);
+  const [requestsError, setRequestsError] = useState<string | null>(null);
+  const [pendingDocs, setPendingDocs] = useState<PendingValidation[] | null>(null);
+  const [docsError, setDocsError] = useState<string | null>(null);
+  const loadRequests = useCallback(() => {
+    setRequestsError(null);
+    setRequests(null);
+    appApi.registrationRequests().then(setRequests, (e) => onSessionLost(e) || setRequestsError(e instanceof Error ? e.message : String(e)));
+  }, [onSessionLost]);
+  const loadPendingDocs = useCallback(() => {
+    setDocsError(null);
+    setPendingDocs(null);
+    vpdive.pendingValidations().then(setPendingDocs, (e) => onSessionLost(e) || setDocsError(e instanceof Error ? e.message : String(e)));
+  }, [onSessionLost]);
+  useEffect(() => {
+    loadRequests();
+    loadPendingDocs();
+  }, [loadRequests, loadPendingDocs]);
+  // À l'ouverture : le premier onglet qui a quelque chose à traiter, sinon les adhésions.
+  useEffect(() => {
+    if (chosen.current || requests === null || pendingDocs === null) return;
+    setTab(requests.length ? 'requests' : pendingDocs.length ? 'documents' : 'adhesions');
+  }, [requests, pendingDocs]);
   /** La relance ne lit VPDive qu'une fois son onglet ouvert. */
   const [relanceOpened, setRelanceOpened] = useState(false);
   const [outings, setOutings] = useState<Outing[] | null>(null);
@@ -354,7 +394,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="docs-title" className={`relative bg-surface w-full ${tab === 'adhesions' ? 'sm:max-w-7xl' : 'sm:max-w-5xl'} h-dvh sm:h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop`}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="docs-title" className={`relative bg-surface w-full ${tab === 'relance' ? 'sm:max-w-5xl' : 'sm:max-w-7xl'} h-dvh sm:h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop`}>
         <header className="relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -363,9 +403,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                 <FileText className="w-6 h-6 text-brand" /> Gestion des adhésions
               </h2>
               <p className="mt-1 text-sm text-muted">
-                {tab === 'adhesions'
-                  ? 'Chaque membre vu par HelloAsso (paiements), la FFESSM (licence) et VPDive (fiche), et ce qu’il reste à corriger.'
-                  : `Inscrits des ${DAYS_AHEAD} prochains jours dont le dossier VPDive n’est pas en règle à la date de la sortie.`}
+                {tab === 'relance' ? `Inscrits des ${DAYS_AHEAD} prochains jours dont le dossier VPDive n’est pas en règle à la date de la sortie.` : SUBTITLE[tab]}
               </p>
             </div>
             <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
@@ -375,7 +413,36 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               </button>
             </div>
           </div>
-          <div role="tablist" aria-label="Gestion des adhésions" className="mt-3 flex gap-1 border-b border-line -mb-4">
+          {/* Onglets : d'abord le groupe « à traiter d'abord » (teinte d'alerte), puis les vérifications. */}
+          <div role="tablist" aria-label="Gestion des adhésions" className="mt-3 flex items-end gap-2 border-b border-line -mb-4 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex items-end shrink-0 rounded-t-lg bg-warn-soft px-1 pt-1" role="presentation">
+              <span className="hidden md:inline self-center px-2 text-xs font-semibold text-warn">À traiter d’abord</span>
+              {(
+                [
+                  ['requests', 'Membres à valider', requests?.length],
+                  ['documents', 'Documents en attente', pendingDocs?.length],
+                ] as const
+              ).map(([key, text, count]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === key}
+                  onClick={() => {
+                    chosen.current = true;
+                    setTab(key);
+                  }}
+                  className={`h-9 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap inline-flex items-center gap-1.5 transition-colors ${
+                    tab === key ? 'border-warn text-warn bg-surface rounded-t-md' : 'border-transparent text-warn/80 hover:text-warn'
+                  }`}
+                >
+                  {text}
+                  {count !== undefined && count > 0 && (
+                    <span className="min-w-5 h-5 px-1.5 rounded-full border border-warn/40 bg-surface text-xs tabular-nums inline-flex items-center justify-center">{count}</span>
+                  )}
+                </button>
+              ))}
+            </div>
             {(
               [
                 ['adhesions', 'Adhésions'],
@@ -388,10 +455,11 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                 role="tab"
                 aria-selected={tab === key}
                 onClick={() => {
+                  chosen.current = true;
                   setTab(key);
                   if (key === 'relance') setRelanceOpened(true);
                 }}
-                className={`h-10 px-4 -mb-px border-b-2 text-sm font-semibold transition-colors ${tab === key ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'}`}
+                className={`h-10 px-4 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 transition-colors ${tab === key ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'}`}
               >
                 {text}
               </button>
@@ -431,7 +499,15 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
           )}
         </header>
 
-        {tab === 'adhesions' ? (
+        {tab === 'requests' ? (
+          <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4">
+            <RegistrationRequestsTab requests={requests} error={requestsError} onReload={loadRequests} onChange={setRequests} onSessionLost={onSessionLost} />
+          </div>
+        ) : tab === 'documents' ? (
+          <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4">
+            <PendingDocumentsTab items={pendingDocs} error={docsError} onReload={loadPendingDocs} onChange={setPendingDocs} onSessionLost={onSessionLost} />
+          </div>
+        ) : tab === 'adhesions' ? (
           <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4">
             <MembershipTab onSessionLost={onSessionLost} />
           </div>

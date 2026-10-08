@@ -160,6 +160,22 @@ export interface MemberDocument {
   kind: 'pdf' | 'image' | 'file';
 }
 
+/** Un document ou une déclaration d'un membre, en attente de validation par le club (validation_tracking). */
+export interface PendingValidation {
+  /** medical_examination, licence, year_confirmation, level, qualification… */
+  type: string;
+  /** « CACI », « Licence », « Année(s) d'inscription »… */
+  typeLabel: string;
+  /** Jeton d'adhésion du membre (uct). */
+  member: string;
+  memberName: string;
+  picture: string;
+  /** Ce qui est déclaré : date de fin du CACI, n° de licence, saison, niveau… */
+  detail: string;
+  files: { label: string; url: string }[];
+  entityId: number;
+}
+
 export interface MemberProfile {
   /** Ce que lit le moteur des palanquées : codes de niveau (P4, PE40…) et prérogative E1…E4 (lib/vpdiveLevels.ts). */
   labels: string[];
@@ -953,6 +969,45 @@ class VpDiveClient {
     const token = str((obj(res.data) ?? res).token);
     if (!token) throw new VpDiveError('Membre introuvable dans la messagerie VPDive.', 0);
     return token;
+  }
+
+  /**
+   * Documents et déclarations des membres en attente de validation (écran
+   * « Suivi des validations » de VPDive). Tant qu'ils ne sont pas validés,
+   * VPDive n'en tient pas compte (licence, CACI, saison, niveaux).
+   */
+  async pendingValidations(): Promise<PendingValidation[]> {
+    const res = await this.request('/validation_tracking/pending');
+    return (Array.isArray(res.pending) ? res.pending : [])
+      .map(obj)
+      .filter((x): x is Json => x !== null)
+      .map((x) => {
+        const u = obj(x.user) ?? {};
+        const who = obj(u.user) ?? {};
+        return {
+          type: str(x.type),
+          typeLabel: str(x.type_label) || str(x.type),
+          member: str(u.token),
+          memberName: `${str(who.last_name).trim().toUpperCase()} ${str(who.first_name).trim()}`.trim(),
+          picture: pictureUrl(str(who.profile_picture)),
+          detail: str(x.detail).trim(),
+          files: (Array.isArray(x.document_files) ? x.document_files : [])
+            .map(obj)
+            .filter((f): f is Json => f !== null && !!str(f.url))
+            .map((f) => ({ label: str(f.label) || 'Document', url: str(f.url).startsWith('http') ? str(f.url) : `${VPDIVE_ORIGIN}${str(f.url)}` })),
+          entityId: num(x.entity_id) ?? 0,
+        };
+      })
+      .filter((x) => x.member && x.type);
+  }
+
+  /** Valide ou refuse un document en attente, comme le bouton de VPDive. */
+  async decideValidation(v: PendingValidation, decision: 'approve' | 'reject'): Promise<void> {
+    const res = await this.request(`/validation_tracking/${decision}`, {
+      method: 'POST',
+      body: { token: v.member, type: v.type, entity_id: v.entityId, to_check: false },
+    });
+    if (res.success === false || res.error) throw new VpDiveError(str(res.message) || str(res.error) || 'VPDive a refusé l’opération.', 0);
   }
 
   /** Référentiel des niveaux du club, par activité et fédération (« PLONGEE SCAPHANDRE (F.F.E.S.S.M.) - Pratique » → noms). */

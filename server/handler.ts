@@ -12,6 +12,8 @@
  *   GET  ?action=helloasso&season=2027    admin : adhésions HelloAsso de la saison (server/helloasso.ts)
  *   GET  ?action=ffessm&kind=licences|brevets         admin : dernier export FFESSM déposé
  *   POST ?action=ffessm&kind=licences|brevets {rows, period}  admin : déposer un export de Mon Club (lu dans l'appli)
+ *   GET  ?action=registration_requests    admin : demandes d'inscription au club en attente (server/legacy.ts)
+ *   POST ?action=registration_requests {token, decision: member|guest|refuse}  admin : y répondre
  *   GET  ?action=brevet_map               admin : correspondance brevets FFESSM → niveaux VPDive
  *   POST ?action=brevet_map {brevet, levels}  admin : la fixer pour un brevet ([] : revenir à la règle automatique)
  *   GET  ?action=member_links             admin : rapprochements choisis à la main (personne → membre VPDive)
@@ -46,6 +48,7 @@
 import { HttpError, forget, identify, isDpOf, type Caller } from './auth.js';
 import { getStore, type Store } from './store.js';
 import { helloassoConfigured, membershipItems } from './helloasso.js';
+import { decideRegistration, registrationRequests, type Decision } from './legacy.js';
 
 export type AppRole = 'superadmin' | 'admin' | 'member';
 
@@ -294,6 +297,18 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
         const doc = { rows: body.rows, period: String(body.period ?? '').slice(0, 80), by: caller.name || caller.email, at: new Date().toISOString() };
         await store.set(ffessmKey(caller, kind), doc);
         return json({ import: doc });
+      }
+    }
+
+    // Demandes d'inscription : seulement dans l'ancienne interface de VPDive, lue avec la session de l'admin.
+    if (action === 'registration_requests') {
+      if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
+      if (request.method === 'GET') return json({ requests: await registrationRequests(caller) });
+      if (request.method === 'POST') {
+        const body = parseBody(await request.text()) as { token?: unknown; decision?: unknown } | null;
+        const decision = String(body?.decision ?? '') as Decision;
+        if (!['member', 'guest', 'refuse'].includes(decision)) throw new HttpError(400, 'Décision inconnue.');
+        return json({ requests: await decideRegistration(caller, String(body?.token ?? ''), decision) });
       }
     }
 

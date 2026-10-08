@@ -295,3 +295,12 @@ test('adhésions : réservé aux admins ; rapprochements mémorisés et validés
   assert.equal(read.import.rows.length, 1);
   assert.equal(read.import.by, 'Sue Per');
 });
+
+test('demandes d’inscription : réservé aux admins ; décision inconnue refusée avant tout appel à VPDive', async () => {
+  const store = memStore();
+  const member = caller({ uct: PLAIN, email: 'plain@club.fr' });
+  assert.equal((await handleWith(req('GET', 'action=registration_requests'), deps(store, member))).status, 403);
+  const admin = caller({ vpdiveAdmin: true });
+  const bad = await handleWith(req('POST', 'action=registration_requests', JSON.stringify({ token: 'x'.repeat(43), decision: 'supprimer' })), deps(store, admin));
+  assert.equal(bad.status, 400);
+});

@@ -7,6 +7,15 @@ import { vpdive, SessionExpiredError } from './vpdiveApi';
 import type { OutingDoc } from '../lib/outing';
 import type { FfessmBrevet, FfessmRow, HaItem, LinkChoice } from '../lib/membership';
 
+/** Une demande d'inscription au club en attente de réponse. */
+export interface RegistrationRequest {
+  token: string;
+  name: string;
+  contact: string;
+  picture: string;
+  status: string;
+}
+
 /** Dernier export FFESSM déposé (licences ou brevets), partagé entre admins. */
 export interface FfessmImport<Row = FfessmRow> {
   rows: Row[];
@@ -88,6 +97,10 @@ export const appApi = {
   ffessmBrevets: () => call<{ import: FfessmImport<FfessmBrevet> | null }>('action=ffessm&kind=brevets').then((r) => r.import),
   saveFfessmBrevets: (rows: FfessmBrevet[], period: string) =>
     call<{ import: FfessmImport<FfessmBrevet> }>('action=ffessm&kind=brevets', { method: 'POST', body: { rows, period } }).then((r) => r.import),
+  /** Demandes d'inscription au club en attente (ancienne interface VPDive, lue par le serveur). */
+  registrationRequests: () => call<{ requests: RegistrationRequest[] }>('action=registration_requests').then((r) => r.requests),
+  decideRegistration: (token: string, decision: 'member' | 'guest' | 'refuse') =>
+    call<{ requests: RegistrationRequest[] }>('action=registration_requests', { method: 'POST', body: { token, decision } }).then((r) => r.requests),
   brevetMap: () => call<{ map: Record<string, string[]> }>('action=brevet_map').then((r) => r.map),
   setBrevetMap: (brevet: string, levels: string[]) => call<{ map: Record<string, string[]> }>('action=brevet_map', { method: 'POST', body: { brevet, levels } }).then((r) => r.map),
   memberLinks: () => call<{ links: Record<string, LinkChoice> }>('action=member_links').then((r) => r.links),
