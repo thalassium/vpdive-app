@@ -34,6 +34,7 @@ import { GabianLoader } from '../Gabian';
 import { message } from '../../lib/errors';
 import { isRecord, sessionCache } from '../../lib/cache';
 import { Dialog, DialogHeader } from '../Dialog';
+import { OutingRosterContext } from '../member/sheetContext';
 
 interface Props {
   session: Session;
@@ -647,6 +648,8 @@ function OutingWorkspace({
   const guests = doc?.guests;
   const members = doc?.members;
   const people = useMemo(() => (roster ? withGuests(roster, { guests, members }) : null), [roster, guests, members]);
+  /** Les mêmes, par identifiant : l'icône « fiche » à côté d'un nom y trouve le membre (fiche « plongée » d'un DP non admin). */
+  const peopleById = useMemo(() => new Map((people ?? []).map((r) => [r.id, r])), [people]);
 
   /** L'identifiant d'inscription que VPDive attend pour ses routes d'admin. */
   const socketOf = (id: string, name: string) => {
@@ -764,6 +767,7 @@ function OutingWorkspace({
   const panelId = (t: 'palanquees' | 'fiche') => `${tabsId}-panel-${t}`;
 
   return (
+    <OutingRosterContext.Provider value={peopleById}>
     <div className="px-5 sm:px-6 py-5 space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3 print:hidden">
         <div className="min-w-0">
@@ -1030,6 +1034,7 @@ function OutingWorkspace({
       )}
       {confirmDialog}
     </div>
+    </OutingRosterContext.Provider>
   );
 }
 

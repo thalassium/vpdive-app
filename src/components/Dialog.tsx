@@ -17,6 +17,8 @@ interface DialogProps {
   className: string;
   /** En plus sur le voile (impression…). */
   backdropClassName?: string;
+  /** Étage : z-50 (panneaux) par défaut ; une fenêtre ouverte par-dessus un panneau monte plus haut (fiche membre, z-[75]). */
+  layer?: string;
   children: ReactNode;
 }
 
@@ -25,12 +27,12 @@ interface DialogProps {
  * téléphone et centrée au-delà, et tout ce que fait useDialog (Échap, bouton
  * Retour, focus gardé dedans, page figée derrière).
  */
-export function Dialog({ label, onClose, canClose, onBackdrop, titleId, className, backdropClassName = '', children }: DialogProps) {
+export function Dialog({ label, onClose, canClose, onBackdrop, titleId, className, backdropClassName = '', layer = 'z-50', children }: DialogProps) {
   const { ref } = useDialog({ onClose, canClose, label });
   const backdrop = onBackdrop === undefined ? onClose : onBackdrop;
   return (
     <div
-      className={`fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade ${backdropClassName}`}
+      className={`fixed inset-0 ${layer} flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade ${backdropClassName}`}
       onMouseDown={(e) => e.target === e.currentTarget && backdrop?.()}
     >
       <div

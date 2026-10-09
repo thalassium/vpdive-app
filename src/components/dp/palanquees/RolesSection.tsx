@@ -5,6 +5,7 @@ import { Avatar } from '../../Avatar';
 import { Menu } from '../../Menu';
 import { AddMember } from './AddMember';
 import { SectionTitle } from '../../SectionTitle';
+import { OutingMemberButton } from '../../member/MemberLink';
 
 /**
  * Rôles de la sortie : DP, pilote, sécurité surface. N'importe quel inscrit de la
@@ -44,6 +45,7 @@ export function RolesSection({
                     <span key={id} className="inline-flex max-w-full min-w-0 items-center gap-2 h-9 pl-1 pr-1 rounded-lg border border-field-border bg-tint text-brand font-semibold">
                       <Avatar name={name} picture={person?.picture} size="sm" initials={false} />
                       <span className="truncate">{name}</span>
+                      <OutingMemberButton id={id} size="sm" className="-mx-1" />
                       <button
                         type="button"
                         onClick={() => onRoles(toggleRole(roles, role.id, id), role.id)}

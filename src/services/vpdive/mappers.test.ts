@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { documentsOf, infoOf, profileOf } from './members';
+import { documentsOf, infoOf, profileOf, sheetOf } from './members';
 import { mapDetail, mapEvent, myRegistration, rosterFrom, type MaterialOption } from './calendar';
 
 const roles = [
@@ -92,6 +92,42 @@ test('mes infos : contact, naissance, adhésion et licences lus sur la fiche mem
   assert.deepEqual(info.seasons, ['2026', '2025']);
   assert.deepEqual(info.licences, [{ number: 'A-19-1', organization: 'FFESSM', expires: '', expired: false, validated: true }]);
   assert.deepEqual(info.shows, { phone: true, birthday: false });
+});
+
+test('fiche membre (/user?uct_token=) : niveaux, infos, documents, statut Membre ou Invité, photo', () => {
+  // Exemple synthétique, de la forme de la réponse (pas d'enveloppe `data` sur cette route).
+  const u = {
+    first_name: 'Alice',
+    last_name: 'Martin',
+    email: 'alice@example.org',
+    phone: '0600000000',
+    profile_picture: '/uploads/profile/alice.jpg',
+    medical_examination: '2027-01-15T00:00:00+01:00',
+    user_level: [{ level: { id: 1, name: 'P-Plongeur Niveau 2 (P2-N2)' } }],
+    user_teaching: [],
+    user_qualification: [{ qualification: { id: 2, name: 'Nitrox' } }],
+    user_club_traceability: { allMembers: true, yearsConfirmation: ['2026'], dateConfirmation: '2025-09-01T10:00:00+02:00' },
+    licenses: [{ number: 'A-26-000001', organization: { name: 'FFESSM' }, expiration_date: null, is_expired: false, status: 'validated' }],
+    file_medical_examination: { link: '/uploads/documents/caci', name: 'caci.pdf', type: 'application/pdf' },
+  };
+  const s = sheetOf(u);
+  assert.equal(s.member, true);
+  assert.equal(s.picture, 'https://septentrion-env.vpdive.com/uploads/profile/alice.jpg');
+  assert.deepEqual(s.profile.levels, ['P-Plongeur Niveau 2 (P2-N2)']);
+  assert.deepEqual(s.profile.qualifications, ['Nitrox']);
+  assert.equal(s.profile.medicalUntil, '2027-01-15');
+  assert.equal(s.info.email, 'alice@example.org');
+  assert.deepEqual(s.info.seasons, ['2026']);
+  assert.equal(s.info.licences[0]?.number, 'A-26-000001');
+  assert.deepEqual(
+    s.documents.map((d) => d.label),
+    ['Certificat médical'],
+  );
+  // Invité : drapeau allMembers absent ; sans photo propre, pas de photo.
+  const guest = sheetOf({ first_name: 'Bob', user_club_traceability: { allMembers: false } });
+  assert.equal(guest.member, false);
+  assert.equal(guest.picture, '');
+  assert.deepEqual(guest.documents, []);
 });
 
 // Exemples synthétiques, de la forme des réponses relevées par `npm run probe` (aucune donnée réelle).

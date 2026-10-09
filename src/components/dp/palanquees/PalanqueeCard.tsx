@@ -23,6 +23,7 @@ import {
 import type { GuideNote } from '../../../lib/outing';
 import { MoveSelect } from './MoveSelect';
 import { TYPES, describe, diplomas, ownPrerogative, type Target } from './format';
+import { OutingMemberButton } from '../../member/MemberLink';
 
 /** Une palanquée : type, encadrant, plongeurs avec leur prérogative, points à corriger. */
 export function PalanqueeCard({
@@ -200,6 +201,8 @@ function GuideRow({
         ) : (
           <span className={`break-words line-clamp-2 sm:line-clamp-none sm:truncate ${g ? 'font-semibold text-ink' : ''}`}>{g ? g.name : teaching ? 'Aucun enseignant disponible' : 'Sans encadrant'}</span>
         )}
+        {/* Sa fiche, à côté du menu des encadrants (qui garde le nom). */}
+        {g && <OutingMemberButton id={g.id} className="-my-1.5" />}
         </div>
         <span className="block text-sm text-muted truncate">
           {g ? role : teaching ? 'Enseignant à choisir' : 'Plongeurs autonomes'}
@@ -320,6 +323,7 @@ function DiverRow({
       <span className="flex-1 min-w-0">
         <span className="flex items-center gap-1.5 min-w-0">
           <span className="break-words line-clamp-2 sm:line-clamp-none sm:truncate text-ink">{d.name}</span>
+          <OutingMemberButton id={d.id} className="-my-1.5" />
         </span>
         <span className="block text-sm text-muted truncate">
           {d.training ? `en formation ${trainingLabel(d)} · ${describe(d)}` : describe(d)}

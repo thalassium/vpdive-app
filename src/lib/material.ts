@@ -17,6 +17,8 @@ import { DP_ROLE, SURFACE_ROLES } from './outingRoles';
 export interface MaterialRegistrant {
   /** Identifiant d'inscrit, pour savoir s'il plonge d'après la fiche de sortie. */
   id?: string;
+  /** Jeton d'adhésion (uct) : ouvre sa fiche depuis la liste ; absent pour un plongeur hors VPDive. */
+  uct?: string;
   name: string;
   /** Rôles VPDive de la sortie (« Pilote », « Directeur de plongée »…). */
   roles?: string[];
@@ -36,6 +38,8 @@ export interface MaterialItem {
 export interface MaterialPerson {
   name: string;
   picture: string;
+  /** Jeton d'adhésion (uct), repris de l'inscrit : ouvre sa fiche. */
+  uct?: string;
   /** « Gilet stabilisateur · M », « 2 × Détendeur », « Bouteille 15 L ». */
   lines: string[];
   /** Ne plonge pas, donc pas de bouteille : pourquoi (« pilote », « ne plonge pas d'après la fiche »). */
@@ -150,7 +154,7 @@ export function aggregateMaterial(roster: MaterialRegistrant[], diving: Set<stri
     }
     const noBottle = r.waitingList ? null : noBottleReason(r, diving);
     if (bottle !== DEFAULT_BOTTLE && !noBottle) lines.push(`Bouteille ${bottle}`);
-    const person = { name: r.name, picture: r.picture ?? '', lines, ...(noBottle ? { noBottle } : {}) };
+    const person = { name: r.name, picture: r.picture ?? '', ...(r.uct ? { uct: r.uct } : {}), lines, ...(noBottle ? { noBottle } : {}) };
     if (r.waitingList) {
       waiting.push(person);
     } else {

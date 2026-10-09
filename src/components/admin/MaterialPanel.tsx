@@ -7,6 +7,7 @@ import { BOTTLES } from '../../lib/gear';
 import { aggregateMaterial, isUnknownSize, materialText, sortedSizes, BOTTLE_SHORT, type MaterialPerson } from '../../lib/material';
 import { adoptRegistrations, divingIds, syncWithRoster, withGuests, type OutingDoc } from '../../lib/outing';
 import { Avatar } from '../Avatar';
+import { MemberSheetButton } from '../member/MemberLink';
 import { Menu } from '../Menu';
 import { useConfirm } from '../../hooks/useConfirm';
 import { GabianLoader } from '../Gabian';
@@ -344,7 +345,10 @@ function PeopleList({ people }: { people: MaterialPerson[] }) {
             <Avatar name={p.name} picture={p.picture} size="sm" initials={false} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-base text-ink">{p.name}</span>
+            <span className="flex items-center gap-1 text-base text-ink">
+              {p.name}
+              <MemberSheetButton member={p.uct ? { uct: p.uct, name: p.name, picture: p.picture } : null} size="sm" className="-my-1" />
+            </span>
             <span className="flex flex-wrap gap-x-4 text-sm text-muted">
               {p.lines.length ? p.lines.map((line, j) => <span key={j}>{line}</span>) : 'Rien à louer'}
               {p.noBottle && <span className="text-warn">Pas de bouteille : {p.noBottle}</span>}

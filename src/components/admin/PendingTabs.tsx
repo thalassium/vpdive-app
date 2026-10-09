@@ -9,6 +9,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { docsStatusCache, recordCache } from './memberCache';
 import { message } from '../../lib/errors';
 import { Empty, Failure } from '../Feedback';
+import { MemberSheetButton } from '../member/MemberLink';
 
 /*
  * Les deux onglets « à traiter d'abord » de la gestion des adhésions : tant
@@ -181,7 +182,9 @@ export function PendingDocumentsTab({
           <article key={first.member} className="card overflow-hidden">
             <header className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-raised border-b border-line">
               <Avatar name={first.memberName} picture={first.picture} size="sm" initials={false} />
-              <span className="flex-1 min-w-0 font-semibold text-ink truncate">{first.memberName}</span>
+              <span className="min-w-0 font-semibold text-ink truncate">{first.memberName}</span>
+              <MemberSheetButton member={{ uct: first.member, name: first.memberName, picture: first.picture }} className="-my-1 -ml-2" />
+              <span className="flex-1" />
               {list.length > 1 && (
                 <button type="button" disabled={busy !== null} aria-busy={busy === first.member} onClick={() => void decide(list, 'approve', first.member)} className="btn btn-quiet sm:h-8 text-sm">
                   {busy === first.member ? <Spinner /> : <Check className="w-4 h-4" />} Tout valider ({list.length})

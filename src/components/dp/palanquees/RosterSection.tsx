@@ -14,6 +14,7 @@ import { RoleBadges } from './RoleBadges';
 import { ActionButton } from './ActionButton';
 import { SectionTitle } from '../../SectionTitle';
 import { APT_COL, FN_COL, RolesContext, byName, byRank, hasRows } from './format';
+import { OutingMemberButton } from '../../member/MemberLink';
 
 interface Props {
   roster: RosterEntry[];
@@ -78,8 +79,9 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
     const hasRoles = (roleMap.get(d.id)?.length ?? 0) > 0;
     return (
       <li key={d.id} className="flex flex-wrap items-center gap-x-1.5 px-3 sm:px-3.5 py-2">
-        <div className={`flex items-center gap-1.5 w-full ${out ? 'opacity-50' : ''}`}>
-        <label className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer">
+        {/* Téléphone : une grille, l'icône « fiche » passe sous le nom (la place manque à côté des menus). */}
+        <div className={`grid ${instructor ? 'grid-cols-[minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto_auto]'} sm:flex items-center gap-x-1.5 w-full ${out ? 'opacity-50' : ''}`}>
+        <label className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer max-sm:col-start-1 max-sm:row-start-1">
           <input
             type="checkbox"
             checked={!out}
@@ -99,10 +101,12 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
             )}
           </span>
         </label>
+        {/* Sa fiche : à côté de l'étiquette (qui coche « plonge »), jamais dedans. Pas pour un plongeur hors VPDive. */}
+        <OutingMemberButton id={d.id} className="max-sm:col-start-1 max-sm:row-start-2 max-sm:justify-self-start max-sm:ml-6" />
         {/* Apt. : la prérogative VPDive, ou celle retenue par le DP (brevet étranger, N1 porté à PE40…). */}
         <Menu
           ariaLabel={`Aptitude de ${d.name}`}
-          triggerClassName={`btn sm:h-9 px-1.5 gap-0.5 text-sm ${APT_COL} ${
+          triggerClassName={`btn sm:h-9 max-sm:row-span-2 px-1.5 gap-0.5 text-sm ${APT_COL} ${
             !prerogative ? (out ? 'btn-quiet text-muted' : 'border border-warn bg-warn-soft text-warn') : forced ? 'border border-brand bg-tint text-brand' : 'btn-quiet'
           }`}
           trigger={
@@ -126,7 +130,7 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
         {!instructor && (
         <Menu
           ariaLabel={`Formation de ${d.name}`}
-          triggerClassName={`btn sm:h-9 px-1.5 gap-0.5 text-sm ${FN_COL} ${current ? 'border border-brand bg-tint text-brand' : 'btn-quiet text-muted'}`}
+          triggerClassName={`btn sm:h-9 max-sm:row-span-2 px-1.5 gap-0.5 text-sm ${FN_COL} ${current ? 'border border-brand bg-tint text-brand' : 'btn-quiet text-muted'}`}
           trigger={
             <>
               <span className={`truncate ${current ? 'font-bold tabular-nums' : ''}`}>{current || '—'}</span>

@@ -1,48 +1,17 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
-import { Award, ChevronDown, ExternalLink, FileText, FolderOpen, IdCard, ImageIcon, LogOut } from 'lucide-react';
-import { vpdive, type EmergencyContact, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdive';
-import { ymd, frDate } from '../../lib/dates';
+import { Award, ExternalLink, FolderOpen, IdCard, LogOut } from 'lucide-react';
+import { vpdive, type EmergencyContact, type MemberDocument, type MemberInfo, type Session } from '../../services/vpdive';
+import { ymd } from '../../lib/dates';
 import type { Me } from '../../services/appApi';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
 import { message } from '../../lib/errors';
 import { Failure } from '../Feedback';
+import { Box, DocumentList, InfoList, QualsList, Skeleton } from '../member/MemberBlocks';
+import { fromProfile, fromRoster, hasAny, type Quals } from '../member/quals';
 
 /** Ma page profil sur VPDive : informations, documents, niveaux. */
 const VPDIVE_URL = 'https://septentrion-env.vpdive.com/app/profile';
-
-/** Niveaux, prérogatives et certificat médical, quelle que soit leur source. */
-interface Quals {
-  groups: { label: string; items: string[] }[];
-  training: string[];
-  medical: { until: string | null; valid: boolean } | null;
-}
-
-const hasAny = (q: Quals | null): q is Quals => !!q && (q.groups.some((g) => g.items.length > 0) || q.training.length > 0 || !!q.medical);
-
-/** Fiche membre VPDive (permission `member_view`) : niveaux, enseignement et qualifications séparés. */
-function fromProfile(p: MemberProfile): Quals {
-  const until = p.medicalUntil || null;
-  return {
-    groups: [
-      { label: 'Niveaux', items: p.levels },
-      { label: 'Enseignement', items: p.teaching },
-      { label: 'Qualifications', items: p.qualifications },
-    ],
-    training: [],
-    medical: until ? { until, valid: until >= ymd(new Date()) } : null,
-  };
-}
-
-/** Liste des inscrits d'une sortie : niveaux et diplômes mêlés, prépas, certificat. */
-function fromRoster(r: RosterEntry): Quals {
-  return {
-    groups: [{ label: 'Niveaux et diplômes', items: r.display }],
-    training: r.training,
-    medical: r.medical.until || r.medical.valid ? r.medical : null,
-  };
-}
 
 /** Ma fiche telle que l'écran la montre. */
 interface FileState {
@@ -226,33 +195,7 @@ export function ProfileView({
             ) : quals === null ? (
               <p className="text-muted">Les niveaux s’affichent dès votre prochaine inscription à une sortie.</p>
             ) : (
-              <div className="space-y-4">
-                {quals.groups
-                  .filter((g) => g.items.length > 0)
-                  .map((g) => (
-                    <div key={g.label}>
-                      <h3 className="label mb-1.5">{g.label}</h3>
-                      <ul className="flex flex-wrap gap-1.5">
-                        {g.items.map((item) => (
-                          <li key={item} className="chip text-brand">
-                            {item}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                {quals.training.length > 0 && <p className="text-ink">En préparation : {quals.training.join(', ')}</p>}
-                <p className="text-ink">
-                  Certificat médical :{' '}
-                  {!quals.medical ? (
-                    <span className="text-muted">non renseigné</span>
-                  ) : quals.medical.valid ? (
-                    <span className="text-ok font-medium">{quals.medical.until ? `valable jusqu’au ${frDate(quals.medical.until)}` : 'valable'}</span>
-                  ) : (
-                    <span className="text-danger font-medium">à renouveler</span>
-                  )}
-                </p>
-              </div>
+              <QualsList quals={quals} />
             )}
           </div>
         </Box>
@@ -272,27 +215,7 @@ export function ProfileView({
               </a>
             </div>
           ) : (
-            <ul className="divide-y divide-line">
-              {documents.map((doc) => (
-                <li key={doc.url}>
-                  <a
-                    href={doc.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-raised focus-visible:bg-raised transition-colors"
-                  >
-                    <span className="w-9 h-9 shrink-0 rounded-lg bg-tint text-brand inline-flex items-center justify-center">
-                      {doc.kind === 'image' ? <ImageIcon className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block font-medium text-ink truncate">{doc.label}</span>
-                      {doc.detail && <span className="block text-sm text-muted truncate">{doc.detail}</span>}
-                    </span>
-                    <ExternalLink aria-hidden className="w-4 h-4 text-muted shrink-0" />
-                  </a>
-                </li>
-              ))}
-            </ul>
+            <DocumentList documents={documents} />
           )}
         </Box>
       </div>
@@ -314,83 +237,6 @@ export function ProfileView({
           Ouvrir mon profil sur VPDive
         </a>
       </section>
-    </div>
-  );
-}
-
-/**
- * Mes infos, groupées comme sur une fiche d'adhésion : contact, identité,
- * adhésion, licences. Une ligne vide n'est pas affichée ; le contact d'urgence
- * n'existe pas dans VPDive, on le dit plutôt que de laisser croire à un oubli.
- */
-function InfoList({ info }: { info: MemberInfo }) {
-  const adresse = [info.address, [info.zipCode, info.city].filter(Boolean).join(' '), info.country].filter(Boolean).join(', ');
-  const naissance = [info.birthday && `le ${frDate(info.birthday)}`, info.birthPlace && `à ${info.birthPlace}`].filter(Boolean).join(' ');
-  const groupes: { titre: string; lignes: [string, ReactNode][] }[] = [
-    {
-      titre: 'Contact',
-      lignes: [
-        ['Téléphone', info.phone && <a href={`tel:${info.phone.replace(/\s/g, '')}`} className="text-brand underline underline-offset-2">{info.phone}</a>],
-        ['E-mail', info.email],
-        ['Adresse', adresse],
-      ],
-    },
-    {
-      titre: 'Identité',
-      lignes: [
-        ['Nom', [info.civility, info.firstName, info.lastName].filter(Boolean).join(' ')],
-        ['Nom de naissance', info.birthName !== info.lastName ? info.birthName : ''],
-        ['Naissance', naissance],
-      ],
-    },
-    {
-      titre: 'Adhésion',
-      lignes: [
-        ['Membre depuis', frDate(info.memberSince)],
-        ['Saisons', info.seasons.join(', ')],
-        ['Assurance', [info.insurance, info.insuranceYear && `(${info.insuranceYear})`].filter(Boolean).join(' ')],
-        ['Honorabilité', info.honorabilityAt && `contrôle validé le ${frDate(info.honorabilityAt)}`],
-        ['Visible des membres', [info.shows.phone && 'téléphone', info.shows.birthday && 'date de naissance'].filter(Boolean).join(', ') || 'ni téléphone ni date de naissance'],
-      ],
-    },
-    {
-      titre: 'Licences',
-      lignes: info.licences.map((l): [string, ReactNode] => [
-        l.organization || 'Licence',
-        <span>
-          <span className="tabular-nums">{l.number}</span>
-          {l.expired ? (
-            <span className="text-danger"> · expirée</span>
-          ) : l.expires ? (
-            <span className="text-muted"> · jusqu’au {frDate(l.expires)}</span>
-          ) : l.validated ? (
-            <span className="text-ok"> · validée</span>
-          ) : (
-            <span className="text-muted"> · en attente</span>
-          )}
-        </span>,
-      ]),
-    },
-  ];
-  return (
-    <div className="p-4 space-y-4">
-      {groupes.map((g) => {
-        const lignes = g.lignes.filter(([, v]) => !!v);
-        if (!lignes.length) return null;
-        return (
-          <div key={g.titre}>
-            <h3 className="label mb-1">{g.titre}</h3>
-            <dl className="divide-y divide-line">
-              {lignes.map(([k, v]) => (
-                <div key={k} className="grid grid-cols-[8.5rem_1fr] sm:grid-cols-[11rem_1fr] gap-3 py-2">
-                  <dt className="text-sm text-muted">{k}</dt>
-                  <dd className="text-ink break-words min-w-0">{v}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -560,36 +406,6 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * Boîte dépliable du profil : un titre qui ouvre ou ferme son contenu
- * (élément <details>, accessible au clavier et au lecteur d'écran sans code).
- * Le titre est le bandeau rose des sections (section-title), texte et icônes en
- * marine ; l'anneau de focus passe en marine, à l'intérieur (la carte rogne ce qui dépasse).
- */
-function Box({ icon, title, count, defaultOpen, children }: { icon: ReactNode; title: string; count?: number; defaultOpen?: boolean; children: ReactNode }) {
-  return (
-    <details open={defaultOpen} className="group card overflow-hidden">
-      <summary className="section-title flex-nowrap gap-3 px-4 py-3 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden transition-[filter] hover:brightness-95 focus-visible:outline-on-accent focus-visible:-outline-offset-4">
-        <span className="shrink-0">{icon}</span>
-        <span className="flex-1 text-lg">{title}</span>
-        {count !== undefined && count > 0 && <span className="text-sm font-normal tabular-nums">{count}</span>}
-        <ChevronDown aria-hidden className="w-5 h-5 shrink-0 transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="border-t border-line">{children}</div>
-    </details>
-  );
-}
-
-function Skeleton({ rows }: { rows: number }) {
-  return (
-    <div aria-hidden className="divide-y divide-line">
-      {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="h-14 animate-pulse bg-raised" />
-      ))}
     </div>
   );
 }

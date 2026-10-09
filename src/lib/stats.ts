@@ -29,6 +29,8 @@ export interface StatStaff {
   id: string;
   name: string;
   picture?: string;
+  /** Jeton d'adhésion (uct) : ouvre sa fiche depuis les classements ; absent pour l'équipe que VPDive désigne sans l'inscrire. */
+  uct?: string;
   roles: string[];
 }
 
@@ -36,6 +38,8 @@ export interface StatPerson {
   id: string;
   name: string;
   picture?: string;
+  /** Jeton d'adhésion (uct) : ouvre sa fiche depuis les classements. */
+  uct?: string;
   age: number | null;
   levels: string[];
   training: string[];
@@ -90,9 +94,9 @@ export interface Stats {
   dpKnown: { known: number; of: number };
   /** Âges par tranche ; `median` en années. */
   ages: { bins: { label: string; from: number; count: number }[]; median: number | null; minors: number; known: number };
-  directors: { id: string; name: string; picture?: string; count: number }[];
-  instructors: { id: string; name: string; picture?: string; count: number }[];
-  regulars: { id: string; name: string; picture?: string; count: number }[];
+  directors: { id: string; name: string; picture?: string; uct?: string; count: number }[];
+  instructors: { id: string; name: string; picture?: string; uct?: string; count: number }[];
+  regulars: { id: string; name: string; picture?: string; uct?: string; count: number }[];
   /** En formation (prépa VPDive), par niveau visé. */
   training: LevelCount[];
   /** Personnes inscrites sous plusieurs comptes VPDive (même nom), comptées une fois : nom, nombre de comptes. */
@@ -297,7 +301,7 @@ export function computeStats(
     const last = all[n - 1]?.count;
     return all
       .filter((x, i) => i < n || (x.count === last && i < 2 * n))
-      .map(({ person, count }) => ({ id: person.id, name: person.name, ...(person.picture ? { picture: person.picture } : {}), count }));
+      .map(({ person, count }) => ({ id: person.id, name: person.name, ...(person.picture ? { picture: person.picture } : {}), ...(person.uct ? { uct: person.uct } : {}), count }));
   };
 
   return {

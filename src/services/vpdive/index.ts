@@ -20,7 +20,7 @@
  */
 import { authHeaders, getSession, login, logout, refreshPicture } from './auth';
 import { deleteRegistration, fetchEventDetail, fetchEvents, fetchPricesForRole, fetchRoster, fetchRosterAndStaff, register, switchWaitingList, unregister } from './calendar';
-import { fetchMemberDirectory, memberProfile, myAptitudeLabels, myEmergencyContact, myFile, saveEmergencyContact, searchByName, searchMembers } from './members';
+import { fetchMemberDirectory, memberProfile, memberSheet, myAptitudeLabels, myEmergencyContact, myFile, saveEmergencyContact, searchByName, searchMembers } from './members';
 import { messageList, messageNotifications, messageReply, messageStart, messageThread, userTokenOf } from './messaging';
 import { capacities, capacityNames, decideValidation, isClubMember, memberForm, memberRecord, memberStatus, pendingValidations, refreshFfessmLicence, updateMember } from './admin';
 
@@ -46,6 +46,7 @@ export const vpdive = {
   searchByName,
   fetchMemberDirectory,
   memberProfile,
+  memberSheet,
   myFile,
   myAptitudeLabels,
   myEmergencyContact,
@@ -87,5 +88,5 @@ export type {
   MyRegistration,
   BookingRequest,
 } from './calendar';
-export type { MemberMatch, MemberInfo, EmergencyContact, MemberDocument, MemberProfile } from './members';
+export type { MemberMatch, MemberInfo, EmergencyContact, MemberDocument, MemberProfile, MemberSheet } from './members';
 export type { PendingValidation } from './admin';

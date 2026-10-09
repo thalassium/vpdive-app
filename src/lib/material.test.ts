@@ -65,3 +65,10 @@ test('une bouteille par plongeur : ni pilote, ni sécurité surface, ni DP qui n
   assert.equal(byOuting.people.find((p) => p.name === 'dpe')?.noBottle, 'ne plonge pas d’après la fiche de sortie');
   assert.equal(byOuting.people.find((p) => p.name === 'pilote')?.noBottle, undefined);
 });
+
+test('le jeton d’adhésion de l’inscrit suit jusqu’à la liste (icône « fiche ») ; absent pour un plongeur hors VPDive', () => {
+  const s = aggregateMaterial([{ ...diver('A'), uct: 'uct-a' }, diver('B'), { ...diver('C', [], '', true), uct: 'uct-c' }]);
+  assert.equal(s.people.find((p) => p.name === 'A')?.uct, 'uct-a');
+  assert.equal('uct' in (s.people.find((p) => p.name === 'B') ?? {}), false);
+  assert.equal(s.waiting[0]?.uct, 'uct-c');
+});
