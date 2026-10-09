@@ -11,7 +11,8 @@ import { Menu } from '../../Menu';
 import { Spinner } from '../../Spinner';
 import { GuestForm } from './GuestForm';
 import { RoleBadges } from './RoleBadges';
-import { ActionButton, SectionHead } from './SectionHead';
+import { ActionButton } from './ActionButton';
+import { SectionTitle } from '../../SectionTitle';
 import { APT_COL, FN_COL, RolesContext, byName, byRank, hasRows } from './format';
 
 interface Props {
@@ -224,9 +225,10 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
     <>
       <fieldset disabled={readOnly} className="min-w-0">
       <section>
-        <SectionHead
+        <SectionTitle
+          bleed
+          className="mb-4"
           n={1}
-          tone="mid"
           hint={`${diving.length} à l’eau sur ${roster.length}`}
           actions={
             hasChoices && (
@@ -237,7 +239,7 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
           }
         >
           Qui plonge ?
-        </SectionHead>
+        </SectionTitle>
         {roster.length === 0 && gone.length === 0 ? (
           <p className="text-muted">Personne n’est encore inscrit à cette sortie.</p>
         ) : (

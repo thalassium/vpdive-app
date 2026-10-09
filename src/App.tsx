@@ -175,20 +175,14 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
               <Logo className="h-12 sm:h-14" />
             </a>
 
-            {/* Ordinateur et tablette : les onglets dans l'en-tête, sauf Profil, déjà au menu du compte à droite */}
-            <nav aria-label="Navigation" className="hidden sm:flex items-stretch self-stretch gap-1">
+            {/* Ordinateur et tablette : les onglets dans l'en-tête, sauf Profil, déjà au menu du compte à droite.
+                L'écran courant est la pilule rose (tab-pill, d'après aria-current). */}
+            <nav aria-label="Navigation" className="hidden sm:flex items-center gap-1">
               {TABS.filter((t) => t.id !== 'profil').map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => goTo(t.id)}
-                  aria-current={tab === t.id ? 'page' : undefined}
-                  className={`relative inline-flex items-center gap-2 px-3 text-sm font-semibold transition-colors ${tab === t.id ? 'text-brand' : 'text-muted hover:text-ink'}`}
-                >
+                <button key={t.id} type="button" onClick={() => goTo(t.id)} aria-current={tab === t.id ? 'page' : undefined} className="tab-pill px-3">
                   <TabIcon tab={t.id} picture={picture} name={displayName} />
                   <span className="hidden md:inline">{t.label}</span>
-                  {t.id === 'messages' && unread > 0 && <UnreadBadge count={unread} />}
-                  {tab === t.id && <span aria-hidden className="alpha absolute left-3 bottom-0 w-6 h-1.5 bg-brand" />}
+                  {t.id === 'messages' && unread > 0 && <UnreadBadge count={unread} onAccent={tab === t.id} />}
                 </button>
               ))}
             </nav>
@@ -204,6 +198,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                 <HeaderMenu
                   icon={<CaptainHat className="w-5 h-5" />}
                   label="Gestion de sortie"
+                  active={panel === 'dp' || panel === 'weather' || panel === 'material'}
                   items={[
                     // Une liste d'inscrits illisible : on ne sait pas si le membre est DP, on le dit ici.
                     ...(dpUnchecked ? [{ icon: <RefreshCw className="w-4 h-4" />, label: `${DP_SCAN_FAILED}, réessayer`, onClick: retryDp }] : []),
@@ -223,6 +218,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                 <HeaderMenu
                   icon={<Settings className="w-5 h-5" />}
                   label="Admin"
+                  active={panel === 'members' || panel === 'docs' || panel === 'stats'}
                   items={[
                     { icon: <Users className="w-4 h-4" />, label: 'Gestion des membres', hint: realRole === 'superadmin' ? 'Rôles et doublons' : 'Doublons', onClick: () => setPanel('members') },
                     { icon: <FileWarning className="w-4 h-4" />, label: 'Gestion des adhésions', hint: 'HelloAsso, FFESSM, VPDive, relances', onClick: () => setPanel('docs') },
@@ -316,12 +312,12 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
             type="button"
             onClick={() => goTo(t.id)}
             aria-current={tab === t.id ? 'page' : undefined}
-            className={`relative flex flex-col items-center justify-center gap-0.5 h-16 text-xs font-medium ${tab === t.id ? 'text-brand font-semibold' : 'text-muted'}`}
+            className={`relative flex flex-col items-center justify-center gap-0.5 h-16 text-xs ${tab === t.id ? 'text-brand font-bold' : 'text-muted font-medium'}`}
           >
-            {tab === t.id && <span aria-hidden className="alpha absolute top-0 left-1/2 -translate-x-1/2 w-7 h-1.5 bg-brand" />}
-            <span className="relative">
+            {/* L'écran courant : l'icône dans une pilule rose (le rose en fond, jamais en texte). */}
+            <span className={`relative inline-flex items-center justify-center w-14 h-8 rounded-full transition-colors ${tab === t.id ? 'bg-accent text-on-accent' : ''}`}>
               <TabIcon tab={t.id} picture={picture} name={displayName} large />
-              {t.id === 'messages' && unread > 0 && <UnreadBadge count={unread} floating />}
+              {t.id === 'messages' && unread > 0 && <UnreadBadge count={unread} floating onAccent={tab === t.id} />}
             </span>
             {t.label}
           </button>
@@ -416,12 +412,13 @@ function TabIcon({ tab, picture, name, large }: { tab: Tab; picture?: string; na
   return picture ? <Avatar name={name} picture={picture} size="sm" className={large ? 'w-6 h-6' : 'w-5 h-5'} /> : <UserRound className={cls} />;
 }
 
-function UnreadBadge({ count, floating }: { count: number; floating?: boolean }) {
+/** Compteur de non-lus : rose, ou marine sur la pilule rose de l'onglet courant (sinon il s'y fondrait). */
+function UnreadBadge({ count, floating, onAccent }: { count: number; floating?: boolean; onAccent?: boolean }) {
   return (
     <span
       role="img"
       aria-label={`${count} non lu${count > 1 ? 's' : ''}`}
-      className={`min-w-5 h-5 px-1 rounded-full bg-pink text-on-pink text-xs font-bold tabular-nums inline-flex items-center justify-center ${floating ? 'absolute -top-1.5 -right-3' : ''}`}
+      className={`min-w-5 h-5 px-1 rounded-full ${onAccent ? 'bg-on-accent text-white' : 'bg-pink text-on-pink'} text-xs font-bold tabular-nums inline-flex items-center justify-center ${floating ? 'absolute -top-0.5 right-1' : ''}`}
     >
       {count > 9 ? '9+' : count}
     </span>

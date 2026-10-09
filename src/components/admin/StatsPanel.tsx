@@ -10,6 +10,7 @@ import { message } from '../../lib/errors';
 import { WEEKDAYS } from '../../lib/dates';
 import { isRecord, sessionCache } from '../../lib/cache';
 import { Dialog, DialogHeader } from '../Dialog';
+import { SectionTitle } from '../SectionTitle';
 
 /**
  * Statistiques de la saison (super-admin) : sorties, plongeurs, niveaux,
@@ -244,7 +245,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                     if (p.id === 'custom') setCustom(range);
                     setPreset(p.id);
                   }}
-                  className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${preset === p.id ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+                  className="tab-pill px-3 rounded-md"
                 >
                   {p.label}
                 </button>
@@ -348,12 +349,12 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
 
 function Section({ title, aside, children, className = '' }: { title: string; aside?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`card p-4 sm:p-5 ${className}`}>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 mb-4">
-        <h3 className="text-lg font-semibold text-brand">{title}</h3>
-        {aside && <span className="text-sm text-muted tabular-nums">{aside}</span>}
-      </div>
-      {children}
+    // Titre de carte en bandeau rose (coins droits, la carte les arrondit), le contenu dessous.
+    <section className={`card overflow-hidden ${className}`}>
+      <SectionTitle flush hint={aside && <span className="tabular-nums">{aside}</span>}>
+        {title}
+      </SectionTitle>
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
   );
 }

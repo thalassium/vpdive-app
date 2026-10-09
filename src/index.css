@@ -8,8 +8,14 @@
  *
  * Le marine est une encre, pas un fond : titres, codes de prérogative,
  * filets, bouton principal et pied de page. Aucune zone de saisie n'est posée
- * sur du marine. Le rose marque, petit et rare : « Aujourd'hui », disque de
- * palanquée, filet d'en-tête des fenêtres.
+ * sur du marine.
+ *
+ * Le rose est l'accent : il dit « vous êtes ici » et « un nouveau bloc
+ * commence ». Bandeau des titres de section, onglet choisi, surtitre des
+ * fenêtres, bouton « Admin », « Aujourd'hui », pavillon de palanquée, filet
+ * d'en-tête des fenêtres. Toujours en FOND, avec le texte marine posé dessus
+ * (6,7:1, même valeur en clair et en sombre) ; jamais en texte sur fond clair
+ * (2,2:1), et jamais pour dire un état (ok / warn / danger restent sémantiques).
  *
  * Les couleurs sont nommées par rôle (surface, brand, fill…) et non par
  * teinte : chaque rôle a une valeur claire et une valeur sombre, et les
@@ -24,8 +30,11 @@
  *   band / on-band                     le pied de page, seule grande surface marine, et son texte
  *   scrim                              voile derrière les fenêtres ; sans flou, la carte marine reste visible
  *   focus                              anneau de focus des champs
- *   pink                               accent ; jamais en texte sur fond clair (trop pâle)
- *   ok / warn / danger                 inscrit, alerte (peu de places, vent), erreur : en texte, filet
+ *   accent / on-accent                 le rose en APLAT (titres de section, onglet choisi) et le marine
+ *                                      posé dessus : mêmes valeurs en clair et en sombre (6,7:1)
+ *   accent-soft                        teinte rose très pâle : survol d'un onglet, ligne choisie d'une liste
+ *                                      (texte brand ou ink dessus : ≥ 7,9:1 en clair et en sombre)
+ *   ok / warn / danger                inscrit, alerte (peu de places, vent), erreur : en texte, filet
  *                                      et teinte douce (-soft), jamais en aplat ; ok ≥ 4,5:1 sur tous
  *                                      les fonds clairs (4,57 sur tint) et sombres
  *   pink / green (@theme)              identité du club (logo, repères) : jamais pour dire un état,
@@ -35,8 +44,10 @@
  *
  * Police : une seule, Atkinson Hyperlegible Next (lettres ambiguës bien
  * distinctes, utile pour les noms et les codes), chargée pour tous les
- * appareils. Les codes de prérogative (PE40, E3, GP) sont la seule chose en
- * gras : c'est le motif typographique du site (utilitaire `code`).
+ * appareils. Les codes de prérogative (PE40, E3, GP) sont en gras : c'est le
+ * motif typographique du site (utilitaire `code`). Le gras sert aussi aux
+ * titres en bandeau rose et à l'onglet choisi, pour qu'ils se lisent d'un coup
+ * d'œil.
  *
  * Elle est servie par l'appli elle-même (public/fonts, licence SIL OFL 1.1,
  * fichiers variables 400 à 700 de Google Fonts) : aucun appel à Google, et la
@@ -81,6 +92,10 @@
   --on-band: #ffffff;
   --scrim: rgb(1 35 98 / 0.45);
   --focus: rgb(1 35 98 / 0.22);
+  /* Le rose et le marine de la charte (@theme : pink, on-pink), fixes : le bandeau est le même en sombre. */
+  --accent: #f393a8;
+  --on-accent: #012362;
+  --accent-soft: #fde9ee;
   --ok: #1b7a42;
   --ok-soft: #e6f6ec;
   --warn: #9a4800;
@@ -127,6 +142,8 @@
   --on-band: #e9edf7;
   --scrim: rgb(0 0 0 / 0.6);
   --focus: rgb(185 202 246 / 0.3);
+  /* accent et on-accent : inchangés (6,7:1). La teinte douce, elle, reste sombre. */
+  --accent-soft: rgb(243 147 168 / 0.16);
   --ok: #62d896;
   --ok-soft: rgb(44 183 99 / 0.15);
   --warn: #f0a55e;
@@ -219,6 +236,9 @@
   --color-on-band: var(--on-band);
   --color-scrim: var(--scrim);
   --color-focus: var(--focus);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-soft: var(--accent-soft);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
   --color-warn: var(--warn);
@@ -287,9 +307,10 @@
  * Identité : deux motifs, pris à la mer, utilisés avec parcimonie.
  *
  * Le pavillon Alpha (« plongeur en immersion, tenez-vous à distance ») donne
- * sa queue fourchue aux repères : onglet actif, « Aujourd'hui », numéro de
- * palanquée. La couleur dit le rôle (marine pour la navigation, rose pour
- * aujourd'hui) ; la forme dit le club.
+ * sa queue fourchue aux repères : « Aujourd'hui », numéro de palanquée,
+ * message non lu. La couleur dit le rôle (rose pour aujourd'hui et la
+ * palanquée, marine pour le non-lu) ; la forme dit le club. L'onglet actif,
+ * lui, est la pilule rose (tab-pill).
  */
 @utility alpha {
   /* Encoche de profondeur fixe (0,55 em), et autant de réserve à droite : le texte n'est jamais entamé, quelle que soit la largeur. */
@@ -313,6 +334,96 @@
 /* Fenêtre ou menu : ce qui flotte au-dessus de la page. */
 @utility panel {
   @apply rounded-xl bg-surface shadow-lift;
+}
+
+/*
+ * Le thème rose : où l'on est, où commence un bloc, où commence un item.
+ *
+ *   section-title        titre de section : bandeau rose plein, texte marine en gras (6,7:1, clair
+ *                        et sombre), 44 px de haut au moins. C'est lui qui sépare les blocs d'un
+ *                        écran (« Qui plonge ? », « Membres à valider », un groupe d'arbitrage).
+ *                        Composant SectionTitle (numéro, compteur, actions) ; les coins (rounded-lg)
+ *                        sont posés par le composant, droits dans une carte. À l'impression : pas
+ *                        de fond, texte marine et filet dessous.
+ *   section-title-bleed  le même, d'un bord à l'autre de la zone (écran DP : marge de 20, puis 24 px).
+ *   step-dot             numéro d'étape : pastille marine, chiffre blanc (14,8:1). Couleurs fixes,
+ *                        lisible sur le bandeau rose comme sur un fond sombre (où un liseré
+ *                        dessine le disque).
+ *   tab-pill             onglet : discret (texte muted, ≥ 5,4:1 ; survol en teinte rose) ; l'onglet
+ *                        choisi est une pilule rose pleine, texte marine en gras. L'état vient des
+ *                        attributs ARIA (aria-selected, aria-current="page", aria-checked,
+ *                        aria-pressed) ou de data-active : rien à calculer dans le composant.
+ *                        44 px de haut sur téléphone, 36 au-delà.
+ *   item-card            un item d'une liste à traiter (une personne, un cas) : une carte par item,
+ *                        les cartes en `space-y-2` plutôt qu'une liste à filets.
+ *   zebra                tableau dense : une ligne sur deux sur fond raised (décoratif ; les
+ *                        couleurs d'état gardent ≥ 4,5:1 sur raised, 4,8 pour ok en clair).
+ */
+@utility section-title {
+  @apply flex flex-wrap items-center gap-x-3 gap-y-2 min-h-11 py-2 bg-accent text-on-accent font-bold leading-tight;
+  padding-inline: var(--section-title-x, 0.875rem);
+  @media print {
+    background: transparent;
+    padding-inline: 0;
+    border-bottom: 2px solid var(--on-accent);
+    border-radius: 0;
+  }
+}
+@utility section-title-bleed {
+  /* La marge interne passe par une variable : section-title la lit, rien ne se marche dessus. */
+  --section-title-x: 1.25rem;
+  margin-inline: -1.25rem;
+  @media (width >= 40rem) {
+    --section-title-x: 1.5rem;
+    margin-inline: -1.5rem;
+  }
+  @media print {
+    margin-inline: 0;
+  }
+}
+@utility step-dot {
+  @apply w-6 h-6 shrink-0 rounded-full inline-flex items-center justify-center text-sm font-bold tabular-nums leading-none;
+  background-color: var(--on-accent);
+  color: #fff;
+  /* En sombre, le disque marine se perdrait sur le fond (1,2:1) : un liseré field-border (≥ 3:1) le dessine. */
+  @variant dark {
+    box-shadow: 0 0 0 1.5px var(--field-border);
+  }
+  @media print {
+    background: transparent;
+    color: var(--on-accent);
+    box-shadow: inset 0 0 0 1.5px var(--on-accent);
+  }
+}
+@utility tab-pill {
+  @apply h-11 sm:h-9 px-3.5 rounded-lg inline-flex items-center justify-center gap-2 shrink-0 whitespace-nowrap text-sm font-semibold text-muted transition-colors;
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  @media (hover: hover) {
+    &:not(:disabled, [aria-selected='true'], [aria-current='page'], [aria-checked='true'], [aria-pressed='true'], [data-active]):hover {
+      background-color: var(--accent-soft);
+      color: var(--brand);
+    }
+  }
+  &[aria-selected='true'],
+  &[aria-current='page'],
+  &[aria-checked='true'],
+  &[aria-pressed='true'],
+  &[data-active] {
+    background-color: var(--accent);
+    color: var(--on-accent);
+    font-weight: 700;
+  }
+}
+@utility item-card {
+  @apply rounded-xl bg-surface border border-line p-3 sm:p-4 transition-colors hover:border-field-border;
+}
+@utility zebra {
+  & > :nth-child(even) {
+    background-color: var(--raised);
+  }
 }
 
 /*

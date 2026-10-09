@@ -65,7 +65,7 @@ export function Diagnostic(props: StepProps) {
                   role="radio"
                   aria-checked={filter === f.key}
                   onClick={() => setFilter(f.key)}
-                  className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+                  className="tab-pill px-3 rounded-md"
                 >
                   {f.label} <span className="tabular-nums">{counts[f.key]}</span>
                 </button>
@@ -80,15 +80,17 @@ export function Diagnostic(props: StepProps) {
           ) : (
             // Pas d'overflow-hidden ici : la barre de titres reste collée en haut pendant le défilement.
             <div className="lg:rounded-xl lg:border lg:border-line lg:bg-surface">
-              {/* -top-4 : la zone qui défile a 1 rem de marge interne, la barre doit coller à son bord. */}
-              <div className={`hidden lg:grid ${GRID} gap-4 px-4 py-2.5 border-b border-line bg-raised lg:rounded-t-xl sticky -top-4 z-10`}>
+              {/* -top-4 : la zone qui défile a 1 rem de marge interne, la barre doit coller à son bord.
+                  Titres de colonne en bandeau rose (comme un titre de section), texte marine en gras. */}
+              <div className={`hidden lg:grid ${GRID} gap-4 px-4 py-2.5 bg-accent text-on-accent lg:rounded-t-xl sticky -top-4 z-10`}>
                 {['Personne', 'Fiche VPDive', 'Licence FFESSM', `Adhésion ${seasonLabel(season)}`, 'Brevets'].map((h) => (
-                  <span key={h} className="label">
+                  <span key={h} className="text-sm font-bold">
                     {h}
                   </span>
                 ))}
               </div>
-              <ul className="space-y-3 lg:space-y-0 lg:divide-y lg:divide-line">
+              {/* Bureau : lignes zébrées et filets marqués, une personne par ligne sans la perdre de vue. Téléphone : une carte par personne. */}
+              <ul className="space-y-3 lg:space-y-0 lg:zebra lg:divide-y lg:divide-field-border/40">
                 {shown.map((r) => (
                   <PersonRow key={r.p.key} row={r} season={season} />
                 ))}

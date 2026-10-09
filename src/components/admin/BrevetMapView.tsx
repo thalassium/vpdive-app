@@ -3,6 +3,7 @@ import { ArrowLeft, Plus, RotateCcw, X } from 'lucide-react';
 import { vpdive } from '../../services/vpdive';
 import { automaticLevels, type BrevetMap } from '../../lib/membership';
 import { message } from '../../lib/errors';
+import { SectionTitle } from '../SectionTitle';
 
 
 /**
@@ -44,8 +45,8 @@ export function BrevetMapView({
         <button type="button" onClick={onClose} className="btn btn-quiet sm:h-9 text-sm">
           <ArrowLeft className="w-4 h-4" /> Retour
         </button>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-lg font-semibold text-brand">Correspondance des brevets</h3>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <SectionTitle>Correspondance des brevets</SectionTitle>
           <p className="text-sm text-muted max-w-3xl">
             Pour chaque brevet de l’export FFESSM, les niveaux VPDive qui le valent. Sans choix, la règle automatique s’applique (par code : Niveau 2 → P2/N2, Nitrox confirmé →
             PNC…). Les choix sont partagés entre les admins.

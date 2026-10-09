@@ -342,7 +342,7 @@ function MemberRow({
 
   return (
     <li className={busy ? 'opacity-60' : ''}>
-      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${open ? 'bg-tint' : 'hover:bg-raised'}`}>
+      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${open ? 'bg-accent-soft' : 'hover:bg-raised'}`}>
         <button type="button" onClick={onToggle} aria-expanded={open} className="flex-1 min-w-0 flex items-center gap-3 text-left">
           <Avatar name={member.name} picture={member.picture} />
           <span className="min-w-0">

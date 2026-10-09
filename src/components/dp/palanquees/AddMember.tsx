@@ -6,7 +6,7 @@ import { message } from '../../../lib/errors';
 import { Avatar } from '../../Avatar';
 import { Spinner } from '../../Spinner';
 import { MemberSearch } from '../MemberSearch';
-import { ActionButton } from './SectionHead';
+import { ActionButton } from './ActionButton';
 
 /**
  * Ajouter un membre VPDive qui ne s'est pas inscrit (DP, pilote, sécu désignés

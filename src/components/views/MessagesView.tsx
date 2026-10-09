@@ -441,7 +441,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
                             type="button"
                             onClick={() => void openChat(c)}
                             aria-current={active ? 'true' : undefined}
-                            className={`flex items-center gap-3 px-3 py-3 text-left hover:bg-raised w-full ${active ? 'bg-tint' : ''}`}
+                            className={`flex items-center gap-3 px-3 py-3 text-left w-full ${active ? 'bg-accent-soft' : 'hover:bg-raised'}`}
                           >
                             <span className="w-10 shrink-0 flex justify-center">
                               <ChatAvatar chat={c} me={me} size="lg" />

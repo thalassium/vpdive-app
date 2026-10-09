@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ExternalLink, UserX } from 'lucide-react';
 import { Avatar } from '../../Avatar';
 import { GabianLoader } from '../../Gabian';
+import { SectionTitle } from '../../SectionTitle';
 import { MemberSearch } from '../../dp/MemberSearch';
 import { frDate } from '../../../lib/dates';
 import { checkFor, sameName, seasonLabel, type CaseCheck, type CaseKind, type Match, type VpMember } from '../../../lib/membership';
@@ -46,20 +47,25 @@ export function Arbitrage(props: StepProps) {
         <p className="py-10 text-center text-muted">{progress ? 'Lecture des fiches en cours…' : 'Rien à arbitrer.'}</p>
       ) : (
         caseGroups.map(({ kind, list }) => (
-          <section key={kind} className="card overflow-hidden">
-            <header className="flex items-center gap-2 px-4 py-2.5 bg-raised border-b border-line">
-              <h3 className="font-semibold text-brand">{CASE_TITLE[kind]}</h3>
-              <span className="text-sm text-muted tabular-nums">
-                · {list.filter((r) => !isChecked(r, kind)).length}
-                {list.some((r) => isChecked(r, kind)) && ` (+ ${list.filter((r) => isChecked(r, kind)).length} validé${list.filter((r) => isChecked(r, kind)).length > 1 ? 's' : ''} à la main)`}
-              </span>
-            </header>
-            <ul className="divide-y divide-line">
+          // Un bandeau rose par type de cas, puis une carte par personne : chaque cas se lit à part.
+          <section key={kind}>
+            <SectionTitle
+              className="mb-2"
+              count={
+                <>
+                  {list.filter((r) => !isChecked(r, kind)).length}
+                  {list.some((r) => isChecked(r, kind)) && ` (+ ${list.filter((r) => isChecked(r, kind)).length} validé${list.filter((r) => isChecked(r, kind)).length > 1 ? 's' : ''} à la main)`}
+                </>
+              }
+            >
+              {CASE_TITLE[kind]}
+            </SectionTitle>
+            <ul className="space-y-2">
               {list.map((r) => {
                 const c = r.cases.find((x) => x.kind === kind)!;
                 const { key, check } = checkFor(r.p, kind, season, checks);
                 return (
-                  <li key={r.p.key} className={`px-4 py-3 grid gap-x-4 gap-y-2 lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_minmax(0,16rem)_minmax(0,15rem)] items-start ${check ? 'bg-raised/50' : ''}`}>
+                  <li key={r.p.key} className={`item-card grid gap-x-4 gap-y-2 lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_minmax(0,16rem)_minmax(0,15rem)] items-start ${check ? 'border-dashed' : ''}`}>
                     <div className={`min-w-0 ${check ? 'opacity-60' : ''}`}>
                       <p className="font-semibold text-ink break-words">{r.p.name}</p>
                       <p className="text-sm text-muted">{r.p.birthDate ? `né le ${frDate(r.p.birthDate)}` : ''}</p>
