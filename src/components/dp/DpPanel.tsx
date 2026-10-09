@@ -25,7 +25,7 @@ import {
   type OutingDoc,
 } from '../../lib/outing';
 import { setDepth } from '../../lib/palanqueeEdit';
-import { PalanqueesEditor } from './PalanqueesEditor';
+import { PalanqueesEditor } from './palanquees/PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
 import { useConfirm } from '../../hooks/useConfirm';
