@@ -16,3 +16,16 @@ ListeLicences*.csv
 ListeBrevets*.csv
 *.licences.csv
 imports/
+
+# Exemple de configuration, lui, versionné
+!.env.example
+
+# Notes et ressources de développement locales (hors dépôt)
+codehelp/
+ressourcedev/
+.claude/
+.playwright-mcp/
+*.tsbuildinfo
+
+# Tout export CSV (licences, brevets, adhésions) : données personnelles
+*.csv
