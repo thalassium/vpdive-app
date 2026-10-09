@@ -14,7 +14,7 @@ import { Cromagnon } from './components/Cromagnon';
 import { GabianLoader } from './components/Gabian';
 import { CoursesView } from './components/views/CoursesView';
 import { messaging } from './services/messaging';
-import { vpdive, ymd, SessionExpiredError, DP_ROLE, type CalendarEvent, type MeteoSlot, type Session } from './services/vpdiveApi';
+import { vpdive, ymd, SessionExpiredError, DP_ROLE, type CalendarEvent, type Session } from './services/vpdiveApi';
 import { appApi, type Me } from './services/appApi';
 
 // Hors du paquet principal : l'agenda et la fiche de réservation s'affichent tout de suite, le reste
@@ -161,7 +161,6 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [meteo, setMeteo] = useState<Record<string, MeteoSlot[]>>({});
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
   const [panel, setPanel] = useState<'dp' | 'weather' | 'material' | 'members' | 'docs' | 'stats' | null>(null);
   const [dpEvent, setDpEvent] = useState<CalendarEvent | null>(null);
@@ -341,11 +340,6 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
     };
   }, [refreshUnread]);
 
-  // Weather is a bonus: if Open-Meteo is down the agenda still works, just without wind badges.
-  useEffect(() => {
-    vpdive.fetchMeteo().then(setMeteo, (e) => console.warn('Météo indisponible :', e));
-  }, []);
-
   const displayName = `${session.firstName} ${session.lastName}`.trim() || session.email;
   const connected = !error && !isLoading;
   // Imprimer depuis le menu DP n'imprime que la fiche, pas l'agenda derrière.
@@ -455,7 +449,6 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
               month={month}
               onMonthChange={setMonth}
               events={events}
-              meteoData={meteo}
               isLoading={isLoading}
               error={error}
               onRefresh={loadEvents}
@@ -476,7 +469,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
             ) : (
               <GabianLoader className="py-16" />
             ))}
-          {tab === 'profil' && <ProfileView session={session} me={me} picture={picture} onLogout={onLogout} onSessionLost={handleSessionLost} />}
+          {tab === 'profil' && <ProfileView session={session} me={me} picture={picture} onPicture={setPicture} onLogout={onLogout} onSessionLost={handleSessionLost} />}
         </Suspense>
       </main>
 

@@ -132,6 +132,30 @@ export function worstIn(slots: Slot[], start: string, end: string): Slot | null 
   });
 }
 
+/** Plage horaire d'une journée de plongée, la même pour l'onglet Météo et l'agenda. */
+export const DAY_HOURS = { from: '06:00', to: '21:00' } as const;
+
+/** La météo d'un jour, telle que l'agenda l'affiche à côté de la date. */
+export interface DayWeather {
+  /** Vent moyen et rafales du pire créneau (nœuds), d'où vient le vent (« SO »). */
+  wind: number;
+  gusts: number;
+  dir: string;
+  waves: number | null;
+  /** Niveau de la journée : celui du pire créneau (vent, rafales, vagues). */
+  level: Level;
+}
+
+/**
+ * Météo d'un jour (« 2026-10-11 ») de 6 h à 21 h, comme l'onglet Météo : le
+ * pire créneau (worstIn) donne le vent affiché et le niveau. null sans prévision.
+ */
+export function dayWeather(slots: Slot[], day: string): DayWeather | null {
+  const w = worstIn(slots, `${day}T${DAY_HOURS.from}`, `${day}T${DAY_HOURS.to}`);
+  if (!w) return null;
+  return { wind: w.wind, gusts: w.gusts, dir: compass(w.windDir), waves: w.waves, level: level(w) };
+}
+
 /**
  * Échelle de couleur du vent, en nœuds, comme les sites de vent (Windfinder,
  * Windguru) : bleu au calme, vert pour un vent maniable ; le jaune arrive au

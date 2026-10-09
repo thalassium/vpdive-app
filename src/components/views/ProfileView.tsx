@@ -49,15 +49,38 @@ export function ProfileView({
   session,
   me,
   picture,
+  onPicture,
   onLogout,
   onSessionLost,
 }: {
   session: Session;
   me: Me | null;
   picture?: string;
+  /** Photo relue sur VPDive à l'ouverture du profil : l'appli la reprend (en-tête, onglet). */
+  onPicture?: (picture: string) => void;
   onLogout: () => void;
   onSessionLost: (e: unknown) => boolean;
 }) {
+  /** Photo relue à chaque ouverture du profil (changée sur VPDive entre-temps) ; undefined tant qu'elle n'est pas relue. */
+  const [freshPicture, setFreshPicture] = useState<string | undefined>(undefined);
+  const onPictureRef = useRef(onPicture);
+  useEffect(() => {
+    onPictureRef.current = onPicture;
+  });
+  useEffect(() => {
+    let live = true;
+    vpdive.refreshPicture().then(
+      (p) => {
+        if (!live) return;
+        setFreshPicture(p);
+        onPictureRef.current?.(p);
+      },
+      (e) => live && !onSessionLost(e) && console.warn('Photo non relue :', e),
+    );
+    return () => {
+      live = false;
+    };
+  }, [onSessionLost]);
   /** undefined : en cours ; null : rien trouvé. */
   const [quals, setQuals] = useState<Quals | null | undefined>(undefined);
   const [qualsError, setQualsError] = useState<string | null>(null);
@@ -140,7 +163,7 @@ export function ProfileView({
 
       {/* Identité */}
       <div className="flex items-center gap-4">
-        <Avatar name={name} picture={picture ?? session.picture} size="md" className="w-16! h-16! text-lg!" />
+        <Avatar name={name} picture={freshPicture ?? picture ?? session.picture} size="md" className="w-16! h-16! text-lg!" />
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xl font-semibold text-ink">{name}</p>
@@ -359,6 +382,10 @@ const telHref = (n: string) => `tel:${n.replace(/[^\d+]/g, '')}`;
 /**
  * Personne à contacter en cas d'urgence : lue et enregistrée sur VPDive, comme
  * sur sa page « Mon profil » (même formulaire, mêmes champs).
+ *
+ * VPDive enregistre les cinq champs ensemble : tant que la lecture n'a pas
+ * réussi, la modification est fermée (un formulaire vide écraserait le contact
+ * existant).
  */
 function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => boolean }) {
   /** undefined : en cours ; null : illisible. */
@@ -367,9 +394,11 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setContact(undefined);
     vpdive.myEmergencyContact().then(
       (c) => !cancelled && setContact(c),
       (e) => !cancelled && !onSessionLost(e) && setContact(null),
@@ -377,7 +406,7 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
     return () => {
       cancelled = true;
     };
-  }, [onSessionLost]);
+  }, [onSessionLost, attempt]);
 
   const filled = !!contact && Object.values(contact).some(Boolean);
   const save = async () => {
@@ -448,6 +477,13 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
           <div className="min-w-0">
             {contact === undefined ? (
               <span className="text-muted">Chargement…</span>
+            ) : contact === null ? (
+              <p role="alert" className="text-danger">
+                Contact d’urgence illisible,{' '}
+                <button type="button" onClick={() => setAttempt((n) => n + 1)} className="font-semibold underline underline-offset-2">
+                  réessayer
+                </button>
+              </p>
             ) : filled ? (
               <>
                 <p className="text-ink">
@@ -467,9 +503,20 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
             )}
             {saved && <p className="text-sm text-ok mt-1">Enregistré sur VPDive.</p>}
           </div>
-          <button type="button" onClick={() => setDraft(contact ?? NO_CONTACT)} className="btn btn-quiet h-9 text-sm">
-            {filled ? 'Modifier' : 'Ajouter'}
-          </button>
+          {/* Modifiable seulement une fois le contact lu : sinon l'enregistrement effacerait l'existant. */}
+          {contact && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(contact);
+                setError(null);
+                setSaved(false);
+              }}
+              className="btn btn-quiet h-9 text-sm"
+            >
+              {filled ? 'Modifier' : 'Ajouter'}
+            </button>
+          )}
         </div>
       )}
     </div>

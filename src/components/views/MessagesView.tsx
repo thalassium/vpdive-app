@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { ArrowLeft, Check, Plus, SendHorizontal, Users, X } from 'lucide-react';
+import { ArrowLeft, Plus, SendHorizontal, Users, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
 import { Cromagnon } from '../Cromagnon';
 import { messaging, type ChatMember, type ChatMessage, type ChatSummary, type ChatThread } from '../../services/messaging';
 import { vpdive, type MemberMatch } from '../../services/vpdiveApi';
 import { normalizeName, rankByName } from '../../lib/fuzzy';
 
-const THREAD_POLL_MS = 15_000;
-const LIST_POLL_MS = 30_000;
+/**
+ * Une seule relecture pour tout l'écran : la liste (première page) et le fil
+ * ouvert, ensemble. La pastille de l'onglet se sert de cette liste
+ * (services/messaging.ts) au lieu de relire VPDive de son côté.
+ */
+const POLL_MS = 20_000;
 
 type Me = { uct: string; name: string; picture: string };
 
@@ -72,6 +76,8 @@ function byDay(messages: Shown[]): { key: string; date: Date | null; messages: S
 
 /** Clavier physique : Entrée envoie. Sur téléphone, Entrée va à la ligne. */
 const hasFinePointer = () => typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+/** Téléphone : la conversation (ou le choix d'une personne) remplace la liste au lieu de s'afficher à côté (md). */
+const isPhone = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
 
 const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
@@ -110,6 +116,8 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
   const [threadLoading, setThreadLoading] = useState(false);
 
   const [draft, setDraft] = useState('');
+  /** Message envoyé dans une nouvelle conversation que VPDive ne liste pas encore. */
+  const [notice, setNotice] = useState('');
   const [outbox, setOutbox] = useState<{ id: string; text: string; at: string; status: 'sending' | 'failed'; error?: string }[]>([]);
 
   // Les props et la conversation ouverte, lues depuis les minuteries sans les relancer.
@@ -149,10 +157,13 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
         setListError('');
       }
       try {
-        const list = await messaging.chats(meRef.current);
+        // Relecture : la première page suffit, les plus anciennes ne bougent guère.
+        const list = await messaging.chats(meRef.current, { quick: quiet });
         // La conversation ouverte reste lue.
         setChats(list.map((c) => (c.id === openIdRef.current ? { ...c, unread: false } : c)));
         setListError('');
+        // La pastille de l'onglet se recalcule sur cette liste, sans relire VPDive.
+        if (!lostRef.current) onReadRef.current();
       } catch (e) {
         if (lost(e)) return;
         if (!quiet) setListError(errorText(e, 'Les conversations n’ont pas pu être chargées.'));
@@ -175,6 +186,9 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
         if (openIdRef.current !== id) return false;
         setThread(t);
         setThreadError('');
+        // Le fil dit qui a écrit le dernier message : l'aperçu de la liste (« Vous : ») suit.
+        const last = t.last;
+        if (last) setChats((list) => list && list.map((c) => (c.id === id ? { ...c, last } : c)));
         return true;
       } catch (e) {
         if (lost(e) || openIdRef.current !== id) return false;
@@ -187,27 +201,63 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
     [lost],
   );
 
-  // Liste : au montage, puis toutes les 30 s tant que l'onglet est visible ; au retour, tout de suite.
+  // Au montage : toute la liste. Puis une relecture toutes les 20 s tant que l'onglet est
+  // visible (liste et fil ouvert ensemble) ; au retour au premier plan, tout de suite.
   useEffect(() => {
     void loadList();
-    const id = window.setInterval(() => !document.hidden && void loadList(true), LIST_POLL_MS);
-    const back = () => !document.hidden && void loadList(true);
-    document.addEventListener('visibilitychange', back);
+    const tick = () => {
+      if (document.hidden) return;
+      void loadList(true);
+      const shown = openIdRef.current;
+      if (shown) void loadThread(shown, true);
+    };
+    const id = window.setInterval(tick, POLL_MS);
+    document.addEventListener('visibilitychange', tick);
     return () => {
       window.clearInterval(id);
-      document.removeEventListener('visibilitychange', back);
+      document.removeEventListener('visibilitychange', tick);
     };
-  }, [loadList]);
+  }, [loadList, loadThread]);
 
-  // Fil ouvert : toutes les 15 s tant que l'onglet est visible.
   const openId = open?.id ?? null;
+
+  /**
+   * Bouton Retour du téléphone (Android) : une conversation ouverte, ou le choix
+   * d'une personne, revient à la liste au lieu de quitter la Messagerie. Une entrée
+   * d'historique est posée en entrant, retirée en sortant (comme hooks/useDialog).
+   */
+  const pushedRef = useRef(false);
+  const enterSubScreen = () => {
+    if (pushedRef.current || !isPhone()) return;
+    history.pushState({ messages: 'sub' }, '');
+    pushedRef.current = true;
+  };
+  const showList = useCallback(() => {
+    openIdRef.current = null;
+    setOpen(null);
+    setThread(null);
+    setThreadError('');
+    setOutbox([]);
+    setComposing(false);
+  }, []);
+  /** Retour à la liste par un bouton : on retire aussi l'entrée d'historique (son popstate referme). */
+  const backToList = () => {
+    if (pushedRef.current) history.back();
+    else showList();
+  };
   useEffect(() => {
-    if (!openId) return;
-    const id = window.setInterval(() => !document.hidden && void loadThread(openId, true), THREAD_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [openId, loadThread]);
+    const onPop = () => {
+      if (!pushedRef.current || history.state?.messages === 'sub') return;
+      pushedRef.current = false;
+      showList();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [showList]);
 
   const openChat = async (c: ChatSummary) => {
+    enterSubScreen();
+    setNotice('');
     openIdRef.current = c.id;
     scrollKeyRef.current = '';
     setOpen(c);
@@ -219,12 +269,10 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
     if (ok && openIdRef.current === c.id && !lostRef.current) onReadRef.current();
   };
 
-  const closeChat = () => {
-    openIdRef.current = null;
-    setOpen(null);
-    setThread(null);
-    setThreadError('');
-    setOutbox([]);
+  const startComposing = () => {
+    enterSubScreen();
+    setNotice('');
+    setComposing(true);
   };
 
   const onCreated = (c: ChatSummary) => {
@@ -261,6 +309,15 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
     try {
       const realId = await messaging.send(chatId, text, meRef.current);
       if (openIdRef.current !== chatId) return;
+      // Envoyé, mais VPDive ne liste pas encore la nouvelle conversation : retour à la liste,
+      // plutôt qu'un fil vide qui laisserait croire à un échec (et inviterait à renvoyer).
+      if (realId === null) {
+        backToList();
+        setNotice('Message envoyé. La conversation apparaîtra dans la liste d’ici quelques instants.');
+        void loadList(true);
+        if (!lostRef.current) onReadRef.current();
+        return;
+      }
       // Premier message d'une nouvelle conversation : VPDive vient de la créer.
       if (realId !== chatId) {
         openIdRef.current = realId;
@@ -309,7 +366,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
   const empty = chats !== null && chats.length === 0 && !open && !composing;
 
   const newButton = (label: string, className: string) => (
-    <button type="button" onClick={() => setComposing(true)} className={`btn btn-primary ${className}`} aria-label="Nouvelle conversation">
+    <button type="button" onClick={startComposing} className={`btn btn-primary ${className}`} aria-label="Nouvelle conversation">
       <Plus className="w-5 h-5" />
       {label}
     </button>
@@ -351,9 +408,14 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
             className={`md:w-80 md:shrink-0 md:border-r border-line md:pr-4 md:overflow-y-auto md:overscroll-contain ${open && !composing ? 'hidden md:block' : ''}`}
           >
             {composing ? (
-              <NewChat me={me} lost={lost} onCancel={() => setComposing(false)} onCreated={onCreated} />
+              <NewChat me={me} lost={lost} onCancel={() => (pushedRef.current ? history.back() : setComposing(false))} onCreated={onCreated} />
             ) : (
               <>
+                {notice && (
+                  <p role="status" className="mb-3 text-sm text-ok">
+                    {notice}
+                  </p>
+                )}
                 {listError && chats && (
                   <div className="mb-3 flex flex-wrap items-center gap-3">
                     <p className="text-sm text-danger flex-1 min-w-0">{listError}</p>
@@ -410,7 +472,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
             ) : (
               <div className="flex flex-col md:h-full md:min-h-0">
                 <div className="flex items-center gap-2 pb-3 border-b border-line">
-                  <button type="button" onClick={closeChat} className="icon-btn md:hidden -ml-2" aria-label="Retour aux conversations">
+                  <button type="button" onClick={backToList} className="icon-btn md:hidden -ml-2" aria-label="Retour aux conversations">
                     <ArrowLeft className="w-5 h-5" />
                   </button>
                   <ChatAvatar chat={current} me={me} size="sm" />
@@ -592,7 +654,7 @@ function NewChat({
       </div>
 
       {selected.length > 0 && (
-        <ul aria-label="Personnes choisies" className="flex flex-wrap gap-2 mb-3">
+        <ul aria-label="Personne choisie" className="flex flex-wrap gap-2 mb-3">
           {selected.map((m) => (
             <li key={m.id}>
               <button
@@ -641,14 +703,15 @@ function NewChat({
         ) : results.length === 0 ? (
           <p className="text-sm text-muted">Aucun membre ne correspond.</p>
         ) : (
-          <ul className="card divide-y divide-line overflow-hidden">
+          // Une seule personne : un choix unique, présenté comme tel (boutons radio).
+          <ul role="radiogroup" aria-label="Destinataire" className="card divide-y divide-line overflow-hidden">
             {results.map((m) => {
               const on = isSelected(m);
               return (
-                <li key={m.id}>
+                <li key={m.id} role="none">
                   <button
                     type="button"
-                    role="checkbox"
+                    role="radio"
                     aria-checked={on}
                     onClick={() => toggle(m)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-raised ${on ? 'bg-tint' : ''}`}
@@ -657,12 +720,8 @@ function NewChat({
                     <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
                     <span
                       aria-hidden
-                      className={`w-5 h-5 shrink-0 rounded-md border inline-flex items-center justify-center ${
-                        on ? 'bg-fill border-transparent text-white' : 'border-field-border'
-                      }`}
-                    >
-                      {on && <Check className="w-4 h-4" />}
-                    </span>
+                      className={`w-5 h-5 shrink-0 rounded-full border-2 bg-surface transition-all ${on ? 'border-[6px] border-fill' : 'border-field-border'}`}
+                    />
                   </button>
                 </li>
               );

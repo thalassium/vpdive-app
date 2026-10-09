@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { beaufort, compass, level, metres, preferModels, toSlots, windColor, worstIn, type Slot } from './marine';
+import { beaufort, compass, dayWeather, level, metres, preferModels, toSlots, windColor, worstIn, type Slot } from './marine';
 
 test('compass : rose des 16 directions en français', () => {
   assert.equal(compass(0), 'N');
@@ -63,6 +63,24 @@ test('worstIn : pire créneau dans les horaires de la sortie', () => {
   assert.equal(worstIn(slots, '2026-10-11T09:00:00', '2026-10-11T12:00:00')?.time, '2026-10-11T11:00');
   assert.equal(worstIn(slots, '2026-10-11 09:00', '2026-10-11 09:30')?.time, '2026-10-11T09:00');
   assert.equal(worstIn(slots, '2026-10-12T09:00', '2026-10-12T12:00'), null);
+});
+
+test('dayWeather : pire créneau de 6 h à 21 h, niveau avec rafales et vagues', () => {
+  const s = (time: string, wind: number, gusts: number, waves: number | null, windDir = 315): Slot => ({
+    time, wind, gusts, windDir, waves, windWaves: null, swell: null, swellPeriod: null, swellDir: null, water: null,
+  });
+  const slots = [
+    s('2026-10-11T03:00', 30, 40, 0.3), // la nuit ne compte pas
+    s('2026-10-11T09:00', 10, 14, 0.4),
+    s('2026-10-11T15:00', 12, 23, 0.6, 225), // rafales ≥ 22 nd : jaune, sans vent moyen fort
+    s('2026-10-11T22:00', 25, 35, 2),
+    s('2026-10-12T10:00', 8, 10, 1.2), // vagues ≥ 1 m : jaune
+    s('2026-10-13T12:00', 9, 12, 0.3),
+  ];
+  assert.deepEqual(dayWeather(slots, '2026-10-11'), { wind: 12, gusts: 23, dir: 'SO', waves: 0.6, level: 'jaune' });
+  assert.equal(dayWeather(slots, '2026-10-12')?.level, 'jaune');
+  assert.equal(dayWeather(slots, '2026-10-13')?.level, 'ok');
+  assert.equal(dayWeather(slots, '2026-10-14'), null);
 });
 
 test('preferModels : Météo-France d’abord, le modèle par défaut au-delà', () => {
