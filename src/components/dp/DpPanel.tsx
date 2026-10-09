@@ -27,6 +27,7 @@ import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
 import { ThemeToggle } from '../ThemeToggle';
+import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 
@@ -95,11 +96,24 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
    * ce qui reste part d'abord ; si l'enregistrement échoue, on demande. La
    * saisie non enregistrée reste en brouillon sur l'appareil.
    */
-  const leave = useCallback(async (then: () => void) => {
-    const saved = await closeRef.current();
-    if (!saved && !window.confirm('Des modifications ne sont pas enregistrées (elles restent en brouillon sur cet appareil). Quitter quand même ?')) return;
-    then();
-  }, []);
+  const { confirm, confirmDialog } = useConfirm();
+  const leave = useCallback(
+    async (then: () => void) => {
+      const saved = await closeRef.current();
+      if (
+        !saved &&
+        !(await confirm({
+          title: 'Quitter quand même ?',
+          message: 'Des modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.',
+          confirmLabel: 'Quitter',
+          cancelLabel: 'Rester',
+        }))
+      )
+        return;
+      then();
+    },
+    [confirm],
+  );
   const close = useCallback(() => leave(onClose), [leave, onClose]);
   const select = useCallback(
     (e: CalendarEvent) => {
@@ -181,6 +195,7 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
           </main>
         </div>
       </div>
+      {confirmDialog}
     </div>
   );
 }
@@ -341,6 +356,7 @@ function OutingWorkspace({
   /** Message passager : action ignorée, main perdue… */
   const [notice, setNotice] = useState<string | null>(null);
   const [client] = useState(editorClient);
+  const { confirm, confirmDialog } = useConfirm();
 
   const docRef = useRef<OutingDoc | null>(null);
   /** La dernière version du serveur, rapprochée de la liste : ce qu'on retrouve si une saisie est refusée. */
@@ -841,8 +857,16 @@ function OutingWorkspace({
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (!window.confirm(`Écraser la version de ${conflict?.updatedBy ?? 'l’autre personne'} avec la vôtre ? Ses changements seront perdus.`)) return;
+            onClick={async () => {
+              if (
+                !(await confirm({
+                  title: `Écraser la version de ${conflict?.updatedBy ?? 'l’autre personne'} ?`,
+                  message: 'Votre version la remplace : ses changements seront perdus.',
+                  confirmLabel: 'Écraser',
+                  danger: true,
+                }))
+              )
+                return;
               // Ma version, enregistrée par-dessus la sienne : on part de sa révision.
               revRef.current = conflict?.rev ?? revRef.current;
               setConflict(null);
@@ -911,10 +935,12 @@ function OutingWorkspace({
         </button>
         {view === 'dive' && doc.dives.length > 1 && !readOnly && (
           <button
-            onClick={() => {
-              if (!window.confirm(`Supprimer « ${dive.label} » et sa fiche de sécurité ?`)) return;
-              const rest = doc.dives.filter((d) => d.id !== dive.id);
-              update((d) => ({ ...d, dives: rest }));
+            onClick={async () => {
+              if (!(await confirm({ title: `Supprimer « ${dive.label} » ?`, message: 'Sa fiche de sécurité sera supprimée aussi.', confirmLabel: 'Supprimer', danger: true }))) return;
+              // Relue après la question : la fiche a pu changer pendant qu'elle était ouverte.
+              const rest = (docRef.current ?? doc).dives.filter((d) => d.id !== dive.id);
+              if (!rest.length) return;
+              update((d) => ({ ...d, dives: d.dives.filter((x) => x.id !== dive.id) }));
               setDiveId(rest[0]!.id);
             }}
             aria-label={`Supprimer ${dive.label}`}
@@ -986,6 +1012,7 @@ function OutingWorkspace({
         )}
         </>
       )}
+      {confirmDialog}
     </div>
   );
 }

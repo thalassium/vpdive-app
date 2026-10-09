@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, EyeOff, FileText, Mail, MessageCircle, RefreshCw, Undo2, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
+import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
@@ -342,14 +343,25 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   const reminderOpen = useRef(false);
   reminderOpen.current = reminder !== null;
   const reminderBusy = useRef(false);
+  const { confirm, confirmDialog } = useConfirm();
   const { ref: dialogRef } = useDialog({
     onClose: () => (reminderOpen.current ? setReminder(null) : onClose()),
-    canClose: () => !reminderBusy.current && (reminderOpen.current || !membershipBusy.current),
+    canClose: () => {
+      if (reminderBusy.current) return false;
+      if (reminderOpen.current || !membershipBusy.current) return true;
+      // Écriture dans VPDive en cours : on ne ferme pas tout de suite, on pose la question (requestClose ferme si accepté).
+      void requestClose();
+      return false;
+    },
     label: 'docs',
   });
-  /** Croix et clic à côté : pendant une écriture dans VPDive, on demande d'abord (le lot s'arrête après la fiche en cours). */
-  const requestClose = () => {
-    if (membershipBusy.current && !window.confirm('Écriture dans VPDive en cours. Fermer quand même ? Le lot s’arrêtera après la fiche en cours.')) return;
+  /** Croix, clic à côté, Échap et Retour : pendant une écriture dans VPDive, on demande d'abord (le lot s'arrête après la fiche en cours). */
+  const requestClose = async () => {
+    if (
+      membershipBusy.current &&
+      !(await confirm({ title: 'Fermer quand même ?', message: 'Écriture dans VPDive en cours. Le lot s’arrêtera après la fiche en cours.', confirmLabel: 'Fermer', cancelLabel: 'Continuer' }))
+    )
+      return;
     onClose();
   };
 
@@ -703,6 +715,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
           />
         )}
       </div>
+      {confirmDialog}
     </div>
   );
 }

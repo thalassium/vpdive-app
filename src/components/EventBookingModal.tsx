@@ -3,6 +3,7 @@ import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, External
 import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption, type RoleOption } from '../services/vpdiveApi';
 import { ThemeToggle } from './ThemeToggle';
 import { BuddyField } from './BuddyField';
+import { useConfirm } from '../hooks/useConfirm';
 import { useDialog } from '../hooks/useDialog';
 import { GabianLoader } from './Gabian';
 import { BOTTLES, DEFAULT_BOTTLE, SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Bottle, type Size, type SizedKind } from '../lib/gear';
@@ -134,6 +135,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 
   // Échap, bouton Retour, focus et verrou de défilement : hooks/useDialog. Pas de fermeture pendant un envoi.
   const { ref: dialogRef } = useDialog({ onClose, canClose: () => !busy, label: 'inscription' });
+  const { confirm, confirmDialog } = useConfirm();
 
   /** Opens the form on the member's current registration, as VPDive recorded it. */
   const startEdit = () => {
@@ -298,7 +300,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 
   const cancel = async () => {
     if (!detail) return;
-    if (!window.confirm(`Confirmer la désinscription de « ${detail.title} » ?`)) return;
+    if (!(await confirm({ title: 'Confirmer la désinscription ?', message: `« ${detail.title} »`, confirmLabel: 'Me désinscrire', danger: true }))) return;
     setBusy(true);
     setStatus({ kind: 'idle' });
     try {
@@ -689,6 +691,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           )}
         </form>
       </div>
+      {confirmDialog}
     </div>
   );
 }

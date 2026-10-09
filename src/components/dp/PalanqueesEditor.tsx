@@ -70,6 +70,7 @@ import {
   type Unregistered,
 } from '../../lib/outing';
 import { Menu } from '../Menu';
+import { useConfirm } from '../../hooks/useConfirm';
 
 interface Props {
   title: string;
@@ -144,6 +145,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
   const [copied, setCopied] = useState(false);
   /** Inscription depuis la liste d'attente en cours ('busy') ou refusée (message). */
   const [promoting, setPromoting] = useState<Record<string, string>>({});
+  const { confirm, confirmDialog } = useConfirm();
   const settings = doc.settings;
   // Décochés, et liste d'attente VPDive que le DP n'a pas prise.
   const excluded = useMemo(() => outOfWater(roster, settings), [roster, settings]);
@@ -157,8 +159,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
   const roles = useMemo(() => doc.roles ?? defaultRoles(roster), [doc.roles, roster]);
   const roleMap = useMemo(() => new Map(roster.map((r) => [r.id, rolesOf(roles, r.id)])), [roster, roles]);
 
-  const generate = () => {
-    if (plan && !window.confirm('Refaire les palanquées ? La composition actuelle sera remplacée.')) return;
+  const generate = async () => {
+    if (plan && !(await confirm({ title: 'Refaire les palanquées ?', message: 'La composition actuelle sera remplacée.', confirmLabel: 'Refaire' }))) return;
     const ids = new Set(diving.map((d) => d.id));
     const buddies = buddyPairs(roster).filter(([a, b]) => ids.has(a) && ids.has(b));
     // Le DP (rôle de la sortie) reste sur le bateau, sauf si sans lui des plongeurs restaient à terre.
@@ -208,7 +210,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      window.prompt('Copiez la composition :', text);
+      // Presse-papiers refusé : la composition est affichée, sélectionnée, à copier à la main.
+      await confirm({ title: 'Copiez la composition', text, confirmLabel: 'Fermer', cancelLabel: null });
     }
   };
 
@@ -351,10 +354,11 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
           <div className="basis-full pl-[1.875rem] pt-1">
             <button
               type="button"
-              onClick={() =>
-                window.confirm(`Retirer ${d.name} de la sortie ?`) &&
-                (r.outside ? onGuests((doc.guests ?? []).filter((g) => g.id !== d.id)) : onMembers((doc.members ?? []).filter((m) => m.id !== d.id)))
-              }
+              onClick={async () => {
+                if (!(await confirm({ title: `Retirer ${d.name} de la sortie ?`, confirmLabel: 'Retirer', danger: true }))) return;
+                if (r.outside) onGuests((doc.guests ?? []).filter((g) => g.id !== d.id));
+                else onMembers((doc.members ?? []).filter((m) => m.id !== d.id));
+              }}
               className="btn btn-quiet h-8 px-2.5 text-sm hover:text-danger"
             >
               <Trash2 className="w-4 h-4" /> Retirer
@@ -369,7 +373,15 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
 
   /** Liste d'attente → inscrit sur VPDive, après confirmation. */
   const promote = async (d: Diver) => {
-    if (!onPromote || !window.confirm(`Inscrire ${d.name} sur VPDive ?\n\n${d.name} passe de la liste d’attente aux inscrits, même si la sortie est complète.`)) return;
+    if (
+      !onPromote ||
+      !(await confirm({
+        title: `Inscrire ${d.name} sur VPDive ?`,
+        message: `${d.name} passe de la liste d’attente aux inscrits, même si la sortie est complète.`,
+        confirmLabel: 'Inscrire',
+      }))
+    )
+      return;
     setPromoting((p) => ({ ...p, [d.id]: 'busy' }));
     try {
       await onPromote({ id: d.id, name: d.name });
@@ -385,8 +397,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
   const gone = stillUnregistered(doc, roster);
   const goneRows = (instructor: boolean) => gone.filter((u) => u.instructor === instructor).map((u) => <UnregisteredRow key={u.id} u={u} />);
   const hasChoices = Object.keys(settings.levels ?? {}).length + Object.keys(settings.training ?? {}).length > 0;
-  const reset = () => {
-    if (!window.confirm('Réinitialiser les aptitudes et formations choisies ? Chacun revient à ce que dit VPDive.')) return;
+  const reset = async () => {
+    if (!(await confirm({ title: 'Réinitialiser les aptitudes et formations choisies ?', message: 'Chacun revient à ce que dit VPDive.', confirmLabel: 'Réinitialiser' }))) return;
     onSettings({ ...settings, levels: {}, training: {} });
   };
 
@@ -556,9 +568,18 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
                 onGuide={(d) => onPlan(assignGuide(plan, p.id, d))}
                 onType={(t) => onPlan(setType(plan, p.id, t))}
                 onRemoveGuide={() => onPlan(removeGuide(plan, p.id))}
-                onDelete={() => {
+                onDelete={async () => {
                   const people = [p.guide, p.extra, ...p.members].filter(Boolean).length;
-                  if (people && !window.confirm(`Supprimer P${i + 1} ? Ses ${people} participant${people > 1 ? 's' : ''} redeviendront disponibles.`)) return;
+                  if (
+                    people &&
+                    !(await confirm({
+                      title: `Supprimer P${i + 1} ?`,
+                      message: `${people > 1 ? `Ses ${people} participants redeviendront disponibles` : 'Son participant redeviendra disponible'}.`,
+                      confirmLabel: 'Supprimer',
+                      danger: true,
+                    }))
+                  )
+                    return;
                   onPlan(deletePalanquee(plan, p.id));
                 }}
               />
@@ -605,6 +626,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
 
         </section>
       )}
+      {confirmDialog}
     </div>
     </RolesContext.Provider>
   );
@@ -795,8 +817,17 @@ function UnregisteredRow({ u }: { u: Unregistered }) {
 function UnregisterAction({ name, onConfirm }: { name: string; onConfirm: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
   const run = async () => {
-    if (!window.confirm(`Désinscrire ${name} de la sortie sur VPDive ?\n\n${name} sera retiré(e) de la liste des inscrits.`)) return;
+    if (
+      !(await confirm({
+        title: `Désinscrire ${name} de la sortie sur VPDive ?`,
+        message: `${name} sera retiré de la liste des inscrits.`,
+        confirmLabel: 'Désinscrire',
+        danger: true,
+      }))
+    )
+      return;
     setBusy(true);
     setError(null);
     try {
@@ -816,6 +847,7 @@ function UnregisterAction({ name, onConfirm }: { name: string; onConfirm: () => 
           {error}
         </span>
       )}
+      {confirmDialog}
     </div>
   );
 }

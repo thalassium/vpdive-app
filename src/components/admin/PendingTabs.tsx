@@ -4,6 +4,7 @@ import { Avatar } from '../Avatar';
 import { GabianLoader } from '../Gabian';
 import { vpdive, type PendingValidation } from '../../services/vpdiveApi';
 import { appApi, type RegistrationRequest } from '../../services/appApi';
+import { useConfirm } from '../../hooks/useConfirm';
 import { cacheKey } from './MembershipTab';
 
 /*
@@ -60,12 +61,13 @@ export function RegistrationRequestsTab({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
+  const { confirm, confirmDialog } = useConfirm();
   if (error) return <Failure error={error} onRetry={onReload} />;
   if (!requests) return <GabianLoader label="Lecture des demandes d’inscription sur VPDive…" />;
   if (!requests.length) return <Empty>Aucune demande d’inscription en attente.</Empty>;
 
   const decide = async (r: RegistrationRequest, decision: 'member' | 'guest' | 'refuse') => {
-    if (decision === 'refuse' && !window.confirm(`Refuser l’accès au site à ${r.name} ?`)) return;
+    if (decision === 'refuse' && !(await confirm({ title: `Refuser l’accès au site à ${r.name || 'cette personne'} ?`, confirmLabel: 'Refuser', danger: true }))) return;
     setBusy(r.token);
     setRowError(({ [r.token]: _, ...rest }) => rest);
     try {
@@ -115,6 +117,7 @@ export function RegistrationRequestsTab({
           </li>
         ))}
       </ul>
+      {confirmDialog}
     </div>
   );
 }
@@ -144,6 +147,7 @@ export function PendingDocumentsTab({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
+  const { confirm, confirmDialog } = useConfirm();
   if (error) return <Failure error={error} onRetry={onReload} />;
   if (!items) return <GabianLoader label="Lecture des documents en attente sur VPDive…" />;
   if (!items.length) return <Empty>Aucun document en attente de validation.</Empty>;
@@ -155,7 +159,11 @@ export function PendingDocumentsTab({
 
   /** Valide ou refuse, un élément ou tous ceux d'un membre, l'un après l'autre. */
   const decide = async (list: PendingValidation[], decision: 'approve' | 'reject', busyKey: string) => {
-    if (decision === 'reject' && !window.confirm(`Refuser : ${list.map((v) => v.typeLabel).join(', ')} de ${list[0]!.memberName} ?`)) return;
+    if (
+      decision === 'reject' &&
+      !(await confirm({ title: `Refuser ${list.length > 1 ? 'ces documents' : 'ce document'} ?`, message: `${list.map((v) => v.typeLabel).join(', ')} de ${list[0]!.memberName}.`, confirmLabel: 'Refuser', danger: true }))
+    )
+      return;
     setBusy(busyKey);
     let left = items;
     try {
@@ -235,6 +243,7 @@ export function PendingDocumentsTab({
           </article>
         );
       })}
+      {confirmDialog}
     </div>
   );
 }

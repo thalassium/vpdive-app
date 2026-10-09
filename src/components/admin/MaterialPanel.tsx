@@ -8,6 +8,7 @@ import { adoptRegistrations, divingIds, syncWithRoster, withGuests, type OutingD
 import { Avatar } from '../Avatar';
 import { Menu } from '../Menu';
 import { ThemeToggle } from '../ThemeToggle';
+import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 
@@ -196,6 +197,7 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
   const [outing, setOuting] = useState<OutingDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const { confirm, confirmDialog } = useConfirm();
 
   const load = useCallback(async () => {
     setError(null);
@@ -251,7 +253,8 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
       await navigator.clipboard.writeText(text);
       setCopied(true);
     } catch {
-      window.prompt('Copiez la liste :', text);
+      // Presse-papiers refusé (navigateur, page non sécurisée) : la liste est affichée, sélectionnée, à copier à la main.
+      await confirm({ title: 'Copiez la liste', text, confirmLabel: 'Fermer', cancelLabel: null });
     }
   };
   const divers = summary.people.filter((p) => !p.noBottle).length;
@@ -331,6 +334,7 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
           )}
         </section>
       )}
+      {confirmDialog}
     </>
   );
 }
