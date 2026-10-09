@@ -165,3 +165,12 @@ test('classements : les ex aequo du dernier rang restent, l’alphabet ne dépar
   const s = computeStats(events, rosters);
   assert.deepEqual(s.regulars.map((r) => r.id), names.slice(0, 12), 'I, J, K et L restent tous les quatre');
 });
+
+test('classements : le jeton d’adhésion suit chaque personne (icône « fiche »), sans rien changer aux comptes', () => {
+  const s = computeStats([ev('e1', '2026-10-01T09:00:00'), ev('e2', '2026-10-08T09:00:00')], {
+    e1: [p('1', ['P2'], { uct: 'uct-1' }), p('2', ['P1'])],
+    e2: [p('1', ['P2'], { uct: 'uct-1' })],
+  });
+  assert.deepEqual(s.regulars[0], { id: '1', name: 'Nom 1', uct: 'uct-1', count: 2 });
+  assert.deepEqual(s.regulars[1], { id: '2', name: 'Nom 2', count: 1 });
+});

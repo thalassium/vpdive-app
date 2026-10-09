@@ -7,6 +7,7 @@ import { MemberSearch } from '../../dp/MemberSearch';
 import { frDate } from '../../../lib/dates';
 import { checkFor, sameName, seasonLabel, type CaseCheck, type CaseKind, type Match, type VpMember } from '../../../lib/membership';
 import { VPDIVE_MEMBER, type StepProps } from './shared';
+import { MemberSheetButton } from '../../member/MemberLink';
 
 const CASE_TITLE: Record<CaseKind, string> = {
   homonym: 'Homonymes : choisir le bon membre',
@@ -81,9 +82,12 @@ export function Arbitrage(props: StepProps) {
                           Ouvrir Mon Club <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       ) : r.match.member ? (
-                        <a href={VPDIVE_MEMBER(r.match.member.id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-brand underline underline-offset-2">
-                          Ouvrir la fiche VPDive <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
+                        <span className="inline-flex items-center gap-1">
+                          <a href={VPDIVE_MEMBER(r.match.member.id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-brand underline underline-offset-2">
+                            Ouvrir la fiche VPDive <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                          <MemberSheetButton member={{ uct: r.match.member.id, name: r.match.member.name, picture: r.match.member.picture }} className="-my-1.5" />
+                        </span>
                       ) : null}
                     </div>
                     <CheckBox check={check} onSave={(checked, comment) => void saveCheck(key, checked, comment)} />
@@ -115,14 +119,18 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
   return (
     <div className="space-y-1.5 text-sm">
       {family.map((m) => (
-        <button key={m.id} type="button" onClick={() => onPick(m.id)} className="w-full flex items-center gap-2 px-2 py-2 sm:py-1 rounded-lg border border-field-border hover:bg-tint text-left">
-          <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
-          <span className="flex-1 min-w-0 leading-tight">
-            <span className="block text-ink break-words">{m.name}</span>
-            {payer && sameName(payer, m.name) && <span className="block text-xs text-muted">a payé l’adhésion</span>}
-          </span>
-          <span className="text-brand font-medium shrink-0">Associer</span>
-        </button>
+        // La fiche du candidat à côté du bouton « Associer », pas dedans.
+        <div key={m.id} className="flex items-center gap-1">
+          <button type="button" onClick={() => onPick(m.id)} className="flex-1 min-w-0 flex items-center gap-2 px-2 py-2 sm:py-1 rounded-lg border border-field-border hover:bg-tint text-left">
+            <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
+            <span className="flex-1 min-w-0 leading-tight">
+              <span className="block text-ink break-words">{m.name}</span>
+              {payer && sameName(payer, m.name) && <span className="block text-xs text-muted">a payé l’adhésion</span>}
+            </span>
+            <span className="text-brand font-medium shrink-0">Associer</span>
+          </button>
+          <MemberSheetButton member={{ uct: m.id, name: m.name, picture: m.picture }} />
+        </div>
       ))}
       <button type="button" onClick={() => setSearching(true)} className="max-sm:min-h-11 underline text-muted hover:text-brand">
         Autre compte
@@ -189,7 +197,7 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
     return (
       <div className="flex items-start gap-2 min-w-0">
         <Avatar name={m.name} picture={m.picture} size="sm" initials={false} className="shrink-0" />
-        <div className="min-w-0 text-sm">
+        <div className="min-w-0 flex-1 text-sm">
           <p className="font-medium text-ink truncate">{m.name}</p>
           <p className="text-muted">
             {match.why}
@@ -200,6 +208,7 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
             )}
           </p>
         </div>
+        <MemberSheetButton member={{ uct: m.id, name: m.name, picture: m.picture }} className="-mt-1" />
       </div>
     );
   }
@@ -209,11 +218,15 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
         {match.obsolete && <p className="text-warn">{match.obsolete}</p>}
         <p className="text-warn font-medium">{pending ? 'Lecture des fiches…' : 'À confirmer'}</p>
         {match.candidates.map((m) => (
-          <button key={m.id} type="button" onClick={() => onChoose(m.id)} className="w-full flex items-center gap-2 px-2 py-2 sm:py-1 rounded-lg border border-field-border hover:bg-tint text-left">
-            <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
-            <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
-            <span className="text-brand font-medium shrink-0">C’est lui</span>
-          </button>
+          // La fiche du candidat, pour trancher entre homonymes : à côté de « C'est lui », pas dedans.
+          <div key={m.id} className="flex items-center gap-1">
+            <button type="button" onClick={() => onChoose(m.id)} className="flex-1 min-w-0 flex items-center gap-2 px-2 py-2 sm:py-1 rounded-lg border border-field-border hover:bg-tint text-left">
+              <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
+              <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
+              <span className="text-brand font-medium shrink-0">C’est lui</span>
+            </button>
+            <MemberSheetButton member={{ uct: m.id, name: m.name, picture: m.picture }} />
+          </div>
         ))}
         <div className="flex flex-wrap gap-x-3">
           <button type="button" onClick={() => setSearching(true)} className="max-sm:min-h-11 underline text-muted hover:text-brand">

@@ -8,6 +8,7 @@ import { frDate } from '../../../lib/dates';
 import { message } from '../../../lib/errors';
 import { decodeExport, parseFfessmBrevets, parseFfessmCsv, seasonLabel, type Cell, type ItemView, type Match } from '../../../lib/membership';
 import { hasGap, type Filter, type Row, type StepProps } from './shared';
+import { MemberSheetButton } from '../../member/MemberLink';
 
 /** Étape 2 : chaque personne vue par HelloAsso, la FFESSM et VPDive (✅ ❌ ⚠️). */
 export function Diagnostic(props: StepProps) {
@@ -191,10 +192,11 @@ function VpdiveStatus({ match, pending }: { match: Match; pending: boolean }) {
     return (
       <div className="flex items-start gap-2 min-w-0">
         <Avatar name={match.member.name} picture={match.member.picture} size="sm" initials={false} className="shrink-0" />
-        <div className="min-w-0 text-sm">
+        <div className="min-w-0 flex-1 text-sm">
           <p className="font-medium text-ink truncate">{match.member.name}</p>
           <p className="text-muted">{match.why}</p>
         </div>
+        <MemberSheetButton member={{ uct: match.member.id, name: match.member.name, picture: match.member.picture }} className="-mt-1" />
       </div>
     );
   }

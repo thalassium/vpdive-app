@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Avatar } from './Avatar';
-import { AlertTriangle, ChevronDown, ExternalLink, Lock, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
-import { vpdive, isUnavailable, type MemberMatch, type MemberProfile } from '../services/vpdive';
+import { AlertTriangle, ChevronDown, ExternalLink, IdCard, Lock, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
+import { vpdive, isUnavailable, type MemberMatch } from '../services/vpdive';
 import { appApi, type AppRole, type Me, type RoleEntry } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
 import { findDuplicates, type DuplicateGroup } from '../lib/duplicates';
 import { GabianLoader } from './Gabian';
 import { message } from '../lib/errors';
-import { frDate } from '../lib/dates';
 import { sessionCache } from '../lib/cache';
 import { Dialog, DialogHeader } from './Dialog';
+import { MemberSheetButton } from './member/MemberLink';
+import { useMemberSheet } from './member/sheetContext';
 
 interface Props {
   me: Me;
@@ -38,7 +39,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
   const [roleError, setRoleError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [openId, setOpenId] = useState<string | null>(null);
+  const { openMember } = useMemberSheet();
   const canEdit = me.role === 'superadmin';
 
   /** Annuaire et rôles ; l'état « chargement » est posé par l'appelant (null au départ). `fresh` : sans le cache court de l'annuaire. */
@@ -220,10 +221,8 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
                     isMe={m.id === me.uct}
                     canEdit={canEdit}
                     busy={busy === m.id}
-                    open={openId === m.id}
-                    onToggle={() => setOpenId(openId === m.id ? null : m.id)}
+                    onOpen={() => openMember({ uct: m.id, name: m.name, picture: m.picture })}
                     onRole={(patch) => change(m, patch)}
-                    onSessionLost={onSessionLost}
                   />
                 ))}
               </ul>
@@ -260,6 +259,7 @@ function Duplicates({ groups, checking }: { groups: DuplicateGroup<MemberMatch>[
                   <li key={m.id} className="flex items-center gap-2 min-w-0 text-base text-ink">
                     <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
                     <span className="truncate">{m.name}</span>
+                    <MemberSheetButton member={{ uct: m.id, name: m.name, picture: m.picture }} className="-my-1" />
                   </li>
                 ))}
               </ul>
@@ -293,7 +293,7 @@ function seenLabel(iso: string): string {
 /** Statut « Membre » d'un compte (fiche par fiche), gardé 6 h dans l'onglet. */
 const memberCache = sessionCache('club-member-v2:', 6 * 3600_000, (v): v is boolean => typeof v === 'boolean', { field: 'ok' });
 
-/** Un membre, ses rôles à droite ; ouvert, ses niveaux et qualifications lus dans son profil VPDive. */
+/** Un membre, ses rôles à droite ; la ligne ouvre sa fiche complète (MemberSheet), par-dessus la liste. */
 function MemberRow({
   member,
   entry,
@@ -301,10 +301,8 @@ function MemberRow({
   isMe,
   canEdit,
   busy,
-  open,
-  onToggle,
+  onOpen,
   onRole,
-  onSessionLost,
 }: {
   member: MemberMatch;
   entry: RoleEntry | undefined;
@@ -313,22 +311,11 @@ function MemberRow({
   isMe: boolean;
   canEdit: boolean;
   busy: boolean;
-  open: boolean;
-  onToggle: () => void;
+  onOpen: () => void;
   onRole: (patch: { admin?: boolean; superAdmin?: boolean }) => void;
-  onSessionLost: (e: unknown) => boolean;
 }) {
-  const [profile, setProfile] = useState<MemberProfile | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const role = entry?.role ?? 'member';
   const locked = !!entry?.lockedSuperAdmin;
-
-  useEffect(() => {
-    if (!open || profile) return;
-    vpdive.memberProfile(member.id).then(setProfile, (e) => {
-      if (!onSessionLost(e)) setError(message(e));
-    });
-  }, [open, profile, member.id, onSessionLost]);
 
   const note = locked
     ? undefined
@@ -342,8 +329,8 @@ function MemberRow({
 
   return (
     <li className={busy ? 'opacity-60' : ''}>
-      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${open ? 'bg-accent-soft' : 'hover:bg-raised'}`}>
-        <button type="button" onClick={onToggle} aria-expanded={open} className="flex-1 min-w-0 flex items-center gap-3 text-left">
+      <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-raised">
+        <button type="button" onClick={onOpen} aria-haspopup="dialog" title={`Fiche de ${member.name}`} className="flex-1 min-w-0 flex items-center gap-3 text-left">
           <Avatar name={member.name} picture={member.picture} />
           <span className="min-w-0">
             <span className="flex items-center gap-1.5 text-ink font-medium">
@@ -353,7 +340,8 @@ function MemberRow({
             {note && <span className="block text-sm text-muted truncate">{note}</span>}
             {lastSeen && <span className="block text-xs text-muted">Vu {seenLabel(lastSeen)}</span>}
           </span>
-          <ChevronDown className={`w-4 h-4 text-muted shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+          {/* La ligne ouvre la fiche : la carte d'identité le dit. */}
+          <IdCard aria-hidden className="w-4 h-4 text-muted shrink-0" />
         </button>
         {canEdit ? (
           <span className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -368,24 +356,6 @@ function MemberRow({
           )
         )}
       </div>
-      {open && (
-        <div className="ml-14 mr-3 mb-2 mt-1 text-base space-y-1.5">
-          {!profile && !error && <p className="text-muted">Lecture du profil VPDive…</p>}
-          {error && <p className="text-danger">{error}</p>}
-          {profile && (
-            <>
-              <Line label="Niveaux" values={profile.levels} />
-              <Line label="Enseignement" values={profile.teaching} />
-              <Line label="Qualifications" values={profile.qualifications} />
-              {profile.medicalUntil && (
-                <p className="text-muted">
-                  Certificat médical jusqu’au <span className="text-ink">{frDate(profile.medicalUntil)}</span>
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      )}
     </li>
   );
 }
@@ -433,14 +403,5 @@ function Switch({
       <span className="hidden sm:inline">{label}</span>
       {locked && <Lock className="hidden sm:block w-3 h-3 text-muted" />}
     </button>
-  );
-}
-
-function Line({ label, values }: { label: string; values: string[] }) {
-  if (!values.length) return null;
-  return (
-    <p className="text-muted">
-      {label} : <span className="text-ink">{values.join(' · ')}</span>
-    </p>
   );
 }

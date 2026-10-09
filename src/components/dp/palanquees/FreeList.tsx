@@ -4,6 +4,7 @@ import type { Diver, Plan } from '../../../lib/palanquees';
 import { MoveSelect } from './MoveSelect';
 import { RoleBadges } from './RoleBadges';
 import { shownLevel, type Target } from './format';
+import { OutingMemberButton } from '../../member/MemberLink';
 
 /** Encadrants disponibles, ou plongeurs non placés : à déplacer dans une palanquée. */
 export function FreeList({ title, items, targets, onMove, instructor }: { title: string; items: Plan['unassigned']; targets: Target[]; onMove: (d: Diver, t: string) => void; instructor?: boolean }) {
@@ -20,6 +21,7 @@ export function FreeList({ title, items, targets, onMove, instructor }: { title:
             <li key={diver.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base">
               <Avatar name={diver.name} picture={diver.picture} size="sm" initials={false} />
               <span className="font-medium text-ink">{diver.name}</span>
+              <OutingMemberButton id={diver.id} className="-my-1" />
               <RoleBadges id={diver.id} />
               <span className="text-sm text-muted">{shownLevel(diver)}</span>
               <span className="basis-full text-sm text-muted">{reason}</span>

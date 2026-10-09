@@ -279,6 +279,39 @@ export async function memberProfile(memberToken: string, opts: ReadOptions = {})
   return profileOf(await request(`/user?uct_token=${encodeURIComponent(memberToken)}`, { ...opts, ttl: MEMBER_TTL }));
 }
 
+/** Fiche d'un autre membre telle que la fenêtre « Fiche membre » la montre (admins). */
+export interface MemberSheet {
+  profile: MemberProfile;
+  info: MemberInfo;
+  documents: MemberDocument[];
+  /** Statut « Membre » du club (drapeau allMembers de son adhésion) ; faux pour un « Invité ». */
+  member: boolean;
+  /** Photo VPDive ; vide si VPDive n'a que son avatar par défaut. */
+  picture: string;
+}
+
+/** Fiche membre VPDive (/user?uct_token=, même forme que /user/member) → la fiche complète de la fenêtre. */
+export function sheetOf(u: Json): MemberSheet {
+  return {
+    profile: profileOf(u),
+    info: infoOf(u),
+    documents: documentsOf(u),
+    member: obj(u.user_club_traceability)?.allMembers === true,
+    picture: pictureUrl(str(u.profile_picture)),
+  };
+}
+
+/**
+ * Fiche complète d'un membre, par son jeton d'adhésion : coordonnées, adhésion,
+ * licences, niveaux, documents. Même lecture que memberProfile et memberRecord
+ * (admin.ts), partagée avec elles par le transport ; permission `member_view`
+ * (403 pour un simple membre).
+ */
+export async function memberSheet(uct: string, opts: ReadOptions = {}): Promise<MemberSheet> {
+  const res = await request(`/user?uct_token=${encodeURIComponent(uct)}`, { ...opts, ttl: MEMBER_TTL });
+  return sheetOf(obj(res.data) ?? res);
+}
+
 /**
  * Mon contact d'urgence, lu sur le profil complet (GET /user, celui de la
  * page « Mon profil »). Champs vides si VPDive ne les renvoie pas.

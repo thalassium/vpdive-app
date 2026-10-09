@@ -8,6 +8,7 @@ import { ROLE_LABEL } from '../lib/roleLabels';
 import { MENU_ITEM_CLS, menuKeys } from './menuKeys';
 import { message } from '../lib/errors';
 import { usePopover } from '../hooks/usePopover';
+import { MemberSheetButton } from './member/MemberLink';
 
 /** Un membre choisi dans « Voir en tant que », avec son rôle dans l'appli. */
 export interface ViewAsPick {
@@ -144,6 +145,7 @@ export function AccountMenu({ name, email, picture, role, onProfile, onViewAs, o
                 close();
                 onViewAs(pick);
               }}
+              onSheet={close}
               onSessionLost={onSessionLost}
             />
           )}
@@ -164,8 +166,11 @@ function MenuItem({ icon, danger, onClick, children }: { icon: React.ReactNode; 
   );
 }
 
-/** Choisir un membre de l'annuaire du club (filtre tolérant aux fautes, comme l'écran Membres). */
-function ViewAsPicker({ onBack, onPick, onSessionLost }: { onBack: () => void; onPick: (p: ViewAsPick) => void; onSessionLost: (e: unknown) => boolean }) {
+/**
+ * Choisir un membre de l'annuaire du club (filtre tolérant aux fautes, comme l'écran Membres).
+ * L'icône « fiche » à côté de chaque nom ouvre sa fiche (le menu se referme d'abord : `onSheet`).
+ */
+function ViewAsPicker({ onBack, onPick, onSheet, onSessionLost }: { onBack: () => void; onPick: (p: ViewAsPick) => void; onSheet: () => void; onSessionLost: (e: unknown) => boolean }) {
   const [members, setMembers] = useState<MemberMatch[] | null>(null);
   const [roles, setRoles] = useState<Map<string, AppRole>>(new Map());
   const [error, setError] = useState<string | null>(null);
@@ -231,16 +236,15 @@ function ViewAsPicker({ onBack, onPick, onSessionLost }: { onBack: () => void; o
           shown.map((m) => {
             const role = roles.get(m.id) ?? 'member';
             return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => onPick({ uct: m.id, name: m.name, picture: m.picture, role })}
-                className={`${MENU_ITEM_CLS} py-2`}
-              >
-                <Avatar name={m.name} picture={m.picture} size="sm" />
-                <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
-                <span className="text-sm text-muted shrink-0">{ROLE_LABEL[role]}</span>
-              </button>
+              <div key={m.id} className="flex items-center pr-2">
+                <button type="button" onClick={() => onPick({ uct: m.id, name: m.name, picture: m.picture, role })} className={`${MENU_ITEM_CLS} py-2 flex-1 min-w-0`}>
+                  <Avatar name={m.name} picture={m.picture} size="sm" />
+                  <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
+                  <span className="text-sm text-muted shrink-0">{ROLE_LABEL[role]}</span>
+                </button>
+                {/* Écran du super-admin : la fiche complète, même pendant un « Voir en tant que » un membre. */}
+                <MemberSheetButton member={{ uct: m.id, name: m.name, picture: m.picture, full: true }} onOpen={onSheet} />
+              </div>
             );
           })
         )}

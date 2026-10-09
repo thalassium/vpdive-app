@@ -4,6 +4,7 @@ import { shortDay } from '../../lib/dates';
 import type { DocIssue } from '../../lib/docsCheck';
 import { DAYS_AHEAD, plural, type Filter, type Row } from './relance';
 import type { Relance } from './useRelance';
+import { MemberSheetButton } from '../member/MemberLink';
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'Tout' },
@@ -140,6 +141,7 @@ export function RelanceTab({ relance }: { relance: Relance }) {
                     Ignoré par {i.by} le {new Date(i.at).toLocaleDateString('fr-FR')}
                   </span>
                 </span>
+                <MemberSheetButton member={{ uct: i.uct, name: i.name, picture: i.row?.picture }} />
                 <button type="button" onClick={() => void relance.setIgnore({ uct: i.uct, name: i.name }, false)} className="btn btn-quiet sm:h-9 text-sm shrink-0">
                   <Undo2 className="w-4 h-4" /> Ne plus ignorer
                 </button>
@@ -203,6 +205,8 @@ function MemberCard({ row, checked, onToggle, onRemind, onIgnore }: { row: Row; 
           {next && <span className="mt-1 block text-sm text-muted">Prochaine sortie : {shortDay(next.outing.date)}</span>}
         </span>
       </label>
+      {/* À côté de l'étiquette (qui coche la ligne), pas dedans. */}
+      <MemberSheetButton member={{ uct: row.uct, name: row.name, picture: row.picture }} className="-mt-1" />
       <span className="flex flex-col sm:flex-row items-stretch gap-1.5 shrink-0">
         <button type="button" onClick={onRemind} className="btn btn-quiet sm:h-9 text-sm">
           Relancer

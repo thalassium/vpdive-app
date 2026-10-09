@@ -26,6 +26,9 @@ import { useViewAs } from './hooks/useViewAs';
 import { useUnread } from './hooks/useUnread';
 import { useTab, TABS, type Tab } from './hooks/useTab';
 import { useAgenda } from './hooks/useAgenda';
+import { MemberSheetProvider } from './components/member/MemberSheetContext';
+import { MemberSheetButton } from './components/member/MemberLink';
+import { canOpenMember } from './lib/memberSheet';
 
 // Hors du paquet principal : l'agenda et la fiche de réservation s'affichent tout de suite, le reste
 // est téléchargé en tâche de fond peu après la connexion (preloadScreens), pour s'ouvrir sans attente.
@@ -166,6 +169,8 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
   const printPanel = panel ? 'print:hidden' : '';
 
   return (
+    // Fiche membre ouverte depuis n'importe quel nom : fiche complète pour un admin (rôle simulé compris).
+    <MemberSheetProvider canOpen={canOpenMember(role)} onSessionLost={handleSessionLost}>
     <div className="min-h-dvh text-ink flex flex-col font-sans">
       <SeaBackdrop />
       <header className={`sticky top-0 z-30 bg-surface border-b border-line ${printPanel}`}>
@@ -248,7 +253,10 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
             <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
               <Eye className="w-4 h-4 shrink-0" />
               <span className="flex-1 min-w-0">
-                Vous voyez le site comme <strong className="font-semibold">{viewAs.name}</strong> · {ROLE_LABEL[viewAs.role]}
+                Vous voyez le site comme <strong className="font-semibold">{viewAs.name}</strong>
+                {/* Sa fiche, complète : seul un super-admin voit ce bandeau, quel que soit le rôle simulé. */}
+                <MemberSheetButton member={{ uct: viewAs.uct, name: viewAs.name, picture: viewAs.picture, full: true }} size="sm" className="mx-0.5 -my-1 align-middle text-warn hover:text-warn hover:bg-surface/60" />{' '}
+                · {ROLE_LABEL[viewAs.role]}
                 {viewAs.role === 'member' &&
                   (viewAs.dpEvents === null
                     ? ` · recherche de ses sorties comme DP…${viewAs.progress ? ` ${viewAs.progress.done}/${viewAs.progress.total}` : ''}`
@@ -389,6 +397,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
         </div>
       </footer>
     </div>
+    </MemberSheetProvider>
   );
 }
 

@@ -1,10 +1,11 @@
-import { AlertTriangle, Check, ExternalLink, ScrollText, X } from 'lucide-react';
+import { AlertTriangle, Check, ScrollText, X } from 'lucide-react';
 import { GabianLoader } from '../../Gabian';
 import { SectionTitle } from '../../SectionTitle';
 import { Spinner } from '../../Spinner';
 import type { WriteJob } from '../../../services/memberWriter';
 import type { Fix, FixKind } from '../../../lib/membership';
-import { VPDIVE_MEMBER, type Row, type StepProps } from './shared';
+import type { Row, StepProps } from './shared';
+import { MemberSheetButton } from '../../member/MemberLink';
 
 const FIX_ORDER: FixKind[] = ['season', 'licence', 'licence-add', 'insurance', 'brevets'];
 const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
@@ -80,9 +81,8 @@ export function QuickFixes(props: StepProps) {
                   {x.message}
                   {x.warning && <span className="block text-warn">{x.warning}</span>}
                 </span>
-                <a href={VPDIVE_MEMBER(x.uct)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand underline underline-offset-2">
-                  Fiche <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+                {/* La fiche relue dans l'appli (le lien vers VPDive y est). */}
+                <MemberSheetButton member={{ uct: x.uct, name: x.name }} className="-my-1.5" />
               </li>
             ))}
           </ul>
@@ -120,8 +120,8 @@ export function QuickFixes(props: StepProps) {
                   const why = blocked(f);
                   const unresolved = f.kind === 'brevets' && catalog ? targets(f).filter((t) => !t.level).map((t) => t.brevet) : [];
                   return (
-                    <li key={keyOf(r, f)}>
-                      <label className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 ${why ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-accent-soft'}`}>
+                    <li key={keyOf(r, f)} className="flex items-center">
+                      <label className={`flex-1 min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 ${why ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-accent-soft'}`}>
                         <input
                           type="checkbox"
                           checked={!why && picked.has(keyOf(r, f))}
@@ -142,6 +142,8 @@ export function QuickFixes(props: StepProps) {
                         )}
                         {why && <span className="text-xs text-warn">{why}</span>}
                       </label>
+                      {/* À côté de l'étiquette (qui coche la correction), pas dedans. */}
+                      {r.match.member && <MemberSheetButton member={{ uct: r.match.member.id, name: r.match.member.name, picture: r.match.member.picture }} className="mr-2 shrink-0" />}
                     </li>
                   );
                 })}

@@ -11,6 +11,7 @@ import { WEEKDAYS } from '../../lib/dates';
 import { isRecord, sessionCache } from '../../lib/cache';
 import { Dialog, DialogHeader } from '../Dialog';
 import { SectionTitle } from '../SectionTitle';
+import { MemberSheetButton } from '../member/MemberLink';
 
 /**
  * Statistiques de la saison (super-admin) : sorties, plongeurs, niveaux,
@@ -25,13 +26,14 @@ import { SectionTitle } from '../SectionTitle';
 type Preset = PresetId | 'custom';
 
 // v2 : la liste garde aussi l'équipe non inscrite (pilote, DP désignés dans VPDive).
-const CACHE_PREFIX = 'stats-roster:v2:';
+// v3 : chaque inscrit garde son jeton d'adhésion (uct), pour ouvrir sa fiche depuis les classements.
+const CACHE_PREFIX = 'stats-roster:v3:';
 const nf = new Intl.NumberFormat('fr-FR');
 const n = (x: number) => nf.format(x);
 const plural = (x: number, one: string, many: string) => `${n(x)} ${x > 1 ? many : one}`;
 
 function toPerson(r: RosterEntry): StatPerson {
-  return { id: r.id, name: r.name, ...(r.picture ? { picture: r.picture } : {}), age: r.age, levels: r.levels, training: r.training, roles: r.roles, waitingList: r.waitingList };
+  return { id: r.id, name: r.name, ...(r.picture ? { picture: r.picture } : {}), ...(r.uct ? { uct: r.uct } : {}), age: r.age, levels: r.levels, training: r.training, roles: r.roles, waitingList: r.waitingList };
 }
 const finished = (e: CalendarEvent) => Date.parse(e.end || e.start) < Date.now() - 24 * 3600_000;
 type Cached = { rows: StatPerson[]; staff: StatStaff[] };
@@ -131,7 +133,8 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
           .then(({ roles, members }) => {
             if (id !== run.current) return;
             setDpFromApp(Object.fromEntries(Object.entries(roles).map(([k, r]) => [k, r?.dp])));
-            setAppMembers(Object.fromEntries(Object.entries(members).map(([k, list]) => [k, list.map((m) => ({ ...m, roles: [] }))])));
+            // Membre ajouté dans l'appli : son identifiant est « uct:<jeton d'adhésion> » (lib/outing.ts).
+            setAppMembers(Object.fromEntries(Object.entries(members).map(([k, list]) => [k, list.map((m) => ({ ...m, ...(m.id.startsWith('uct:') ? { uct: m.id.slice(4) } : {}), roles: [] }))])));
           })
           .catch((e) => onSessionLost(e));
         return readRosters(list, id);
@@ -541,7 +544,10 @@ function Ranking({ title, rows, unit, note, className = '' }: { title: string; r
               <Avatar name={r.name} picture={r.picture} size="sm" initials={false} />
               <span className="flex-1 min-w-0">
                 <span className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-ink">{r.name}</span>
+                  <span className="min-w-0 inline-flex items-center gap-1">
+                    <span className="truncate text-ink">{r.name}</span>
+                    <MemberSheetButton member={r.uct ? { uct: r.uct, name: r.name, picture: r.picture } : null} size="sm" className="-my-1.5" />
+                  </span>
                   <span className="shrink-0 text-sm tabular-nums text-muted" title={plural(r.count, unit, `${unit}s`)}>
                     {n(r.count)}
                   </span>

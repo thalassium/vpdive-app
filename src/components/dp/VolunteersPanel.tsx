@@ -2,6 +2,7 @@ import { ChevronDown, X } from 'lucide-react';
 import type { RosterEntry } from '../../services/vpdive';
 import { MAX_PER_POST, VOLUNTEER_POSTS, dayParticipants, postsByPerson, setVolunteer, type VolunteerPost, type Volunteers } from '../../lib/outing';
 import { Menu } from '../Menu';
+import { OutingMemberButton } from '../member/MemberLink';
 
 interface Props {
   roster: RosterEntry[];
@@ -97,8 +98,9 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
           <h4 className="label mb-2">Qui fait quoi</h4>
           <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-base">
             {recap.map(({ r, posts }) => (
-              <li key={r.id} className="flex gap-2">
+              <li key={r.id} className="flex items-center gap-2">
                 <span className="font-medium text-ink">{nameOf(r)}</span>
+                <OutingMemberButton id={r.id} className="-my-1 -ml-1" />
                 <span className="text-muted">{posts.map(postLabel).join(' · ')}</span>
               </li>
             ))}

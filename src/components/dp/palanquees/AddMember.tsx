@@ -7,6 +7,7 @@ import { Avatar } from '../../Avatar';
 import { Spinner } from '../../Spinner';
 import { MemberSearch } from '../MemberSearch';
 import { ActionButton } from './ActionButton';
+import { MemberSheetButton } from '../../member/MemberLink';
 
 /**
  * Ajouter un membre VPDive qui ne s'est pas inscrit (DP, pilote, sécu désignés
@@ -54,6 +55,8 @@ export function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: Di
         <div className="flex items-center gap-2.5">
           <Avatar name={picked.name} picture={picked.picture} size="sm" initials={false} />
           <span className="flex-1 min-w-0 truncate font-medium text-ink">{picked.name}</span>
+          {/* Pas encore à la sortie : sa fiche complète, pour un admin seulement. */}
+          <MemberSheetButton member={{ uct: picked.id, name: picked.name, picture: picked.picture }} />
           <button type="button" onClick={() => setPicked(null)} className="btn btn-quiet sm:h-8 px-2.5 text-sm">
             Changer
           </button>

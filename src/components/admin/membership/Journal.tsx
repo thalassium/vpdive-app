@@ -7,6 +7,7 @@ import { describeSnapshot } from '../../../lib/memberWrite';
 import type { Capacity } from '../../../lib/membership';
 import { message } from '../../../lib/errors';
 import { VPDIVE_MEMBER } from './shared';
+import { MemberSheetButton } from '../../member/MemberLink';
 
 const KIND_LABEL: Record<string, string> = { season: 'saison', licence: 'date de licence', 'licence-add': 'licence ajoutée', insurance: 'assurance', brevets: 'niveaux' };
 
@@ -66,6 +67,7 @@ export function Journal({ catalog, onClose, onSessionLost }: { catalog: Capacity
                 <a href={VPDIVE_MEMBER(w.uct)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-brand underline underline-offset-2">
                   {w.name || 'Fiche'} <ExternalLink className="w-3.5 h-3.5" />
                 </a>
+                <MemberSheetButton member={{ uct: w.uct, name: w.name || 'ce membre' }} className="-my-1.5 -ml-3" />
                 <span className="text-ink">{w.kinds.map((k) => KIND_LABEL[k] ?? k).join(', ')}</span>
               </div>
               <p className={`text-sm ${w.ok ? 'text-muted' : 'text-danger'}`}>{w.message}</p>

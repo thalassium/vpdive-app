@@ -16,7 +16,7 @@ export interface Row {
   pending: boolean;
 }
 
-export const VPDIVE_MEMBER = (uct: string) => `https://septentrion-env.vpdive.com/app/member/${encodeURIComponent(uct)}`;
+export { VPDIVE_MEMBER } from '../../../lib/memberSheet';
 
 /** Une personne avec au moins un écart (fiche VPDive, fédération) ou un rapprochement incertain. */
 export const hasGap = (r: Row) => needsVpdiveFix(r.view) || federationIssue(r.view) || (r.match.status !== 'sure' && !r.match.parent);

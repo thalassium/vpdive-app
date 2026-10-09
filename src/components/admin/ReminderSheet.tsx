@@ -5,6 +5,7 @@ import { shortDay } from '../../lib/dates';
 import { bulkReminderText, reminderText, seasonOfOuting } from '../../lib/docsCheck';
 import { message } from '../../lib/errors';
 import { plural, type Me, type Row } from './relance';
+import { MemberSheetButton } from '../member/MemberLink';
 
 /**
  * Relancer un membre (ou une sélection) : le message, prérempli d'après ses
@@ -82,9 +83,12 @@ export function ReminderSheet({
       <div role="dialog" aria-modal="true" aria-labelledby="reminder-title" className="panel border-t-[3px] border-t-accent w-full sm:max-w-xl max-h-full overflow-y-auto rounded-b-none sm:rounded-xl p-5 flex flex-col gap-3 animate-sheet sm:animate-pop">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 id="reminder-title" className="text-lg font-semibold text-brand">
-              {bulk ? `Relancer ${plural(rows.length, 'membre', 'membres')}` : `Relancer ${first.name}`}
-            </h3>
+            <div className="flex items-center gap-1">
+              <h3 id="reminder-title" className="text-lg font-semibold text-brand">
+                {bulk ? `Relancer ${plural(rows.length, 'membre', 'membres')}` : `Relancer ${first.name}`}
+              </h3>
+              {!bulk && <MemberSheetButton member={{ uct: first.uct, name: first.name, picture: first.picture }} />}
+            </div>
             {!bulk && (
               <p className="text-sm text-muted">
                 {shortDay(next.outing.date)} · {next.outing.title}
