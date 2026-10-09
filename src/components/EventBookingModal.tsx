@@ -360,7 +360,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
             </p>
           </div>
           {onOpenPalanquees && (
-            <button type="button" onClick={onOpenPalanquees} disabled={busy} className="btn btn-quiet h-9 text-sm mt-3.5">
+            <button type="button" onClick={onOpenPalanquees} disabled={busy} className="btn btn-quiet sm:h-9 text-sm mt-3.5">
               <Users className="w-4 h-4" /> Palanquées
             </button>
           )}
@@ -377,7 +377,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                   <span className="font-semibold block">Impossible de charger cette sortie</span>
                   <span>{loadError}</span>
                 </div>
-                <button type="button" onClick={load} className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">
+                <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
                   <RefreshCw className="w-4 h-4" /> Réessayer
                 </button>
               </div>
@@ -420,7 +420,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                           type="button"
                           onClick={() => void load()}
                           disabled={busy}
-                          className="font-semibold text-muted hover:text-ink underline underline-offset-2"
+                          className="max-sm:min-h-11 font-semibold text-muted hover:text-ink underline underline-offset-2"
                         >
                           Annuler
                         </button>
@@ -727,7 +727,7 @@ function SizePicker({
               role="radio"
               aria-checked={selected}
               onClick={() => onChange(o.value)}
-              className={`min-w-12 h-10 px-3 rounded-lg text-sm font-semibold tabular-nums transition-colors ${
+              className={`min-w-12 h-11 sm:h-10 px-3 rounded-lg text-sm font-semibold tabular-nums transition-colors ${
                 selected ? 'border-2 border-brand bg-tint text-brand' : 'border border-field-border bg-field text-ink hover:border-brand/40'
               }`}
             >
@@ -753,7 +753,7 @@ function Chips({ label, options, value, onChange }: { label: string; options: { 
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(o.value)}
-            className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${selected ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+            className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${selected ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
           >
             {o.label}
           </button>
@@ -934,7 +934,7 @@ function Description({ text }: { text: string }) {
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="mt-1 text-sm font-semibold text-brand underline underline-offset-2"
+          className="mt-1 max-sm:min-h-11 text-sm font-semibold text-brand underline underline-offset-2"
         >
           {open ? 'Voir moins' : 'Voir plus…'}
         </button>

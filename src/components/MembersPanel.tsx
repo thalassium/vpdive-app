@@ -201,7 +201,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
                 <span className="font-semibold block">Liste des membres indisponible</span>
                 {error}
               </div>
-              <button type="button" onClick={load} className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">
+              <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
                 <RefreshCw className="w-4 h-4" /> Réessayer
               </button>
             </div>
@@ -435,7 +435,7 @@ function Switch({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="inline-flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1.5 text-sm font-semibold text-ink disabled:opacity-50 disabled:cursor-not-allowed"
+      className="inline-flex flex-col sm:flex-row items-center justify-center max-sm:min-h-11 max-sm:min-w-11 gap-0.5 sm:gap-1.5 text-sm font-semibold text-ink disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {/*
         Contraste ≥ 3:1 (WCAG 1.4.11) : rail éteint en field-border (3,6:1 sur blanc), pastille blanche dessus ;

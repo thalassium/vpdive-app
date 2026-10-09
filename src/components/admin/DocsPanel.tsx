@@ -536,7 +536,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                     role="radio"
                     aria-checked={filter === f.key}
                     onClick={() => setFilter(f.key)}
-                    className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+                    className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
                   >
                     {f.label}
                     {f.key === 'ignored' && ignoredList.length > 0 && <span className="ml-1 tabular-nums">{ignoredList.length}</span>}
@@ -599,7 +599,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                   <span>
                     Vérification des adhésions… {progress.done}/{progress.total}
                   </span>
-                  <button type="button" onClick={stop} className="btn btn-quiet h-9 text-sm">
+                  <button type="button" onClick={stop} className="btn btn-quiet sm:h-9 text-sm">
                     Arrêter
                   </button>
                 </>
@@ -609,7 +609,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                   <span>
                     Vérification arrêtée : {progress.done}/{progress.total} fiches lues.
                   </span>
-                  <button type="button" onClick={resume} className="btn btn-quiet h-9 text-sm">
+                  <button type="button" onClick={resume} className="btn btn-quiet sm:h-9 text-sm">
                     <RefreshCw className="w-4 h-4" /> Reprendre
                   </button>
                 </>
@@ -621,7 +621,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             <div role="alert" className="flex flex-wrap items-start gap-x-3 gap-y-1 px-1 text-base text-danger">
               <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
               <span className="flex-1 min-w-0">{error}</span>
-              <button type="button" onClick={phase === 'stopped' ? resume : load} className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">
+              <button type="button" onClick={phase === 'stopped' ? resume : load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
                 <RefreshCw className="w-4 h-4" /> Réessayer
               </button>
             </div>
@@ -631,7 +631,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               <p className="flex flex-wrap items-center gap-x-3">
                 <span className="font-semibold">Inscrits illisibles pour {plural(rosterErrors.length, 'sortie', 'sorties')} :</span>
                 {!loading && (
-                  <button type="button" onClick={load} className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">
+                  <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
                     <RefreshCw className="w-4 h-4" /> Réessayer
                   </button>
                 )}
@@ -673,7 +673,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                         Ignoré par {i.by} le {new Date(i.at).toLocaleDateString('fr-FR')}
                       </span>
                     </span>
-                    <button type="button" onClick={() => void setIgnore({ uct: i.uct, name: i.name }, false)} className="btn btn-quiet h-9 text-sm shrink-0">
+                    <button type="button" onClick={() => void setIgnore({ uct: i.uct, name: i.name }, false)} className="btn btn-quiet sm:h-9 text-sm shrink-0">
                       <Undo2 className="w-4 h-4" /> Ne plus ignorer
                     </button>
                   </li>
@@ -701,7 +701,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
         {tab === 'relance' && filter !== 'ignored' && active.length > 0 && (
           <div className="sticky bottom-0 shrink-0 bg-surface border-t border-line px-4 sm:px-6 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="text-base text-ink font-medium">{plural(picked.length, 'sélectionné', 'sélectionnés')}</span>
-            <button type="button" onClick={toggleAll} className="btn btn-quiet h-9 text-sm">
+            <button type="button" onClick={toggleAll} className="btn btn-quiet sm:h-9 text-sm">
               {allShownPicked ? 'Tout désélectionner' : 'Tout sélectionner'}
             </button>
             <button type="button" disabled={picked.length === 0} onClick={() => setReminder({ rows: picked, bulk: true })} className="btn btn-primary ml-auto">
@@ -751,11 +751,11 @@ function MemberCard({ row, checked, onToggle, onRemind, onIgnore }: { row: Row; 
         </span>
       </label>
       <span className="flex flex-col sm:flex-row items-stretch gap-1.5 shrink-0">
-        <button type="button" onClick={onRemind} className="btn btn-quiet h-9 text-sm">
+        <button type="button" onClick={onRemind} className="btn btn-quiet sm:h-9 text-sm">
           Relancer
         </button>
         {onIgnore && (
-          <button type="button" onClick={onIgnore} title="Ne plus afficher ce membre" className="btn btn-quiet h-9 text-sm text-muted">
+          <button type="button" onClick={onIgnore} title="Ne plus afficher ce membre" className="btn btn-quiet sm:h-9 text-sm text-muted">
             <EyeOff className="w-4 h-4" /> Ignorer
           </button>
         )}

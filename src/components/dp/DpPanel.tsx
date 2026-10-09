@@ -745,7 +745,7 @@ function OutingWorkspace({
           <span className="font-semibold block">Sortie indisponible</span>
           {loadError}
         </div>
-        <button type="button" onClick={load} className="inline-flex items-center gap-1 font-semibold underline">
+        <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline">
           <RefreshCw className="w-4 h-4" /> Réessayer
         </button>
       </div>
@@ -792,7 +792,7 @@ function OutingWorkspace({
                   else setNotice('Impossible de prendre la main : réessayez.');
                 })
               }
-              className="btn btn-quiet h-9 text-sm"
+              className="btn btn-quiet sm:h-9 text-sm"
             >
               Prendre la main ici
             </button>
@@ -804,7 +804,7 @@ function OutingWorkspace({
         <div role="status" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} aria-label="Fermer" className="icon-btn w-9 h-9">
+          <button type="button" onClick={() => setNotice(null)} aria-label="Fermer" className="icon-btn sm:w-9 sm:h-9">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -816,7 +816,7 @@ function OutingWorkspace({
           <span className="flex-1 min-w-0">
             Une saisie non enregistrée du {dateTime(draftOffer.at)} existe sur cet appareil : la reprendre, ou l’abandonner (modifier la fiche l’abandonne aussi).
           </span>
-          <button type="button" onClick={() => void resumeDraft(draftOffer)} disabled={readOnly} className="btn btn-quiet h-9 text-sm border-warn/40 text-warn">
+          <button type="button" onClick={() => void resumeDraft(draftOffer)} disabled={readOnly} className="btn btn-quiet sm:h-9 text-sm border-warn/40 text-warn">
             La reprendre
           </button>
           <button
@@ -825,7 +825,7 @@ function OutingWorkspace({
               clearDraft(token);
               setDraftOffer(null);
             }}
-            className="btn btn-quiet h-9 text-sm"
+            className="btn btn-quiet sm:h-9 text-sm"
           >
             L’abandonner
           </button>
@@ -855,7 +855,7 @@ function OutingWorkspace({
               showDoc(v);
               setSave('saved');
             }}
-            className="btn btn-quiet h-9 text-sm border-warn/40 text-warn"
+            className="btn btn-quiet sm:h-9 text-sm border-warn/40 text-warn"
           >
             Charger sa version
           </button>
@@ -877,7 +877,7 @@ function OutingWorkspace({
               setSave('pending');
               void flush();
             }}
-            className="btn btn-quiet h-9 text-sm"
+            className="btn btn-quiet sm:h-9 text-sm"
           >
             Écraser avec ma version
           </button>
@@ -892,7 +892,7 @@ function OutingWorkspace({
             {departed.waitlisted.length > 0 && `${departed.waitlisted.length > 1 ? 'Passés' : 'Passé'} en liste d’attente : ${departed.waitlisted.join(', ')}. `}
             {departed.gone.length + departed.waitlisted.length > 1 ? 'Retirés' : 'Retiré'} des palanquées, à revoir.
           </span>
-          <button type="button" onClick={() => setDeparted({ gone: [], waitlisted: [] })} aria-label="Fermer" className="icon-btn w-9 h-9">
+          <button type="button" onClick={() => setDeparted({ gone: [], waitlisted: [] })} aria-label="Fermer" className="icon-btn sm:w-9 sm:h-9">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -909,7 +909,7 @@ function OutingWorkspace({
               setTab(d.validated ? 'fiche' : 'palanquees');
             }}
             aria-pressed={view === 'dive' && d.id === dive.id}
-            className={`btn btn-quiet h-9 text-sm ${view === 'dive' && d.id === dive.id ? 'bg-tint border-brand' : ''}`}
+            className={`btn btn-quiet sm:h-9 text-sm ${view === 'dive' && d.id === dive.id ? 'bg-tint border-brand' : ''}`}
           >
             {d.validated && <Lock className="w-3.5 h-3.5" />}
             {d.label}
@@ -924,7 +924,7 @@ function OutingWorkspace({
               setView('dive');
               setTab('palanquees');
             }}
-            className="btn btn-quiet h-9 text-sm border-dashed"
+            className="btn btn-quiet sm:h-9 text-sm border-dashed"
           >
             <Plus className="w-4 h-4" /> Plongée
           </button>
@@ -933,7 +933,7 @@ function OutingWorkspace({
         <button
           onClick={() => setView('benevoles')}
           aria-pressed={view === 'benevoles'}
-          className={`btn btn-quiet h-9 text-sm ${view === 'benevoles' ? 'bg-tint border-brand' : ''}`}
+          className={`btn btn-quiet sm:h-9 text-sm ${view === 'benevoles' ? 'bg-tint border-brand' : ''}`}
         >
           <HandHelping className="w-4 h-4" /> Bénévoles
         </button>
@@ -949,7 +949,7 @@ function OutingWorkspace({
             }}
             aria-label={`Supprimer ${dive.label}`}
             title={`Supprimer ${dive.label}`}
-            className="icon-btn ml-auto w-9 h-9 hover:text-danger hover:bg-danger-soft"
+            className="icon-btn ml-auto sm:w-9 sm:h-9 hover:text-danger hover:bg-danger-soft"
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -1068,7 +1068,7 @@ function TabButton({
 function SaveBadge({ state, doc, onRetry }: { state: SaveState; doc: OutingDoc; onRetry: () => void }) {
   if (state === 'error') {
     return (
-      <button onClick={onRetry} className="inline-flex items-center gap-1.5 text-sm font-semibold text-danger">
+      <button onClick={onRetry} className="inline-flex items-center gap-1.5 max-sm:min-h-11 text-sm font-semibold text-danger">
         <AlertTriangle className="w-4 h-4" /> Non enregistré · réessayer
       </button>
     );

@@ -57,7 +57,7 @@ export function HeaderMenu({ icon, label, items }: { icon: ReactNode; label: str
         aria-controls={open ? menuId : undefined}
         aria-label={label}
         title={label}
-        className={`inline-flex items-center gap-2 h-9 px-2.5 rounded-lg bg-pink text-on-pink text-sm font-semibold transition-[filter] hover:brightness-95 ${open ? 'brightness-90' : ''}`}
+        className={`inline-flex items-center gap-2 h-11 sm:h-9 px-2.5 rounded-lg bg-pink text-on-pink text-sm font-semibold transition-[filter] hover:brightness-95 ${open ? 'brightness-90' : ''}`}
       >
         {icon}
         <span className="hidden lg:inline">{label}</span>

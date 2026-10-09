@@ -41,7 +41,7 @@ export function BrevetMapView({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start gap-3">
-        <button type="button" onClick={onClose} className="btn btn-quiet h-9 text-sm">
+        <button type="button" onClick={onClose} className="btn btn-quiet sm:h-9 text-sm">
           <ArrowLeft className="w-4 h-4" /> Retour
         </button>
         <div className="min-w-0 flex-1">
@@ -108,7 +108,7 @@ function BrevetRow({ brevet, chosen, names, inExport, onSave }: { brevet: string
               <li key={n} className={`inline-flex items-center gap-1 max-w-full rounded-md px-2 text-sm leading-7 ${custom ? 'bg-tint text-brand font-medium' : 'border border-line text-muted'}`}>
                 <span className="truncate">{n}</span>
                 {custom && (
-                  <button type="button" disabled={busy} onClick={() => void save(chosen.filter((x) => x !== n))} aria-label={`Retirer ${n}`} className="icon-btn w-6 h-6 -mr-1 hover:text-danger">
+                  <button type="button" disabled={busy} onClick={() => void save(chosen.filter((x) => x !== n))} aria-label={`Retirer ${n}`} className="icon-btn relative w-6 h-6 -mr-1 hover:text-danger max-sm:before:absolute max-sm:before:-inset-2.5">
                     <X className="w-3.5 h-3.5" />
                   </button>
                 )}
@@ -123,13 +123,13 @@ function BrevetRow({ brevet, chosen, names, inExport, onSave }: { brevet: string
             onChange={(e) => setTyped(e.target.value)}
             placeholder="Chercher un niveau VPDive…"
             aria-label={`Niveau VPDive pour ${brevet}`}
-            className="field h-9 flex-1 min-w-[14rem]"
+            className="field sm:h-9 flex-1 min-w-[14rem]"
           />
-          <button type="button" disabled={!valid || busy} onClick={() => void save([...chosen, typed])} className="btn btn-quiet h-9 text-sm">
+          <button type="button" disabled={!valid || busy} onClick={() => void save([...chosen, typed])} className="btn btn-quiet sm:h-9 text-sm">
             <Plus className="w-4 h-4" /> Ajouter
           </button>
           {custom && (
-            <button type="button" disabled={busy} onClick={() => void save([])} className="btn btn-quiet h-9 text-sm" title="Revenir à la règle automatique">
+            <button type="button" disabled={busy} onClick={() => void save([])} className="btn btn-quiet sm:h-9 text-sm" title="Revenir à la règle automatique">
               <RotateCcw className="w-4 h-4" /> Automatique
             </button>
           )}

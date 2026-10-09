@@ -298,7 +298,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                     type="button"
                     onClick={() => setSpotId(s.id)}
                     aria-pressed={spot.id === s.id}
-                    className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${
+                    className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${
                       spot.id === s.id ? 'bg-tint text-brand' : 'text-muted hover:text-ink'
                     }`}
                   >

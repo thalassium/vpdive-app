@@ -284,7 +284,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
         {/* Apt. : la prérogative VPDive, ou celle retenue par le DP (brevet étranger, N1 porté à PE40…). */}
         <Menu
           ariaLabel={`Aptitude de ${d.name}`}
-          triggerClassName={`btn h-9 px-1.5 gap-0.5 text-sm ${APT_COL} ${
+          triggerClassName={`btn sm:h-9 px-1.5 gap-0.5 text-sm ${APT_COL} ${
             !prerogative ? (out ? 'btn-quiet text-muted' : 'border border-warn bg-warn-soft text-warn') : forced ? 'border border-brand bg-tint text-brand' : 'btn-quiet'
           }`}
           trigger={
@@ -308,7 +308,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
         {!instructor && (
         <Menu
           ariaLabel={`Formation de ${d.name}`}
-          triggerClassName={`btn h-9 px-1.5 gap-0.5 text-sm ${FN_COL} ${current ? 'border border-brand bg-tint text-brand' : 'btn-quiet text-muted'}`}
+          triggerClassName={`btn sm:h-9 px-1.5 gap-0.5 text-sm ${FN_COL} ${current ? 'border border-brand bg-tint text-brand' : 'btn-quiet text-muted'}`}
           trigger={
             <>
               <span className={`truncate ${current ? 'font-bold tabular-nums' : ''}`}>{current || '—'}</span>
@@ -345,7 +345,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
               aria-pressed={companion}
               onClick={() => onSettings(toggleCompanion(settings, d.id, !companion))}
               title="À bord sans plonger : n’a pas à être placé dans une palanquée"
-              className={`btn h-8 px-2.5 text-sm ${companion ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
+              className={`btn sm:h-8 px-2.5 text-sm ${companion ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
             >
               {companion && <Check className="w-4 h-4" />} Accompagnant
             </button>
@@ -360,7 +360,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
                 if (r.outside) onGuests((doc.guests ?? []).filter((g) => g.id !== d.id));
                 else onMembers((doc.members ?? []).filter((m) => m.id !== d.id));
               }}
-              className="btn btn-quiet h-8 px-2.5 text-sm hover:text-danger"
+              className="btn btn-quiet sm:h-8 px-2.5 text-sm hover:text-danger"
             >
               <Trash2 className="w-4 h-4" /> Retirer
             </button>
@@ -414,7 +414,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             {new Date(dive.validated!.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}. La fiche de sécurité est débloquée.
           </p>
           {!readOnly && (
-            <button type="button" onClick={onReopen} className="btn btn-quiet h-9 text-sm border-green/50 text-ok">
+            <button type="button" onClick={onReopen} className="btn btn-quiet sm:h-9 text-sm border-green/50 text-ok">
               <Pencil className="w-4 h-4" /> Modifier les palanquées
             </button>
           )}
@@ -519,7 +519,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             <button
               type="button"
               onClick={() => onPlan(addPalanquee(null, diving))}
-              className="btn btn-quiet h-9 text-sm"
+              className="btn btn-quiet sm:h-9 text-sm"
             >
               <Plus className="w-4 h-4" /> Composer à la main
             </button>
@@ -675,7 +675,7 @@ function RolesSection({
                         type="button"
                         onClick={() => onRoles(toggleRole(roles, role.id, id), role.id)}
                         aria-label={`Retirer ${name} : ${role.label}`}
-                        className="icon-btn w-7 h-7 rounded-md hover:text-danger hover:bg-danger-soft"
+                        className="icon-btn relative w-7 h-7 rounded-md hover:text-danger hover:bg-danger-soft max-sm:before:absolute max-sm:before:-inset-2"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -684,7 +684,7 @@ function RolesSection({
                 })}
                 <Menu
                   ariaLabel={`${role.label} : choisir`}
-                  triggerClassName="btn btn-quiet h-9 text-sm border-dashed"
+                  triggerClassName="btn btn-quiet sm:h-9 text-sm border-dashed"
                   trigger={
                     <>
                       <Plus className="w-4 h-4" />
@@ -756,7 +756,7 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
         <div className="flex items-center gap-2.5">
           <Avatar name={picked.name} picture={picked.picture} size="sm" initials={false} />
           <span className="flex-1 min-w-0 truncate font-medium text-ink">{picked.name}</span>
-          <button type="button" onClick={() => setPicked(null)} className="btn btn-quiet h-8 px-2.5 text-sm">
+          <button type="button" onClick={() => setPicked(null)} className="btn btn-quiet sm:h-8 px-2.5 text-sm">
             Changer
           </button>
         </div>
@@ -774,7 +774,7 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
                 type="button"
                 aria-pressed={on}
                 onClick={() => setChosen((c) => (on ? c.filter((x) => x !== role.id) : [...c, role.id]))}
-                className={`btn h-9 text-sm ${on ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
+                className={`btn sm:h-9 text-sm ${on ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
               >
                 {on && <Check className="w-4 h-4" />} {role.label}
               </button>
@@ -789,10 +789,10 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => void add()} disabled={!picked || busy} aria-busy={busy} className="btn btn-primary h-9 text-sm">
+        <button type="button" onClick={() => void add()} disabled={!picked || busy} aria-busy={busy} className="btn btn-primary sm:h-9 text-sm">
           {busy ? <Spinner /> : <Plus className="w-4 h-4" />} Ajouter
         </button>
-        <button type="button" onClick={close} className="btn btn-quiet h-9 text-sm">
+        <button type="button" onClick={close} className="btn btn-quiet sm:h-9 text-sm">
           Annuler
         </button>
       </div>
@@ -840,7 +840,7 @@ function UnregisterAction({ name, onConfirm }: { name: string; onConfirm: () => 
   };
   return (
     <div className="basis-full pl-[1.875rem] pt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-      <button type="button" onClick={() => void run()} disabled={busy} aria-busy={busy} className="btn btn-quiet h-8 px-2.5 text-sm hover:text-danger hover:border-danger/40">
+      <button type="button" onClick={() => void run()} disabled={busy} aria-busy={busy} className="btn btn-quiet sm:h-8 px-2.5 text-sm hover:text-danger hover:border-danger/40">
         {busy ? <Spinner /> : <UserMinus className="w-4 h-4" />} Désinscrire
       </button>
       {error && (
@@ -888,7 +888,7 @@ function GuestForm({ onAdd }: { onAdd: (g: Guest) => void }) {
           <input value={form.lastname} onChange={(e) => setForm({ ...form, lastname: e.target.value })} className="field w-full" autoComplete="off" />
         </label>
       </div>
-      <label className="inline-flex items-center gap-2.5 cursor-pointer">
+      <label className="inline-flex items-center gap-2.5 max-sm:min-h-11 cursor-pointer">
         <input type="checkbox" checked={form.baptism} onChange={(e) => setForm({ ...form, baptism: e.target.checked })} className="w-5 h-5 accent-[var(--fill)]" />
         <span className="text-ink">Baptême</span>
       </label>
@@ -897,7 +897,7 @@ function GuestForm({ onAdd }: { onAdd: (g: Guest) => void }) {
         <input value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} className="field w-full" placeholder="Niveau, ami de…, matériel…" autoComplete="off" />
       </label>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="submit" disabled={!guest} className="btn btn-primary h-9 text-sm">
+        <button type="submit" disabled={!guest} className="btn btn-primary sm:h-9 text-sm">
           <Plus className="w-4 h-4" /> Ajouter
         </button>
         <button
@@ -906,7 +906,7 @@ function GuestForm({ onAdd }: { onAdd: (g: Guest) => void }) {
             setForm(empty);
             setOpen(false);
           }}
-          className="btn btn-quiet h-9 text-sm"
+          className="btn btn-quiet sm:h-9 text-sm"
         >
           Annuler
         </button>
@@ -994,7 +994,7 @@ function PalanqueeCard({
             ) : (
               <Menu
                 ariaLabel="Type de palanquée"
-                triggerClassName="btn btn-quiet h-8 px-2.5 text-sm"
+                triggerClassName="btn btn-quiet sm:h-8 px-2.5 text-sm"
                 trigger={
                   <>
                     {TYPE_LABEL[typeOf(p)]}
@@ -1017,7 +1017,7 @@ function PalanqueeCard({
               onClick={onDelete}
               aria-label={`Supprimer P${index}`}
               title="Supprimer la palanquée (ses participants redeviennent disponibles)"
-              className="icon-btn w-9 h-9 hover:text-danger hover:bg-danger-soft"
+              className="icon-btn sm:w-9 sm:h-9 hover:text-danger hover:bg-danger-soft"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -1100,7 +1100,7 @@ function GuideRow({
         {editable ? (
           <Menu
             ariaLabel={role}
-            triggerClassName={`max-w-full inline-flex items-center gap-1 text-left ${g ? 'font-semibold text-ink' : teaching ? 'font-semibold text-danger' : 'font-medium text-muted'}`}
+            triggerClassName={`relative max-w-full inline-flex items-center gap-1 text-left max-sm:before:absolute max-sm:before:-inset-y-2.5 max-sm:before:inset-x-0 ${g ? 'font-semibold text-ink' : teaching ? 'font-semibold text-danger' : 'font-medium text-muted'}`}
             trigger={
               <>
                 <span className="break-words line-clamp-2 sm:line-clamp-none sm:truncate">{g ? g.name : teaching ? 'Choisir l’enseignant…' : 'Ajouter un encadrant…'}</span>
@@ -1155,10 +1155,10 @@ function GuideNoteRow({ note, onNote }: { note?: GuideNote; onNote?: (text: stri
           maxLength={500}
           placeholder="Commentaire sur l’encadrant (stagiaire, consigne…)"
           aria-label="Commentaire sur l’encadrant"
-          className="field flex-1 min-w-[12rem] h-9 px-2.5 text-sm"
+          className="field flex-1 min-w-[12rem] sm:h-9 px-2.5 text-sm"
           autoFocus
         />
-        <button type="button" onClick={save} className="btn btn-primary h-9 text-sm">
+        <button type="button" onClick={save} className="btn btn-primary sm:h-9 text-sm">
           <Check className="w-4 h-4" /> Enregistrer
         </button>
         <button
@@ -1167,7 +1167,7 @@ function GuideNoteRow({ note, onNote }: { note?: GuideNote; onNote?: (text: stri
             setText(note?.text ?? '');
             setEditing(false);
           }}
-          className="btn btn-quiet h-9 text-sm"
+          className="btn btn-quiet sm:h-9 text-sm"
         >
           Annuler
         </button>
@@ -1183,7 +1183,7 @@ function GuideNoteRow({ note, onNote }: { note?: GuideNote; onNote?: (text: stri
             setText('');
             setEditing(true);
           }}
-          className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-brand"
+          className="inline-flex items-center gap-1.5 max-sm:min-h-11 text-sm text-muted hover:text-brand"
         >
           <MessageSquare className="w-4 h-4" /> Commenter l’encadrant
         </button>
@@ -1207,7 +1207,7 @@ function GuideNoteRow({ note, onNote }: { note?: GuideNote; onNote?: (text: stri
             setEditing(true);
           }}
           aria-label="Modifier le commentaire"
-          className="icon-btn w-8 h-8"
+          className="icon-btn relative w-8 h-8 max-sm:before:absolute max-sm:before:-inset-1.5"
         >
           <Pencil className="w-4 h-4" />
         </button>
@@ -1310,7 +1310,7 @@ function MoveSelect({
   return (
     <Menu
       ariaLabel="Déplacer"
-      triggerClassName="btn btn-quiet h-9 text-sm shrink-0 px-2 sm:px-2.5 gap-1"
+      triggerClassName="btn btn-quiet sm:h-9 text-sm shrink-0 px-2 sm:px-2.5 gap-1"
       trigger={
         <>
           {/* Sur téléphone, l'icône seule : la place va au nom. */}
@@ -1375,7 +1375,7 @@ export function ActionButton({ onClick, icon, title, children }: { onClick: () =
       type="button"
       onClick={onClick}
       title={title}
-      className="btn btn-quiet h-9 px-2.5 sm:px-4 gap-1.5 sm:gap-2 text-sm flex-auto sm:flex-none"
+      className="btn btn-quiet sm:h-9 px-2.5 sm:px-4 gap-1.5 sm:gap-2 text-sm flex-auto sm:flex-none"
     >
       {icon}
       {children}

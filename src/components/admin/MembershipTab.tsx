@@ -394,7 +394,7 @@ export function MembershipTab({
               setProgress(null);
               setReadError('Lecture arrêtée.');
             }}
-            className="btn btn-quiet h-8 text-sm"
+            className="btn btn-quiet sm:h-8 text-sm"
           >
             Arrêter
           </button>
@@ -402,7 +402,7 @@ export function MembershipTab({
       ) : (
         <>
           <span className="text-danger">{readError}</span>
-          <button type="button" onClick={() => void readRecords(wanted.filter((u) => !records[u]))} className="btn btn-quiet h-8 text-sm">
+          <button type="button" onClick={() => void readRecords(wanted.filter((u) => !records[u]))} className="btn btn-quiet sm:h-8 text-sm">
             <RefreshCw className="w-4 h-4" /> Reprendre
           </button>
         </>
@@ -415,7 +415,7 @@ export function MembershipTab({
       <AlertTriangle className="w-4 h-4 shrink-0" />
       <span className="flex-1 min-w-0">{haError ? `HelloAsso : ${haError}` : loadError}</span>
       {haError && (
-        <button type="button" onClick={loadHelloasso} className="btn btn-quiet h-8 text-sm">
+        <button type="button" onClick={loadHelloasso} className="btn btn-quiet sm:h-8 text-sm">
           <RefreshCw className="w-4 h-4" /> Réessayer
         </button>
       )}
@@ -423,7 +423,7 @@ export function MembershipTab({
   );
 
   const refreshButton = (
-    <button type="button" onClick={refresh} disabled={!!progress || loading || busy} className="btn btn-quiet h-9 text-sm" title="Relit les fiches VPDive, sans le cache de la session">
+    <button type="button" onClick={refresh} disabled={!!progress || loading || busy} className="btn btn-quiet sm:h-9 text-sm" title="Relit les fiches VPDive, sans le cache de la session">
       <RefreshCw className="w-4 h-4" /> Relire les fiches VPDive
     </button>
   );
@@ -431,7 +431,7 @@ export function MembershipTab({
   const search = (
     <label className="relative flex-1 min-w-[12rem] max-w-xs ml-auto">
       <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom ou n° de licence" aria-label="Chercher" className="field w-full h-9 pl-9" />
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom ou n° de licence" aria-label="Chercher" className="field w-full sm:h-9 pl-9" />
     </label>
   );
 
@@ -490,7 +490,7 @@ export function MembershipTab({
                     role="radio"
                     aria-checked={filter === f.key}
                     onClick={() => setFilter(f.key)}
-                    className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+                    className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
                   >
                     {f.label} <span className="tabular-nums">{counts[f.key]}</span>
                   </button>
@@ -627,7 +627,7 @@ export function MembershipTab({
                 <header className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 bg-raised border-b border-line">
                   {/* Le titre du groupe porte la case « tout cocher » : un titre pour la navigation au clavier, une case pour le geste. */}
                   <h3>
-                  <label className="inline-flex items-center gap-2.5 cursor-pointer">
+                  <label className="inline-flex items-center gap-2.5 max-sm:min-h-11 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={all}
@@ -683,7 +683,7 @@ export function MembershipTab({
               <span className="text-sm text-ink tabular-nums">
                 Écriture {writing.done + 1}/{writing.total} : {writing.name}…
               </span>
-              <button type="button" onClick={() => (stopWriting.current = true)} className="btn btn-quiet h-9 text-sm">
+              <button type="button" onClick={() => (stopWriting.current = true)} className="btn btn-quiet sm:h-9 text-sm">
                 Arrêter après cette fiche
               </button>
             </>
@@ -695,7 +695,7 @@ export function MembershipTab({
               <button type="button" onClick={() => void apply()} className="btn btn-primary">
                 Écrire dans VPDive
               </button>
-              <button type="button" onClick={() => setConfirming(false)} className="btn btn-quiet h-9 text-sm">
+              <button type="button" onClick={() => setConfirming(false)} className="btn btn-quiet sm:h-9 text-sm">
                 Annuler
               </button>
             </>
@@ -705,7 +705,7 @@ export function MembershipTab({
                 Écrire dans VPDive ({selected.length})
               </button>
               {refreshButton}
-              <button type="button" onClick={() => setLogOpen(true)} className="btn btn-quiet h-9 text-sm" title="Les fiches écrites par les corrections rapides, avec la fiche d’avant">
+              <button type="button" onClick={() => setLogOpen(true)} className="btn btn-quiet sm:h-9 text-sm" title="Les fiches écrites par les corrections rapides, avec la fiche d’avant">
                 <ScrollText className="w-4 h-4" /> Journal
               </button>
               <span className="text-sm text-muted">
@@ -827,7 +827,7 @@ function WriteLog({ catalog, onClose, onSessionLost }: { catalog: Capacity[] | n
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start gap-3">
-        <button type="button" onClick={onClose} className="btn btn-quiet h-9 text-sm">
+        <button type="button" onClick={onClose} className="btn btn-quiet sm:h-9 text-sm">
           <ArrowLeft className="w-4 h-4" /> Retour
         </button>
         <div className="min-w-0 flex-1">
@@ -887,7 +887,7 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
     return (
       <div className="space-y-2">
         <MemberSearch onPick={(m) => onPick(m.id)} />
-        <button type="button" onClick={() => setSearching(false)} className="btn btn-quiet h-8 text-sm">
+        <button type="button" onClick={() => setSearching(false)} className="btn btn-quiet sm:h-8 text-sm">
           Annuler
         </button>
       </div>
@@ -896,7 +896,7 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
   return (
     <div className="space-y-1.5 text-sm">
       {family.map((m) => (
-        <button key={m.id} type="button" onClick={() => onPick(m.id)} className="w-full flex items-center gap-2 px-2 py-1 rounded-lg border border-field-border hover:bg-tint text-left">
+        <button key={m.id} type="button" onClick={() => onPick(m.id)} className="w-full flex items-center gap-2 px-2 py-2 sm:py-1 rounded-lg border border-field-border hover:bg-tint text-left">
           <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
           <span className="flex-1 min-w-0 leading-tight">
             <span className="block text-ink break-words">{m.name}</span>
@@ -905,7 +905,7 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
           <span className="text-brand font-medium shrink-0">Associer</span>
         </button>
       ))}
-      <button type="button" onClick={() => setSearching(true)} className="underline text-muted hover:text-brand">
+      <button type="button" onClick={() => setSearching(true)} className="max-sm:min-h-11 underline text-muted hover:text-brand">
         Autre compte
       </button>
     </div>
@@ -922,7 +922,7 @@ function CheckBox({ check, onSave }: { check?: CaseCheck; onSave: (checked: bool
   useEffect(() => setComment(check?.comment ?? ''), [check?.comment]);
   return (
     <div className="min-w-0 space-y-1.5">
-      <label className="inline-flex items-center gap-2 cursor-pointer text-sm font-medium text-ink">
+      <label className="inline-flex items-center gap-2 max-sm:min-h-11 cursor-pointer text-sm font-medium text-ink">
         <input type="checkbox" checked={!!check} onChange={(e) => onSave(e.target.checked, comment)} className="w-5 h-5 accent-[var(--fill)]" />
         Validation manuelle
       </label>
@@ -938,7 +938,7 @@ function CheckBox({ check, onSave }: { check?: CaseCheck; onSave: (checked: bool
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
             placeholder="Commentaire (facultatif)"
             aria-label="Commentaire de la validation manuelle"
-            className="field h-8 w-full text-sm"
+            className="field sm:h-8 w-full text-sm"
           />
         </>
       )}
@@ -1060,7 +1060,7 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
     return (
       <div className="space-y-2">
         <MemberSearch onPick={(m) => onChoose(m.id)} />
-        <button type="button" onClick={() => setSearching(false)} className="btn btn-quiet h-8 text-sm">
+        <button type="button" onClick={() => setSearching(false)} className="btn btn-quiet sm:h-8 text-sm">
           Annuler
         </button>
       </div>
@@ -1092,17 +1092,17 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
         {match.obsolete && <p className="text-warn">{match.obsolete}</p>}
         <p className="text-warn font-medium">{pending ? 'Lecture des fiches…' : 'À confirmer'}</p>
         {match.candidates.map((m) => (
-          <button key={m.id} type="button" onClick={() => onChoose(m.id)} className="w-full flex items-center gap-2 px-2 py-1 rounded-lg border border-field-border hover:bg-tint text-left">
+          <button key={m.id} type="button" onClick={() => onChoose(m.id)} className="w-full flex items-center gap-2 px-2 py-2 sm:py-1 rounded-lg border border-field-border hover:bg-tint text-left">
             <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
             <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
             <span className="text-brand font-medium shrink-0">C’est lui</span>
           </button>
         ))}
         <div className="flex flex-wrap gap-x-3">
-          <button type="button" onClick={() => setSearching(true)} className="underline text-muted hover:text-brand">
+          <button type="button" onClick={() => setSearching(true)} className="max-sm:min-h-11 underline text-muted hover:text-brand">
             Autre membre
           </button>
-          <button type="button" onClick={() => onChoose('none')} className="underline text-muted hover:text-brand">
+          <button type="button" onClick={() => onChoose('none')} className="max-sm:min-h-11 underline text-muted hover:text-brand">
             Pas dans VPDive
           </button>
         </div>
@@ -1116,11 +1116,11 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
         <UserX className="w-4 h-4" /> {match.why || 'Aucun membre à ce nom'}
       </p>
       <div className="flex flex-wrap gap-x-3">
-        <button type="button" onClick={() => setSearching(true)} className="underline text-muted hover:text-brand">
+        <button type="button" onClick={() => setSearching(true)} className="max-sm:min-h-11 underline text-muted hover:text-brand">
           Chercher dans VPDive
         </button>
         {(match.why || match.obsolete) && (
-          <button type="button" onClick={() => onChoose(null)} className="underline text-muted hover:text-brand">
+          <button type="button" onClick={() => onChoose(null)} className="max-sm:min-h-11 underline text-muted hover:text-brand">
             annuler
           </button>
         )}
@@ -1184,7 +1184,7 @@ function FfessmImportBox<Row>({
         </span>
       )}
       <input ref={input} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
-      <button type="button" onClick={() => input.current?.click()} disabled={busy} aria-busy={busy} className="btn btn-quiet h-9 text-sm">
+      <button type="button" onClick={() => input.current?.click()} disabled={busy} aria-busy={busy} className="btn btn-quiet sm:h-9 text-sm">
         {busy ? <Spinner /> : <FileUp className="w-4 h-4" />} {current ? 'Nouvel export' : `Déposer les ${what}`}
       </button>
       {error && (

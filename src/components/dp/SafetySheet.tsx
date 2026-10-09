@@ -79,7 +79,7 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
             onClick={() => void downloadPdf()}
             disabled={pdfState === 'busy'}
             aria-busy={pdfState === 'busy'}
-            className="btn btn-primary h-9 text-sm"
+            className="btn btn-primary sm:h-9 text-sm"
           >
             {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
           </button>
@@ -88,7 +88,7 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
             onClick={async () => {
               if (await confirmPrint()) window.print();
             }}
-            className="btn btn-quiet h-9 text-sm"
+            className="btn btn-quiet sm:h-9 text-sm"
           >
             <Printer className="w-4 h-4" /> Imprimer
           </button>
@@ -172,7 +172,7 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
                               onChange={(e) => onGas(r.d!.id, e.target.value)}
                               placeholder="air"
                               aria-label={`Gaz de ${r.d.name}`}
-                              className="field w-full h-9 px-2 text-sm print:border-0 print:p-0"
+                              className="field w-full sm:h-9 px-2 text-sm print:border-0 print:p-0"
                             />
                           )}
                         </td>
@@ -235,7 +235,7 @@ function ParamsCells({ value, depthHint, depthAlert = false, onChange }: { value
         value={value[key]}
         onChange={(e) => onChange({ ...value, [key]: e.target.value })}
         aria-invalid={key === 'depth' && depthAlert ? true : undefined}
-        className={`field w-full h-9 px-2 text-sm tabular-nums print:border-0 print:p-0 ${key === 'depth' && depthAlert ? 'border-danger text-danger' : ''}`}
+        className={`field w-full sm:h-9 px-2 text-sm tabular-nums print:border-0 print:p-0 ${key === 'depth' && depthAlert ? 'border-danger text-danger' : ''}`}
         {...props}
       />
     </td>

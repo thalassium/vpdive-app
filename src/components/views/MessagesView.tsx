@@ -661,7 +661,7 @@ function NewChat({
                 type="button"
                 onClick={() => toggle(m)}
                 aria-label={`Retirer ${m.name}`}
-                className="inline-flex items-center gap-1.5 h-9 pl-2 pr-1.5 rounded-lg border border-field-border bg-tint text-brand text-sm font-medium"
+                className="inline-flex items-center gap-1.5 h-11 sm:h-9 pl-2 pr-1.5 rounded-lg border border-field-border bg-tint text-brand text-sm font-medium"
               >
                 {m.name}
                 <X className="w-4 h-4" />

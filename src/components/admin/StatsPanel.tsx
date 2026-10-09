@@ -215,7 +215,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
             disabled={!stats || stats.outings === 0 || pdfState === 'busy'}
             aria-busy={pdfState === 'busy'}
             title={pdfState === 'error' ? 'PDF indisponible, réessayez' : 'Télécharger les statistiques en PDF'}
-            className="btn btn-quiet h-9 text-sm"
+            className="btn btn-quiet sm:h-9 text-sm"
           >
             {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
           </button>
@@ -239,7 +239,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                       if (p.id === 'custom') setCustom(range);
                       setPreset(p.id);
                     }}
-                    className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${preset === p.id ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+                    className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${preset === p.id ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
                   >
                     {p.label}
                   </button>
@@ -255,7 +255,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                       value={custom.from}
                       max={custom.to}
                       onChange={(e) => e.target.value && setCustom((c) => ({ ...c, from: e.target.value }))}
-                      className="field h-9 py-0"
+                      className="field sm:h-9 py-0"
                     />
                   </label>
                   <label className="inline-flex items-center gap-2">
@@ -266,7 +266,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                       value={custom.to}
                       min={custom.from}
                       onChange={(e) => e.target.value && setCustom((c) => ({ ...c, to: e.target.value }))}
-                      className="field h-9 py-0"
+                      className="field sm:h-9 py-0"
                     />
                   </label>
                 </div>
@@ -276,7 +276,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
             {error && (
               <div role="alert" className="flex flex-wrap items-center gap-3 text-danger">
                 <span className="flex-1 min-w-0">{error}</span>
-                <button type="button" onClick={stopped ? resume : () => void load()} className="btn btn-quiet h-9 text-sm">
+                <button type="button" onClick={stopped ? resume : () => void load()} className="btn btn-quiet sm:h-9 text-sm">
                   <RefreshCw className="w-4 h-4" /> Réessayer
                 </button>
               </div>
@@ -300,14 +300,14 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                         <span aria-hidden className="h-1 w-32 rounded-full bg-line overflow-hidden">
                           <span className="block h-full bg-fill transition-[width]" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
                         </span>
-                        <button type="button" onClick={stop} className="btn btn-quiet h-8 text-sm">
+                        <button type="button" onClick={stop} className="btn btn-quiet sm:h-8 text-sm">
                           Arrêter
                         </button>
                       </>
                     ) : (
                       <>
                         <span>Lecture arrêtée : chiffres partiels.</span>
-                        <button type="button" onClick={resume} className="btn btn-quiet h-8 text-sm">
+                        <button type="button" onClick={resume} className="btn btn-quiet sm:h-8 text-sm">
                           <RefreshCw className="w-4 h-4" /> Reprendre
                         </button>
                       </>

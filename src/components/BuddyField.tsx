@@ -82,7 +82,7 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
             type="button"
             onClick={() => type('')}
             aria-label="Effacer le binôme"
-            className="icon-btn absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8"
+            className="icon-btn absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 max-sm:before:absolute max-sm:before:-inset-1.5"
           >
             {picked ? <Check className="w-4 h-4 text-ok" strokeWidth={3} /> : <X className="w-4 h-4" />}
           </button>
@@ -104,7 +104,7 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
                   key={m.id}
                   type="button"
                   onClick={() => pick(m)}
-                  className="btn btn-quiet h-9 px-3 font-medium text-ink hover:text-brand"
+                  className="btn btn-quiet sm:h-9 px-3 font-medium text-ink hover:text-brand"
                 >
                   {m.name}
                 </button>

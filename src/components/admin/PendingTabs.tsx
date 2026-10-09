@@ -34,7 +34,7 @@ function Failure({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
     <div role="alert" className="p-4 rounded-xl bg-danger-soft text-danger flex flex-wrap items-center gap-3">
       <span className="flex-1 min-w-0">{error}</span>
-      <button type="button" onClick={onRetry} className="btn btn-quiet h-9 text-sm">
+      <button type="button" onClick={onRetry} className="btn btn-quiet sm:h-9 text-sm">
         Réessayer
       </button>
     </div>
@@ -99,7 +99,7 @@ export function RegistrationRequestsTab({
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" disabled={busy !== null} aria-busy={busy === r.token} onClick={() => void decide(r, 'member')} className="btn btn-primary h-9 text-sm">
+              <button type="button" disabled={busy !== null} aria-busy={busy === r.token} onClick={() => void decide(r, 'member')} className="btn btn-primary sm:h-9 text-sm">
                 {busy === r.token ? <Spinner /> : <UserCheck className="w-4 h-4" />} Accepter comme membre
               </button>
               <button
@@ -107,11 +107,11 @@ export function RegistrationRequestsTab({
                 disabled={busy !== null}
                 onClick={() => void decide(r, 'guest')}
                 title="Invité : pas de messagerie, n’apparaît pas aux autres membres"
-                className="btn btn-quiet h-9 text-sm"
+                className="btn btn-quiet sm:h-9 text-sm"
               >
                 <UserPlus className="w-4 h-4" /> Accepter comme invité
               </button>
-              <button type="button" disabled={busy !== null} onClick={() => void decide(r, 'refuse')} className="btn btn-quiet h-9 text-sm hover:text-danger hover:border-danger/40">
+              <button type="button" disabled={busy !== null} onClick={() => void decide(r, 'refuse')} className="btn btn-quiet sm:h-9 text-sm hover:text-danger hover:border-danger/40">
                 <X className="w-4 h-4" /> Refuser
               </button>
             </div>
@@ -200,7 +200,7 @@ export function PendingDocumentsTab({
               <Avatar name={first.memberName} picture={first.picture} size="sm" initials={false} />
               <span className="flex-1 min-w-0 font-semibold text-ink truncate">{first.memberName}</span>
               {list.length > 1 && (
-                <button type="button" disabled={busy !== null} aria-busy={busy === first.member} onClick={() => void decide(list, 'approve', first.member)} className="btn btn-quiet h-8 text-sm">
+                <button type="button" disabled={busy !== null} aria-busy={busy === first.member} onClick={() => void decide(list, 'approve', first.member)} className="btn btn-quiet sm:h-8 text-sm">
                   {busy === first.member ? <Spinner /> : <Check className="w-4 h-4" />} Tout valider ({list.length})
                 </button>
               )}
@@ -230,10 +230,10 @@ export function PendingDocumentsTab({
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <button type="button" disabled={busy !== null} aria-busy={busy === k} onClick={() => void decide([v], 'approve', k)} className="btn btn-primary h-9 text-sm">
+                      <button type="button" disabled={busy !== null} aria-busy={busy === k} onClick={() => void decide([v], 'approve', k)} className="btn btn-primary sm:h-9 text-sm">
                         {busy === k ? <Spinner /> : <Check className="w-4 h-4" />} Valider
                       </button>
-                      <button type="button" disabled={busy !== null} onClick={() => void decide([v], 'reject', k)} className="btn btn-quiet h-9 text-sm hover:text-danger hover:border-danger/40">
+                      <button type="button" disabled={busy !== null} onClick={() => void decide([v], 'reject', k)} className="btn btn-quiet sm:h-9 text-sm hover:text-danger hover:border-danger/40">
                         <X className="w-4 h-4" /> Refuser
                       </button>
                     </div>

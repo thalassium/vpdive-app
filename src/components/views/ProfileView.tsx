@@ -527,7 +527,7 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
                 setError(null);
                 setSaved(false);
               }}
-              className="btn btn-quiet h-9 text-sm"
+              className="btn btn-quiet sm:h-9 text-sm"
             >
               {filled ? 'Modifier' : 'Ajouter'}
             </button>

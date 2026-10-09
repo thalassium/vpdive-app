@@ -181,7 +181,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
                 key={mode}
                 onClick={() => setViewMode(mode)}
                 aria-pressed={viewMode === mode}
-                className={`h-9 px-3 min-[375px]:px-4 rounded-md text-sm font-medium transition-colors ${
+                className={`h-11 sm:h-9 px-3 min-[375px]:px-4 rounded-md text-sm font-medium transition-colors ${
                   viewMode === mode ? 'bg-tint text-brand' : 'text-muted hover:text-ink'
                 }`}
               >
@@ -348,7 +348,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="icon-btn w-9 h-9 text-brand"
+      className="icon-btn sm:w-9 sm:h-9 text-brand"
     >
       {children}
     </button>

@@ -530,7 +530,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                       : ' · DP d’aucune sortie à venir')}
                 . Les inscriptions affichées restent les vôtres.
               </span>
-              <button type="button" onClick={stopViewAs} className="btn h-8 px-3 text-sm bg-surface border border-warn/40 text-warn hover:bg-raised">
+              <button type="button" onClick={stopViewAs} className="btn sm:h-8 px-3 text-sm bg-surface border border-warn/40 text-warn hover:bg-raised">
                 Revenir à mon compte
               </button>
             </div>
