@@ -54,7 +54,9 @@ function csp(): Plugin {
       order: 'post',
       handler(html) {
         const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]!).filter((code) => code.trim());
-        const hashes = inline.map((code) => `'sha256-${createHash('sha256').update(code, 'utf8').digest('base64')}'`);
+        // Le navigateur hache le script après avoir ramené les fins de ligne à \n : une copie
+        // Windows (CRLF) donnait une empreinte fausse et le script du thème était bloqué.
+        const hashes = inline.map((code) => `'sha256-${createHash('sha256').update(code.replace(/\r\n?/g, '\n'), 'utf8').digest('base64')}'`);
         const policy = [
           "default-src 'self'",
           `script-src 'self' ${hashes.join(' ')}`.trim(),

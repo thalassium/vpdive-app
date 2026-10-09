@@ -33,7 +33,30 @@
  * distinctes, utile pour les noms et les codes), chargée pour tous les
  * appareils. Les codes de prérogative (PE40, E3, GP) sont la seule chose en
  * gras : c'est le motif typographique du site (utilitaire `code`).
+ *
+ * Elle est servie par l'appli elle-même (public/fonts, licence SIL OFL 1.1,
+ * fichiers variables 400 à 700 de Google Fonts) : aucun appel à Google, et la
+ * politique de sécurité n'autorise que nos propres polices. Le sous-ensemble
+ * latin est préchargé par index.html ; latin-ext ne sert qu'aux noms accentués
+ * rares (ő, ł…), téléchargé seulement s'il y en a un à l'écran.
  */
+@font-face {
+  font-family: 'Atkinson Hyperlegible Next';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/atkinson-hyperlegible-next-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible Next';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/atkinson-hyperlegible-next-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   color-scheme: light;
   --canvas: #f3f5f9;
@@ -41,7 +64,8 @@
   --raised: #f0f3f8;
   --tint: #e8edf6;
   --field: #f6f8fb;
-  --field-border: #c9d1dd;
+  /* Contraste ≥ 3:1 (WCAG 1.4.11) sur blanc, field, canvas, raised et tint : de 3,09 (tint) à 3,63 (blanc). */
+  --field-border: #7a879e;
   --line: #e1e5ec;
   --ink: #1a2233;
   --muted: #5c6577;
@@ -85,7 +109,8 @@
   --raised: #18233f;
   --tint: #1e2d57;
   --field: #18233f;
-  --field-border: #34457a;
+  /* ≥ 3:1 sur surface, field, raised, canvas et tint : de 3,14 (tint) à 4,51 (canvas). */
+  --field-border: #6879ad;
   --line: #25325a;
   --ink: #e9edf7;
   --muted: #9ba7c4;
@@ -215,8 +240,12 @@
   @apply h-11 px-3.5 rounded-lg bg-field border border-field-border text-ink placeholder:text-muted focus:outline-none focus:border-brand focus:ring-4 focus:ring-focus;
 }
 
+/*
+ * Boutons : 44 px de haut sur téléphone (cible tactile), 40 px au-delà. Une hauteur posée
+ * à la main (`btn h-8`) l'emporte toujours, à toutes les largeurs.
+ */
 @utility btn {
-  @apply h-10 px-4 rounded-lg font-semibold inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply h-10 max-sm:h-11 px-4 rounded-lg font-semibold inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
 }
 /* L'action principale de l'écran, une seule par vue. */
 @utility btn-primary {
@@ -226,8 +255,9 @@
 @utility btn-quiet {
   @apply bg-surface text-brand border border-field-border hover:bg-raised;
 }
+/* Bouton icône : 44 × 44 px sur téléphone, 40 × 40 au-delà (même règle que btn pour les tailles posées à la main). */
 @utility icon-btn {
-  @apply w-10 h-10 shrink-0 inline-flex items-center justify-center rounded-lg text-muted hover:text-brand hover:bg-raised transition-colors;
+  @apply w-10 h-10 max-sm:w-11 max-sm:h-11 shrink-0 inline-flex items-center justify-center rounded-lg text-muted hover:text-brand hover:bg-raised transition-colors;
 }
 
 /* Code de prérogative (PE40, E3, GP, P1) : le motif du site, la seule chose en gras. */
@@ -275,6 +305,16 @@
   @apply rounded-xl bg-surface shadow-lift;
 }
 
+/*
+ * Bulles du fond (SeaBackdrop) en pause tant qu'une fenêtre est ouverte (data-dialog-open,
+ * posé par hooks/useDialog) ou que l'onglet est caché (data-page-hidden) : rien à animer
+ * qu'on ne voie pas, et la batterie du téléphone en profite.
+ */
+:root[data-dialog-open] .animate-bubble,
+:root[data-page-hidden] .animate-bubble {
+  animation-play-state: paused;
+}
+
 /* Le gabian qui crie (GabianLoader) : la mandibule s'ouvre deux fois, puis une pause. */
 @keyframes gabian-cry {
   0%, 46%, 100% {
@@ -306,6 +346,9 @@
     color: var(--ink);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    /* viewport-fit=cover (index.html) : en paysage, le texte ne passe pas sous l'encoche. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
   /* 16 px minimum in form fields: below that, iOS zooms the page on focus. */
   input,
