@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { MENU_ITEM_CLS, menuKeys } from './menuKeys';
 
 export interface HeaderMenuItem {
   icon: ReactNode;
@@ -9,23 +10,33 @@ export interface HeaderMenuItem {
 }
 
 /**
- * Menu de l'en-tête (« Gestion sortie », « Admin ») : une icône, le libellé à
+ * Menu de l'en-tête (« Gestion de sortie », « Admin ») : une icône, le libellé à
  * partir du grand écran, et la liste de ses écrans au clic. En rose, la couleur
  * des écrans réservés à l'encadrement.
+ *
+ * Clavier : le focus va au premier écran à l'ouverture, ↑ ↓ Début Fin pour se
+ * déplacer, Échap ou Tab pour refermer. Un écran choisi s'ouvre avec le focus
+ * rendu d'abord au bouton du menu : c'est là qu'il revient à sa fermeture.
  */
 export function HeaderMenu({ icon, label, items }: { icon: ReactNode; label: string; items: HeaderMenuItem[] }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const menuId = useId();
 
   useEffect(() => {
     if (!open) return;
+    list.current?.querySelector<HTMLElement>('[role=menuitem]')?.focus({ preventScroll: true });
     const outside = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
     const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
+      if (e.key !== 'Escape' && e.key !== 'Tab') return;
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        e.preventDefault();
+        button.current?.focus();
+      }
       setOpen(false);
-      button.current?.focus();
     };
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', key, true);
@@ -43,6 +54,7 @@ export function HeaderMenu({ icon, label, items }: { icon: ReactNode; label: str
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
         aria-label={label}
         title={label}
         className={`inline-flex items-center gap-2 h-9 px-2.5 rounded-lg bg-pink text-on-pink text-sm font-semibold transition-[filter] hover:brightness-95 ${open ? 'brightness-90' : ''}`}
@@ -53,30 +65,35 @@ export function HeaderMenu({ icon, label, items }: { icon: ReactNode; label: str
       </button>
       {open && (
         // Téléphone : toute la largeur sous l'en-tête, le bouton n'étant pas au bord droit ;
-        // au-delà, sous le bouton, aligné à sa droite.
-        <div
-          role="menu"
-          className="fixed inset-x-3 top-[4.5rem] sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[17rem] max-h-[calc(100dvh-6rem)] overflow-y-auto panel border border-field-border border-t-[3px] border-t-pink z-40 animate-fade py-1"
-        >
-          <p className="label px-4 pt-1.5 pb-1">{label}</p>
-          {items.map((it) => (
-            <button
-              key={it.label}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                it.onClick();
-              }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-ink hover:bg-raised focus:bg-raised focus:outline-none"
-            >
-              <span className="text-brand shrink-0">{it.icon}</span>
-              <span className="min-w-0">
-                <span className="block">{it.label}</span>
-                {it.hint && <span className="block text-sm text-muted">{it.hint}</span>}
-              </span>
-            </button>
-          ))}
+        // au-delà, sous le bouton, aligné à sa droite. Le titre est hors du role="menu",
+        // qui ne contient que ses éléments.
+        <div className="fixed inset-x-3 top-[4.5rem] sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[17rem] max-h-[calc(100dvh-6rem)] overflow-y-auto panel border border-field-border border-t-[3px] border-t-pink z-40 animate-fade py-1">
+          <p aria-hidden className="label px-4 pt-1.5 pb-1">
+            {label}
+          </p>
+          <div ref={list} id={menuId} role="menu" aria-label={label} onKeyDown={menuKeys}>
+            {items.map((it) => (
+              <button
+                key={it.label}
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                onClick={() => {
+                  // Le focus d'abord sur le bouton du menu : l'écran ouvert le prend comme point de retour.
+                  button.current?.focus({ preventScroll: true });
+                  setOpen(false);
+                  it.onClick();
+                }}
+                className={`${MENU_ITEM_CLS} text-ink`}
+              >
+                <span className="text-brand shrink-0">{it.icon}</span>
+                <span className="min-w-0">
+                  <span className="block">{it.label}</span>
+                  {it.hint && <span className="block text-sm text-muted">{it.hint}</span>}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>

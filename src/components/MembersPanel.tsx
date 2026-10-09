@@ -17,7 +17,7 @@ interface Props {
 
 const VPDIVE_MEMBERS_URL = 'https://septentrion-env.vpdive.com/app/members';
 const ROLES_HELP =
-  'Admin : menus Gestion sortie et Admin. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli par défaut ; le leur retirer ici ne change rien sur vpdive.com.';
+  'Admin : menus Gestion de sortie et Admin. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli par défaut ; le leur retirer ici ne change rien sur vpdive.com.';
 const roleRank: Record<AppRole, number> = { superadmin: 0, admin: 1, member: 2 };
 const byName = (a: MemberMatch, b: MemberMatch) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
 
@@ -39,9 +39,8 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const canEdit = me.role === 'superadmin';
 
-  const load = useCallback(async () => {
-    setError(null);
-    setMembers(null);
+  /** Annuaire et rôles ; l'état « chargement » est posé par l'appelant (null au départ). */
+  const fetchAll = useCallback(async () => {
     try {
       const [list, { roles: entries, seen: lastSeen }] = await Promise.all([vpdive.fetchMemberDirectory(), appApi.rolesAndSeen()]);
       setRoles(new Map(entries.map((e) => [e.uct, e])));
@@ -52,10 +51,18 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [onSessionLost]);
+  /** Relire (bouton) : on repart de l'état de chargement. */
+  const load = () => {
+    setError(null);
+    setMembers(null);
+    void fetchAll();
+  };
 
   useEffect(() => {
-    load();
-  }, [load]);
+    // fetchAll ne touche à l'état qu'après la réponse (la règle ne voit pas l'await).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchAll();
+  }, [fetchAll]);
 
   const { ref: dialogRef } = useDialog({ onClose, label: 'members' });
 
@@ -367,7 +374,7 @@ function MemberRow({
               {isMe && <span className="shrink-0 text-muted font-normal">(vous)</span>}
             </span>
             {note && <span className="block text-sm text-muted truncate">{note}</span>}
-            {lastSeen && <span className="block text-xs text-muted">Last seen {seenLabel(lastSeen).replace(/^le /, '')}</span>}
+            {lastSeen && <span className="block text-xs text-muted">Vu {seenLabel(lastSeen)}</span>}
           </span>
           <ChevronDown className={`w-4 h-4 text-muted shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
@@ -432,8 +439,15 @@ function Switch({
       onClick={() => onChange(!checked)}
       className="inline-flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1.5 text-sm font-semibold text-ink disabled:opacity-50 disabled:cursor-not-allowed"
     >
-      <span className={`w-9 h-5 rounded-full relative transition-colors ${checked ? 'bg-fill' : 'bg-line'}`} aria-hidden>
-        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${checked ? 'left-[1.125rem]' : 'left-0.5'}`} />
+      {/*
+        Contraste ≥ 3:1 (WCAG 1.4.11) : rail éteint en field-border (3,6:1 sur blanc), pastille blanche dessus ;
+        allumé, rail marine cerclé de brand, visible aussi en thème sombre où le marine de fond est sombre.
+      */}
+      <span
+        className={`w-9 h-5 rounded-full relative transition-colors ${checked ? 'bg-fill ring-1 ring-brand' : 'bg-field-border'}`}
+        aria-hidden
+      >
+        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${checked ? 'left-[1.125rem]' : 'left-0.5'}`} />
       </span>
       <span aria-hidden className="sm:hidden inline-flex items-center gap-0.5 text-xs leading-none">
         {short}

@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Eye, LogOut, UserRound } from 'lucide-react';
 import { Avatar } from './Avatar';
 import { vpdive, type MemberMatch } from '../services/vpdiveApi';
 import { appApi, type AppRole } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
-
-export const ROLE_LABEL: Record<AppRole, string> = { superadmin: 'Super-admin', admin: 'Admin', member: 'Membre' };
+import { ROLE_LABEL } from '../lib/roleLabels';
+import { MENU_ITEM_CLS, menuKeys } from './menuKeys';
 
 /** Un membre choisi dans « Voir en tant que », avec son rôle dans l'appli. */
 export interface ViewAsPick {
@@ -31,20 +31,31 @@ interface Props {
  * Le compte, en haut à droite : photo et nom ; au clic, qui l'on est, le
  * profil, « Voir en tant que » pour un super-admin, et la déconnexion. Les
  * écrans d'administration sont dans le menu « Admin » de l'en-tête.
+ *
+ * Clavier : le focus va au premier élément à l'ouverture, ↑ ↓ Début Fin pour se
+ * déplacer, Échap pour refermer (le focus revient au bouton), Tab pour sortir.
+ * L'en-tête (nom, adresse, rôle) est hors du role="menu", qui ne contient que ses éléments.
  */
 export function AccountMenu({ name, email, picture, role, onProfile, onViewAs, onLogout, onSessionLost }: Props) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'main' | 'viewAs'>('main');
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const menuId = useId();
 
   useEffect(() => {
     if (!open) return;
-    const outside = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const outside = (e: PointerEvent) => {
+      if (box.current?.contains(e.target as Node)) return;
+      setOpen(false);
+      setView('main');
+    };
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.stopPropagation();
       setOpen(false);
+      setView('main');
       button.current?.focus();
     };
     document.addEventListener('pointerdown', outside, true);
@@ -55,29 +66,48 @@ export function AccountMenu({ name, email, picture, role, onProfile, onViewAs, o
     };
   }, [open]);
 
+  // Menu principal affiché (ouverture, retour de « Voir en tant que ») : focus sur son premier élément.
+  useEffect(() => {
+    if (open && view === 'main') list.current?.querySelector<HTMLElement>('[role=menuitem]')?.focus({ preventScroll: true });
+  }, [open, view]);
+
+  /** Ferme le menu ; le focus revient d'abord au bouton du compte, point de retour de l'écran qui s'ouvre. */
   const close = () => {
+    button.current?.focus({ preventScroll: true });
     setOpen(false);
     setView('main');
   };
 
   return (
-    <div ref={box} className="relative">
+    <div
+      ref={box}
+      className="relative"
+      onBlur={(e) => {
+        // Focus parti ailleurs au clavier (Tab) : le menu se referme. Un clic ailleurs est géré par pointerdown.
+        if (open && e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget)) {
+          setOpen(false);
+          setView('main');
+        }
+      }}
+    >
       <button
         ref={button}
         type="button"
         onClick={() => (open ? close() : setOpen(true))}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        aria-label={`Compte de ${name}`}
         title={name}
         className="flex items-center gap-2 h-11 pl-1 pr-2 rounded-lg hover:bg-raised transition-colors min-w-0"
       >
         <Avatar name={name} picture={picture} />
         <span className="hidden sm:block text-sm font-medium text-ink truncate max-w-40">{name}</span>
-        <ChevronDown className="w-4 h-4 text-muted shrink-0" />
+        <ChevronDown aria-hidden className="w-4 h-4 text-muted shrink-0" />
       </button>
 
       {open && (
-        <div role="menu" className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-2rem))] panel border border-field-border z-40 animate-fade overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-2rem))] panel border border-field-border z-40 animate-fade overflow-hidden">
           {view === 'main' ? (
             <>
               <div className="flex items-center gap-3 px-4 py-3 border-b border-line">
@@ -88,7 +118,7 @@ export function AccountMenu({ name, email, picture, role, onProfile, onViewAs, o
                 </span>
                 <span className="ml-auto shrink-0 rounded-md bg-tint text-brand text-xs font-semibold px-1.5 py-0.5">{ROLE_LABEL[role]}</span>
               </div>
-              <div className="py-1 border-b border-line">
+              <div ref={list} id={menuId} role="menu" aria-label={`Compte de ${name}`} onKeyDown={menuKeys} className="py-1">
                 <MenuItem
                   icon={<UserRound className="w-4 h-4" />}
                   onClick={() => {
@@ -103,9 +133,15 @@ export function AccountMenu({ name, email, picture, role, onProfile, onViewAs, o
                     Voir en tant que…
                   </MenuItem>
                 )}
-              </div>
-              <div className="py-1">
-                <MenuItem icon={<LogOut className="w-4 h-4" />} danger onClick={onLogout}>
+                <div role="separator" className="my-1 border-t border-line" />
+                <MenuItem
+                  icon={<LogOut className="w-4 h-4" />}
+                  danger
+                  onClick={() => {
+                    setOpen(false);
+                    onLogout();
+                  }}
+                >
                   Se déconnecter
                 </MenuItem>
               </div>
@@ -128,13 +164,10 @@ export function AccountMenu({ name, email, picture, role, onProfile, onViewAs, o
 
 function MenuItem({ icon, danger, onClick, children }: { icon: React.ReactNode; danger?: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-raised focus:bg-raised focus:outline-none ${danger ? 'text-danger' : 'text-ink'}`}
-    >
-      <span className={danger ? '' : 'text-brand'}>{icon}</span>
+    <button type="button" role="menuitem" tabIndex={-1} onClick={onClick} className={`${MENU_ITEM_CLS} ${danger ? 'text-danger' : 'text-ink'}`}>
+      <span aria-hidden className={danger ? '' : 'text-brand'}>
+        {icon}
+      </span>
       {children}
     </button>
   );
@@ -146,6 +179,7 @@ function ViewAsPicker({ onBack, onPick, onSessionLost }: { onBack: () => void; o
   const [roles, setRoles] = useState<Map<string, AppRole>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const titleId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -173,12 +207,14 @@ function ViewAsPicker({ onBack, onPick, onSessionLost }: { onBack: () => void; o
   }, [members, query]);
 
   return (
-    <div>
+    <div role="group" aria-labelledby={titleId}>
       <div className="flex items-center gap-1 px-2 py-2 border-b border-line">
-        <button type="button" onClick={onBack} aria-label="Retour" className="icon-btn w-9 h-9">
+        <button type="button" onClick={onBack} aria-label="Retour au menu du compte" className="icon-btn w-9 h-9">
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <span className="font-semibold text-brand">Voir en tant que</span>
+        <span id={titleId} className="font-semibold text-brand">
+          Voir en tant que
+        </span>
       </div>
       <div className="p-3">
         <input
@@ -207,9 +243,8 @@ function ViewAsPicker({ onBack, onPick, onSessionLost }: { onBack: () => void; o
               <button
                 key={m.id}
                 type="button"
-                role="menuitem"
                 onClick={() => onPick({ uct: m.id, name: m.name, picture: m.picture, role })}
-                className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-raised focus:bg-raised focus:outline-none"
+                className={`${MENU_ITEM_CLS} py-2`}
               >
                 <Avatar name={m.name} picture={m.picture} size="sm" />
                 <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
