@@ -37,7 +37,13 @@ test('inscription en cours : rôle, formule et matériel tels que VPDive les lis
       { id: 3565, choiceId: 'c2' },
       { id: 3569, choiceId: null },
     ],
+    waitingList: false,
   });
+});
+
+test('inscription en cours : sur liste d’attente', () => {
+  const r = myRegistration({ roles_token: [], tariff_plan_token: 'tar-1', material: [], waitingList: true }, roles, tariffs, materials);
+  assert.equal(r?.waitingList, true);
 });
 
 test('inscription en cours : sans rôle particulier, plongeur ; formule inconnue ignorée', () => {

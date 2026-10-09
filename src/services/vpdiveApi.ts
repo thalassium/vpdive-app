@@ -17,6 +17,7 @@
 import { fromVpdive, type VpdiveQualif } from '../lib/vpdiveLevels';
 import type { Capacity, VpRecord } from '../lib/membership';
 import type { RawMember } from '../lib/memberWrite';
+import { isCancelledTitle, isoDateTime } from '../lib/agenda';
 
 const API_BASE = '/api/vpdive'; // Vite proxy → https://septentrion-env.vpdive.com/api
 const SESSION_KEY = 'vpdive_session';
@@ -67,6 +68,8 @@ export interface CalendarEvent {
   hasWaitingList: boolean;
   waitingListCount: number;
   onWaitingList: boolean;
+  /** Sortie annulée : « [ANNULÉE] » (ou « annul… ») dans le titre, convention du club (lib/agenda.ts). */
+  cancelled: boolean;
 }
 
 export interface RoleOption {
@@ -259,6 +262,8 @@ export interface EventDetail {
   materials: MaterialOption[];
   multipleBooking: boolean;
   alreadyRegistered: boolean;
+  /** Inscrit, mais sur la liste d'attente (`waitingList` de mon entrée dans user_registered). */
+  onWaitingList: boolean;
   canRegister: boolean;
   /** Why VPDive refuses a registration, e.g. "registration too late". */
   refusalReasons: string[];
@@ -284,6 +289,8 @@ export interface MyRegistration {
   comment: string;
   /** Rented gear, matched to `materials` by name (VPDive lists it as « 1 Combinaison »). */
   gear: { id: number; choiceId: string | null }[];
+  /** Registered on the waiting list, not (yet) on the outing. */
+  waitingList: boolean;
 }
 
 export interface BookingRequest {
@@ -296,13 +303,6 @@ export interface BookingRequest {
   materials: Record<number, number>;
   /** `${materialId}_${choiceId}` → quantity, for items with variants (sizes) */
   choices: Record<string, number>;
-}
-
-export interface MeteoSlot {
-  hour: number;
-  windSpeed_kt: number;
-  windGusts_kt: number;
-  windDir: string;
 }
 
 // ── Errors ───────────────────────────────────────────────────────
@@ -419,6 +419,9 @@ function hasPermission(permissions: unknown, key: string): boolean {
 const ADMIN_PERMISSION = 'member_view';
 
 type RequestInit_ = { method?: 'GET' | 'POST'; body?: unknown; auth?: boolean };
+
+/** Réponse non JSON du pare-feu devant VPDive (403, 429, 5xx). */
+export const FIREWALL_MESSAGE = 'VPDive refuse temporairement la demande (pare-feu). Réessayez dans une minute.';
 
 /** Autres activités fédérales dans le nom VPDive (« A - … » apnée, « H - … » hockey…), même liste que lib/vpdiveLevels.ts. */
 const OTHER_ACTIVITY = /^(A|OS|NAP|NEV|H|PSP|PS|TIR|RS|AS|BIO|PSH|AUD|s)\s?-/;
@@ -646,6 +649,13 @@ class VpDiveClient {
     if (status === 401 && auth) {
       this.setSession(null);
       throw new SessionExpiredError();
+    }
+
+    // Page HTML (ou vide) au lieu du JSON de VPDive, en 403, 429 ou 5xx : c'est le pare-feu
+    // devant VPDive qui refuse (trop de requêtes rapprochées), pas VPDive qui répond. À la
+    // connexion, ce n'est surtout pas un mauvais mot de passe.
+    if (data === null && (status === 403 || status === 429 || status >= 500)) {
+      throw new VpDiveError(FIREWALL_MESSAGE, status);
     }
 
     if (status >= 400 || o?.success === false) {
@@ -921,12 +931,15 @@ class VpDiveClient {
   // ── Messagerie VPDive (/messages_, voir lib/vpdiveChat.ts pour les formes) ──
 
   /**
-   * Conversations à deux, première page (la plus récente). Sans paramètres : les
-   * valeurs par défaut de VPDive ; le dernier segment est un terme de recherche
-   * (« null » y cherchait le mot « null »).
+   * Conversations à deux, une page, la plus récente d'abord. Route VPDive :
+   * /messages_/messages/{type_flux}/{start}/{more}/{filter}/{term}, chaque segment
+   * ayant une valeur par défaut. Première page : aucun segment (les valeurs par
+   * défaut) ; pages suivantes : seulement `start`, la position de la page
+   * (lib/vpdiveChat.ts, nextStart). Jamais de terme de recherche : « null » y
+   * cherchait le mot « null ».
    */
-  messageList(): Promise<Json> {
-    return this.request('/messages_/messages');
+  messageList(start = 0): Promise<Json> {
+    return this.request(start > 0 ? `/messages_/messages/discussion/${start}` : '/messages_/messages');
   }
 
   /** Fil d'une conversation, par son jeton. */
@@ -1262,41 +1275,7 @@ class VpDiveClient {
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   }
-
-  // ── Weather (Open-Meteo, no key needed) ────────────────────────
-
-  async fetchMeteo(): Promise<Record<string, MeteoSlot[]>> {
-    const today = new Date();
-    const end = new Date(today);
-    end.setDate(end.getDate() + 14);
-    const url =
-      'https://api.open-meteo.com/v1/forecast?latitude=43.248&longitude=5.356' +
-      `&start_date=${ymd(today)}&end_date=${ymd(end)}&timezone=Europe%2FParis` +
-      '&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn';
-
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Open-Meteo HTTP ${res.status}`);
-    const hourly = obj((await res.json()).hourly);
-    const times = Array.isArray(hourly?.time) ? (hourly.time as string[]) : [];
-    const speed = (hourly?.wind_speed_10m as number[]) ?? [];
-    const gusts = (hourly?.wind_gusts_10m as number[]) ?? [];
-    const dir = (hourly?.wind_direction_10m as number[]) ?? [];
-
-    const out: Record<string, MeteoSlot[]> = {};
-    times.forEach((iso, i) => {
-      const day = iso.slice(0, 10);
-      (out[day] ??= []).push({
-        hour: Number(iso.slice(11, 13)),
-        windSpeed_kt: Math.round(speed[i] ?? 0),
-        windGusts_kt: Math.round(gusts[i] ?? 0),
-        windDir: WIND_DIRS[Math.round((((dir[i] ?? 0) % 360) / 360) * 16) % 16] ?? 'N',
-      });
-    });
-    return out;
-  }
 }
-
-const WIND_DIRS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'];
 
 /** Local-time YYYY-MM-DD (toISOString would shift to UTC and give the previous day in France). */
 export function ymd(d: Date): string {
@@ -1314,12 +1293,14 @@ function mapEvent(e: Json | null): CalendarEvent | null {
   const n = obj(e.nbr_registered) ?? {};
   const can = obj(e.can_registered);
   const max = num(n.max_participants);
+  const title = str(e.title);
 
   return {
     token,
-    title: str(e.title) || '(Sans titre)',
-    start: str(e.fromDate),
-    end: str(e.toDate),
+    title: title || '(Sans titre)',
+    // ISO dans l'agenda relevé ; normalisé au cas où (Safari ne lit pas « 2026-10-10 08:15:00 »).
+    start: isoDateTime(str(e.fromDate)),
+    end: isoDateTime(str(e.toDate)),
     allDay: e.allDay === true,
     location: str(e.location),
     domain: tag(e.domain),
@@ -1336,6 +1317,7 @@ function mapEvent(e: Json | null): CalendarEvent | null {
     hasWaitingList: n.has_waiting_list === true,
     waitingListCount: num(n.waiting_list_count) ?? 0,
     onWaitingList: n.current_user_on_waiting_list === true,
+    cancelled: isCancelledTitle(title),
   };
 }
 
@@ -1389,16 +1371,17 @@ function mapDetail(token: string, data: Json, ev: Json, userId: number | null): 
   const requiresExtraForm = Array.isArray(forms) ? forms.length > 0 : !!obj(forms) && Object.keys(obj(forms)!).length > 0;
 
   const carts = obj(data.carts) ?? {};
-  const mine = userId !== null ? obj(carts[String(userId)]) : null;
+  const cart = userId !== null ? obj(carts[String(userId)]) : null;
 
   const place = str(ev.place);
   const city = str(ev.city);
+  const mine = myRegistration(obj(obj(data.user_registered)?.[String(userId)]), roles, tariffs, materials);
 
   return {
     token,
     title: place || '(Sans titre)',
-    start: str(ev.fromDate),
-    end: str(ev.toDate),
+    start: isoDateTime(str(ev.fromDate)),
+    end: isoDateTime(str(ev.toDate)),
     location: city,
     description: htmlToText(str(ev.comment)),
     pricing: str(ev.pricing),
@@ -1407,13 +1390,14 @@ function mapDetail(token: string, data: Json, ev: Json, userId: number | null): 
     materials,
     multipleBooking: ev.multiple_booking === true,
     alreadyRegistered: data.already_registered === true,
+    onWaitingList: !!mine?.waitingList,
     canRegister: can.allow === true,
     refusalReasons,
     canUnregister: data.can_unregister === true,
     canModify: data.can_modification === true,
-    myRegistration: myRegistration(obj(obj(data.user_registered)?.[String(userId)]), roles, tariffs, materials),
+    myRegistration: mine,
     requiresExtraForm,
-    myCart: mine ? { amount: num(mine.amount) ?? 0, paid: mine.payed === true } : null,
+    myCart: cart ? { amount: num(cart.amount) ?? 0, paid: cart.payed === true } : null,
   };
 }
 
@@ -1447,6 +1431,8 @@ export function myRegistration(u: Json | null, roles: RoleOption[], tariffs: Tar
     people: Math.max(1, num(u.people) ?? 1),
     comment: str(u.comment),
     gear,
+    // Même champ que la liste des inscrits (rosterFrom).
+    waitingList: u.waitingList === true,
   };
 }
 

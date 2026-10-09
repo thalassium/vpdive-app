@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { SEUILS } from '../lib/marine';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { dayWeather, metres, type DayWeather, type Slot } from '../lib/marine';
+import { listDaysOf } from '../lib/agenda';
 import { ChevronLeft, ChevronRight, Wind, RefreshCw, AlertCircle, Check } from 'lucide-react';
-import { ymd, type CalendarEvent, type MeteoSlot } from '../services/vpdiveApi';
+import { ymd, type CalendarEvent } from '../services/vpdiveApi';
+import { SPOTS, forecastAt } from '../services/marineWeather';
 
 const MOIS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
@@ -9,7 +11,6 @@ interface Props {
   month: Date; // first day of the displayed month
   onMonthChange: (month: Date) => void;
   events: CalendarEvent[];
-  meteoData: Record<string, MeteoSlot[]>;
   isLoading: boolean;
   error: string | null;
   onRefresh: () => void;
@@ -34,18 +35,24 @@ const dayLabel = (date: string) =>
   new Date(`${date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? 's' : ''}`;
 
-/** Wind over the dive hours only (7h–19h): a gusty night says little about the outing. */
-function daytimeWind(slots: MeteoSlot[] | undefined) {
-  const day = slots?.filter((s) => s.hour >= 7 && s.hour <= 19) ?? [];
-  if (!day.length) return null;
-  const top = day.reduce((a, b) => (b.windSpeed_kt > a.windSpeed_kt ? b : a));
-  // Vigilance au même seuil que l'écran Météo (SEUILS.jaune.vent).
-  return { max: top.windSpeed_kt, gusts: top.windGusts_kt, dir: top.windDir, strong: top.windSpeed_kt >= SEUILS.jaune.vent };
-}
+/**
+ * Météo de l'agenda = celle de l'onglet Météo : Pointe Rouge (le port, SPOTS[0]),
+ * Météo-France, de 6 h à 21 h, et ses niveaux (vent moyen, rafales, vagues :
+ * lib/marine.ts). Même cache aussi (services/marineWeather.ts, 30 min).
+ */
+type WeatherOf = (date: string) => DayWeather | null;
 
-/** Warning mark next to a strong wind; the reason stays in the tooltip. */
+/** Le pire créneau de la journée, en clair (infobulles). */
+const weatherText = (w: DayWeather) =>
+  `Météo 6 h – 21 h (Pointe Rouge) : vent ${w.wind} nd (${w.dir}), rafales ${w.gusts} nd${w.waves !== null ? `, vagues ${metres(w.waves)}` : ''}${
+    w.level === 'rouge' ? ' : sortie très menacée' : w.level === 'jaune' ? ' : sortie menacée' : ''
+  }`;
+/** Couleur du texte selon le niveau : orange en vigilance, rouge au-delà. */
+const weatherTone = (w: DayWeather) => (w.level === 'rouge' ? 'text-danger font-semibold' : w.level === 'jaune' ? 'text-warn font-semibold' : 'text-muted');
+
+/** Warning mark next to a threatening forecast; the reason stays in the tooltip. */
 const WindWarning = () => (
-  <span role="img" aria-label="Sortie menacée par le vent">
+  <span role="img" aria-label="Sortie menacée par la météo">
     ⚠️
   </span>
 );
@@ -66,7 +73,22 @@ const readView = (): 'month' | 'list' => {
   return isPhone() ? 'list' : 'month';
 };
 
-export function StandardCalendar({ month, onMonthChange, events, meteoData, isLoading, error, onRefresh, onOpenEvent }: Props) {
+export function StandardCalendar({ month, onMonthChange, events, isLoading, error, onRefresh, onOpenEvent }: Props) {
+  // Météo : un bonus. Si Open-Meteo ne répond pas, l'agenda s'affiche sans le vent.
+  const [slots, setSlots] = useState<Slot[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    const port = SPOTS[0];
+    forecastAt(port.lat, port.lon).then(
+      (s) => live && setSlots(s),
+      (e) => console.warn('Météo indisponible :', e),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  const weatherOf: WeatherOf = useCallback((date: string) => (slots ? dayWeather(slots, date) : null), [slots]);
+
   const [viewMode, setViewModeState] = useState<'month' | 'list'>(readView);
   const setViewMode = (mode: 'month' | 'list') => {
     setViewModeState(mode);
@@ -79,7 +101,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
   /** Month cell showing all its outings instead of the first three. */
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [onlyMine, setOnlyMine] = useState(false);
-  /** Téléphone, vue Calendrier : le jour tapé, dont les sorties s'affichent juste sous la grille. */
+  /** Téléphone, vue Mois : le jour tapé, dont les sorties s'affichent juste sous la grille. */
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   const year = month.getFullYear();
@@ -116,19 +138,25 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
 
   // Current month: the list starts the day before (older outings are history); other months show in full.
   const isCurrentMonth = inMonth(todayStr);
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const listFrom = isCurrentMonth ? ymd(yesterday) : '';
-  const listDays = Object.keys(byDay)
-    .filter((d) => inMonth(d) && d >= listFrom)
-    .sort();
-  const monthTotal = events.filter((e) => inMonth(eventDay(e))).length;
-  const registeredCount = events.filter((e) => e.registered && inMonth(eventDay(e))).length;
-  const shownCount = listDays.reduce((n, d) => n + (byDay[d]?.length ?? 0), 0);
+  const listDays = listDaysOf(Object.keys(byDay), year, m, todayStr);
+  // Le compteur dit ce qui est affiché : la liste (depuis la veille, « Mes sorties ») ou tout le mois.
+  const counted = viewMode === 'list' ? listDays.flatMap((d) => byDay[d] ?? []) : filtered.filter((e) => inMonth(eventDay(e)));
+  const shownCount = counted.length;
+  const registeredCount = counted.filter((e) => e.registered).length;
   const firstLoad = isLoading && events.length === 0;
-  const empty = <p className="py-14 text-center text-muted">{isCurrentMonth ? 'Plus aucune' : 'Aucune'} {onlyMine ? 'inscription' : 'sortie'} ce mois-ci.</p>;
+  const nextMonth = () => onMonthChange(new Date(year, m + 1, 1));
+  const empty = (
+    <div className="py-14 text-center">
+      <p className="text-muted">
+        {isCurrentMonth ? 'Plus aucune' : 'Aucune'} {onlyMine ? 'inscription' : 'sortie'} ce mois-ci.
+      </p>
+      <button type="button" onClick={nextMonth} className="btn btn-quiet mt-4">
+        Voir le mois suivant <ChevronRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
   const agenda = (dates: string[]) => (
-    <AgendaList dates={dates} byDay={byDay} meteoData={meteoData} todayStr={todayStr} onOpenEvent={onOpenEvent} />
+    <AgendaList dates={dates} byDay={byDay} weatherOf={weatherOf} todayStr={todayStr} onOpenEvent={onOpenEvent} />
   );
 
   return (
@@ -142,7 +170,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
           <h1 aria-live="polite" className="w-48 sm:w-56 text-center text-2xl font-semibold text-brand tracking-normal">
             {MOIS_FR[m]} <span className="font-normal text-muted">{year}</span>
           </h1>
-          <IconButton label="Mois suivant" onClick={() => onMonthChange(new Date(year, m + 1, 1))}>
+          <IconButton label="Mois suivant" onClick={nextMonth}>
             <ChevronRight className="w-5 h-5" />
           </IconButton>
         </div>
@@ -157,7 +185,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                   viewMode === mode ? 'bg-tint text-brand' : 'text-muted hover:text-ink'
                 }`}
               >
-                {mode === 'month' ? 'Calendrier' : 'Liste'}
+                {mode === 'month' ? 'Mois' : 'Liste'}
               </button>
             ))}
           </div>
@@ -185,8 +213,9 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
       <p className="mt-2.5 px-1 text-sm text-muted min-h-5">
         {!firstLoad && !error && (
           <>
-            {plural(monthTotal, 'sortie')}
-            {registeredCount > 0 && <span className="text-ok font-medium"> · {plural(registeredCount, 'inscription')}</span>}
+            {plural(shownCount, onlyMine ? 'inscription' : 'sortie')}
+            {viewMode === 'list' && isCurrentMonth && shownCount > 0 && ' à partir d’hier'}
+            {registeredCount > 0 && !onlyMine && <span className="text-ok font-medium"> · {plural(registeredCount, 'inscription')}</span>}
           </>
         )}
       </p>
@@ -219,7 +248,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
             <div className="grid grid-cols-7">
               {days.map((day, i) => {
                 const dayEvents = byDay[day.date] ?? [];
-                const wind = daytimeWind(meteoData[day.date]);
+                const wind = weatherOf(day.date);
                 const isToday = day.date === todayStr;
                 const isSelected = day.date === selectedDay;
 
@@ -247,12 +276,9 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                         {day.day}
                       </span>
                       {wind && day.inMonth && (
-                        <span
-                          title={`Vent max en journée : ${wind.max} nd (${wind.dir}), rafales ${wind.gusts} nd`}
-                          className={`hidden sm:inline-flex items-center gap-1 text-xs tabular-nums ${wind.strong ? 'text-warn font-semibold' : 'text-muted'}`}
-                        >
+                        <span title={weatherText(wind)} className={`hidden sm:inline-flex items-center gap-1 text-xs tabular-nums ${weatherTone(wind)}`}>
                           <Wind className="w-3.5 h-3.5" />
-                          {wind.max} nd{wind.strong && <WindWarning />}
+                          {wind.wind}/{wind.gusts} nd{wind.level !== 'ok' && <WindWarning />}
                         </span>
                       )}
                     </div>
@@ -263,7 +289,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
                         {dayEvents.slice(0, 3).map((ev) => (
                           <span
                             key={ev.token}
-                            className={`w-2 h-2 rounded-full ${ev.registered ? 'ring-2 ring-green ring-offset-1 ring-offset-surface' : ''}`}
+                            className={`w-2 h-2 rounded-full ${ev.registered ? 'ring-2 ring-green ring-offset-1 ring-offset-surface' : ''} ${ev.cancelled ? 'opacity-40' : ''}`}
                             style={{ backgroundColor: ev.color }}
                           />
                         ))}
@@ -293,7 +319,7 @@ export function StandardCalendar({ month, onMonthChange, events, meteoData, isLo
           {/* Téléphone : les sorties du jour choisi, juste sous la grille, en lignes compactes */}
           {selectedDay && (
             <section className="sm:hidden mt-5" aria-live="polite">
-              <DayHeading date={selectedDay} wind={daytimeWind(meteoData[selectedDay])} today={selectedDay === todayStr} />
+              <DayHeading date={selectedDay} wind={weatherOf(selectedDay)} today={selectedDay === todayStr} />
               {(byDay[selectedDay] ?? []).length ? (
                 <div className="card divide-y divide-line overflow-hidden">
                   {(byDay[selectedDay] ?? []).map((ev) => (
@@ -340,13 +366,13 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
 export function AgendaList({
   dates,
   byDay,
-  meteoData,
+  weatherOf,
   todayStr,
   onOpenEvent,
 }: {
   dates: string[];
   byDay: Record<string, CalendarEvent[]>;
-  meteoData: Record<string, MeteoSlot[]>;
+  weatherOf: WeatherOf;
   todayStr: string;
   onOpenEvent: (ev: CalendarEvent) => void;
 }) {
@@ -354,7 +380,7 @@ export function AgendaList({
     <div className="card divide-y divide-line overflow-hidden">
       {dates.map((date) => {
         const d = new Date(`${date}T12:00:00`);
-        const wind = daytimeWind(meteoData[date]);
+        const wind = weatherOf(date);
         const today = date === todayStr;
         return (
           <section
@@ -389,26 +415,24 @@ export function AgendaList({
 }
 
 /**
- * Le vent de la journée (7 h – 19 h), pour information : vitesse, direction,
- * rafales. Au-delà du seuil de vigilance (écran Météo), en orange avec ⚠️.
+ * La météo de la journée (6 h – 21 h, comme l'onglet Météo), pour information :
+ * vent, direction, rafales du pire créneau. En vigilance (vent, rafales ou
+ * vagues : lib/marine.ts), en orange avec ⚠️, en rouge au-delà.
  * Ordinateur : deux lignes à côté de la date. Téléphone : « 18/25 » sous la
  * date, sans la direction (dans l'infobulle et l'écran Météo).
  */
-function DayWind({ wind }: { wind: NonNullable<ReturnType<typeof daytimeWind>> }) {
-  const tone = wind.strong ? 'text-warn font-semibold' : 'text-muted';
+function DayWind({ wind }: { wind: DayWeather }) {
+  const warn = wind.level !== 'ok';
   return (
-    <span
-      title={`Vent max en journée : ${wind.max} nd (${wind.dir}), rafales ${wind.gusts} nd${wind.strong ? ' : sortie menacée' : ''}`}
-      className={`text-sm tabular-nums leading-tight ${tone}`}
-    >
+    <span title={weatherText(wind)} className={`text-sm tabular-nums leading-tight ${weatherTone(wind)}`}>
       <span className="sm:hidden inline-flex items-center gap-0.5 text-xs">
-        {wind.strong && <WindWarning />}
-        {wind.max}/{wind.gusts}
+        {warn && <WindWarning />}
+        {wind.wind}/{wind.gusts}
       </span>
       <span className="hidden sm:flex flex-col gap-0.5 pt-0.5">
         <span className="inline-flex items-center gap-1 whitespace-nowrap">
-          {wind.strong ? <WindWarning /> : <Wind className="w-3.5 h-3.5 shrink-0" aria-hidden />}
-          {wind.max} nd {wind.dir}
+          {warn ? <WindWarning /> : <Wind className="w-3.5 h-3.5 shrink-0" aria-hidden />}
+          {wind.wind} nd {wind.dir}
         </span>
         <span className="whitespace-nowrap">raf. {wind.gusts} nd</span>
       </span>
@@ -417,7 +441,7 @@ function DayWind({ wind }: { wind: NonNullable<ReturnType<typeof daytimeWind>> }
 }
 
 /** Le jour choisi dans la grille, au-dessus de ses sorties (téléphone). */
-function DayHeading({ date, wind, today }: { date: string; wind: ReturnType<typeof daytimeWind>; today?: boolean }) {
+function DayHeading({ date, wind, today }: { date: string; wind: DayWeather | null; today?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-2 mb-2 px-1">
       <h2 className="text-lg font-semibold text-brand first-letter:uppercase flex items-center gap-2">
@@ -426,11 +450,11 @@ function DayHeading({ date, wind, today }: { date: string; wind: ReturnType<type
       </h2>
       {wind && (
         <span
-          title={`Vent max en journée, rafales ${wind.gusts} nd`}
-          className={`inline-flex items-center gap-1.5 text-sm tabular-nums px-2.5 py-1 rounded-md ${wind.strong ? 'bg-warn-soft text-warn font-semibold' : 'text-muted'}`}
+          title={weatherText(wind)}
+          className={`inline-flex items-center gap-1.5 text-sm tabular-nums px-2.5 py-1 rounded-md ${wind.level !== 'ok' ? `bg-warn-soft ${weatherTone(wind)}` : 'text-muted'}`}
         >
-          <Wind className="w-4 h-4" /> {wind.max} nd {wind.dir} · raf. {wind.gusts}
-          {wind.strong && <WindWarning />}
+          <Wind className="w-4 h-4" /> {wind.wind} nd {wind.dir} · raf. {wind.gusts}
+          {wind.level !== 'ok' && <WindWarning />}
         </span>
       )}
     </div>
@@ -454,8 +478,9 @@ function Skeletons() {
   );
 }
 
-/** L'état qui décide, en une ligne : inscrit, en liste d'attente, complet, ou places restantes. */
-function rowStatus(ev: CalendarEvent): { text: string; tone: 'ok' | 'warn' | 'muted' } | null {
+/** L'état qui décide, en une ligne : annulée, inscrit, en liste d'attente, complet, ou places restantes. */
+function rowStatus(ev: CalendarEvent): { text: string; tone: 'ok' | 'warn' | 'muted' | 'cancelled' } | null {
+  if (ev.cancelled) return { text: 'Annulée', tone: 'cancelled' };
   if (ev.onWaitingList) return { text: 'Liste d’attente', tone: 'warn' };
   if (ev.registered) return { text: 'Inscrit', tone: 'ok' };
   if (ev.availableSpots === null) return null;
@@ -471,17 +496,23 @@ export function EventRow({ ev, onClick }: { ev: CalendarEvent; onClick: () => vo
       onClick={onClick}
       data-event-card
       title={[ev.title, ev.location].filter(Boolean).join(' — ')}
-      className="w-full flex items-center gap-2.5 sm:gap-3 pl-2.5 pr-3 sm:pr-4 py-2.5 text-left hover:bg-raised focus-visible:bg-raised transition-colors"
+      className={`w-full flex items-center gap-2.5 sm:gap-3 pl-2.5 pr-3 sm:pr-4 py-2.5 text-left hover:bg-raised focus-visible:bg-raised transition-colors ${
+        ev.cancelled ? 'bg-raised/60' : ''
+      }`}
     >
-      {/* Couleur de l'activité, telle que le club la règle dans VPDive */}
-      <span aria-hidden className="self-stretch w-[3px] shrink-0 rounded-full" style={{ backgroundColor: ev.color }} />
-      <span className={`w-[3.25rem] shrink-0 tabular-nums font-semibold text-brand ${ev.allDay ? 'text-sm' : 'text-base'}`}>{timeOf(ev)}</span>
+      {/* Couleur de l'activité, telle que le club la règle dans VPDive ; grisée pour une sortie annulée */}
+      <span aria-hidden className={`self-stretch w-[3px] shrink-0 rounded-full ${ev.cancelled ? 'opacity-30' : ''}`} style={{ backgroundColor: ev.color }} />
+      <span className={`w-[3.25rem] shrink-0 tabular-nums font-semibold ${ev.cancelled ? 'text-muted' : 'text-brand'} ${ev.allDay ? 'text-sm' : 'text-base'}`}>
+        {timeOf(ev)}
+      </span>
       <span className="flex-1 min-w-0">
-        <span className="block font-medium text-ink leading-snug line-clamp-2">{ev.title}</span>
+        <span className={`block font-medium leading-snug line-clamp-2 ${ev.cancelled ? 'text-muted line-through decoration-muted/50' : 'text-ink'}`}>{ev.title}</span>
         {ev.location && <span className="hidden lg:block text-sm text-muted truncate">{ev.location}</span>}
       </span>
       {status &&
-        (status.tone === 'ok' ? (
+        (status.tone === 'cancelled' ? (
+          <span className="shrink-0 rounded-md border border-line bg-surface px-1.5 text-sm font-semibold text-muted whitespace-nowrap">{status.text}</span>
+        ) : status.tone === 'ok' ? (
           <span className="shrink-0 inline-flex items-center gap-1 text-sm font-semibold text-ok">
             <Check className="w-4 h-4" strokeWidth={3} />
             {/* Sur téléphone, la coche seule : la place va au titre. */}
@@ -508,13 +539,15 @@ function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
       onClick={onClick}
       data-event-chip
       className={`relative w-full text-left pl-3 pr-2 py-1.5 rounded-lg overflow-hidden transition-colors block text-xs leading-snug ${
-        ev.registered ? 'bg-ok-soft hover:brightness-95 dark:hover:brightness-125' : 'bg-raised hover:bg-tint'
+        ev.cancelled ? 'bg-raised/60 hover:bg-raised' : ev.registered ? 'bg-ok-soft hover:brightness-95 dark:hover:brightness-125' : 'bg-raised hover:bg-tint'
       }`}
     >
-      <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: ev.color }} />
+      <span aria-hidden className={`absolute inset-y-0 left-0 w-1 ${ev.cancelled ? 'opacity-30' : ''}`} style={{ backgroundColor: ev.color }} />
       <span className="flex items-center justify-between gap-1 mb-0.5">
         <span className="text-muted tabular-nums">{timeOf(ev)}</span>
-        {ev.registered ? (
+        {ev.cancelled ? (
+          <span className="font-semibold text-muted">Annulée</span>
+        ) : ev.registered ? (
           <span className="font-semibold text-ok inline-flex items-center gap-0.5">
             <Check className="w-3 h-3" strokeWidth={3} /> Inscrit
           </span>
@@ -526,7 +559,9 @@ function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
           )
         )}
       </span>
-      <span className={`lg:text-sm font-semibold line-clamp-2 ${ev.registered ? 'text-ok' : 'text-brand'}`}>{ev.title}</span>
+      <span className={`lg:text-sm font-semibold line-clamp-2 ${ev.cancelled ? 'text-muted line-through decoration-muted/50' : ev.registered ? 'text-ok' : 'text-brand'}`}>
+        {ev.title}
+      </span>
     </button>
   );
 }

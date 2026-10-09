@@ -99,13 +99,15 @@ export function parseConversations(body: unknown, me: ChatMember, pictureUrl: (p
     if (!other) continue;
     if (!other.name) other.name = str(it.fullname);
     const at = isoOf(it.timestamp, it.date);
+    // Chaque entrée est le dernier message de la conversation (rangé sous son id) : de moi
+    // quand il ne m'est pas adressé. Faute d'indication, il est attribué à l'autre.
+    const mine = it.to_user_is_current_user === false;
     const summary: ChatSummary = {
       id: str(it.token),
       kind: 'direct',
       title: other.name || str(it.fullname),
       members: [other, me],
-      // L'auteur du dernier message n'est pas dit clairement dans la liste : le fil le précise.
-      last: { id: str(it.token), from: other.uct, text: htmlToText(str(it.content)), at },
+      last: { id: str(it.token), from: mine ? me.uct : other.uct, text: htmlToText(str(it.content)), at },
       unread: it.read === false,
       updatedAt: at,
     };
@@ -142,10 +144,65 @@ export function parseThread(body: unknown, me: ChatMember, pictureUrl: (path: st
   };
 }
 
-/** Nombre de conversations non lues : { res: { messages, groups } } de /messages_/notifications. */
+/**
+ * Nombre de conversations non lues : { res: { messages, groups } } de
+ * /messages_/notifications. Seules les conversations à deux comptent : l'écran
+ * Messagerie ne liste pas les groupes, une pastille qui les compterait ne
+ * s'effacerait jamais.
+ */
 export function unreadCount(body: unknown): number {
   const res = obj(obj(body)?.res);
   if (!res) return 0;
-  const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-  return n(res.messages) + n(res.groups);
+  const n = Number(res.messages);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+// ── Pagination de la liste ───────────────────────────────────────
+
+/** Conversations (entrées de message) d'une page de la liste, pour situer la page suivante. */
+export function pageSize(body: unknown): number {
+  return leaves(obj(body)?.messages, (o) => !!o.from_user && !!o.to_user && typeof o.token === 'string').length;
+}
+
+/**
+ * Où commence la page suivante de la liste, null s'il n'y en a pas.
+ *
+ * Forme relevée sur une liste d'une seule page : `more: '0'` et
+ * `messages.next_screen: null`. Hypothèse : `next_screen` donne la position de
+ * la page suivante quand VPDive la fournit ; sinon un `more` non nul dit qu'il en
+ * reste, et la suite commence après les `received` conversations déjà reçues.
+ */
+export function nextStart(body: unknown, received: number): number | null {
+  const o = obj(body);
+  const screen = obj(o?.messages)?.next_screen;
+  const at = typeof screen === 'number' ? screen : typeof screen === 'string' && /^\d+$/.test(screen) ? Number(screen) : null;
+  if (at !== null && at > 0) return at;
+  const more = o?.more;
+  const has =
+    more === true || (typeof more === 'number' && more > 0) || (typeof more === 'string' && more.trim() !== '' && !/^(0|false|null)$/i.test(more.trim()));
+  return has && received > 0 ? received : null;
+}
+
+/** Les conversations plus anciennes ne sont plus montrées : avant le 1er janvier de l'année précédente. */
+export function oldestShown(now: Date): string {
+  return new Date(now.getFullYear() - 1, 0, 1).toISOString();
+}
+
+/** Une page contient-elle une conversation plus ancienne que la limite ? Les suivantes le sont toutes. */
+export function reachesCutoff(page: ChatSummary[], cutoff: string): boolean {
+  return page.some((c) => !!c.updatedAt && c.updatedAt < cutoff);
+}
+
+/**
+ * Pages de la liste fusionnées : une conversation une fois (sa version la plus
+ * récente), sans les conversations antérieures à la limite, la plus récente
+ * d'abord. Une conversation sans date lisible est gardée.
+ */
+export function mergeConversations(pages: ChatSummary[][], cutoff: string): ChatSummary[] {
+  const byId = new Map<string, ChatSummary>();
+  for (const c of pages.flat()) {
+    const prev = byId.get(c.id);
+    if (!prev || prev.updatedAt < c.updatedAt) byId.set(c.id, c);
+  }
+  return [...byId.values()].filter((c) => !c.updatedAt || c.updatedAt >= cutoff).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }

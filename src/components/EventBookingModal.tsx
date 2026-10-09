@@ -7,8 +7,27 @@ import { useDialog } from '../hooks/useDialog';
 import { GabianLoader } from './Gabian';
 import { BOTTLES, DEFAULT_BOTTLE, SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Bottle, type Size, type SizedKind } from '../lib/gear';
 import { asksFor, canSupervise, classifyRoles, cleanRoleLabel, entryFromRole, roleKeyFor, volunteerTotal, type Entry, type InstructorMode } from '../lib/registration';
+import { isCancelledTitle } from '../lib/agenda';
 
 const VPDIVE_EVENT_URL = (token: string) => `https://septentrion-env.vpdive.com/app/activities/${token}`;
+
+/**
+ * Sorties où le membre est DP, gardées une heure par App (« dp-events:<id> ») pour
+ * le menu Gestion de sortie : une inscription ou une désinscription peut les
+ * changer, le cache est effacé pour être relu à la prochaine visite.
+ */
+function forgetDpEvents() {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k?.startsWith('dp-events:')) keys.push(k);
+    }
+    keys.forEach((k) => sessionStorage.removeItem(k));
+  } catch {
+    // Stockage interdit : il n'y a pas de cache à effacer.
+  }
+}
 
 interface Props {
   event: CalendarEvent;
@@ -39,6 +58,10 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const [labels, setLabels] = useState<string[] | null | undefined>(undefined);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [pricesLoading, setPricesLoading] = useState(false);
+  /** Rôle dont les tarifs sont affichés (undefined : aucun). L'envoi attend qu'il soit celui choisi. */
+  const [pricedKey, setPricedKey] = useState<string | null | undefined>(undefined);
+  /** Relance du calcul des tarifs après un échec. */
+  const [priceAttempt, setPriceAttempt] = useState(0);
   const [tariffToken, setTariffToken] = useState<string | null>(null);
   const [gear, setGear] = useState<Record<number, boolean>>({});
   /** material id → VPDive choice id, for items with club-defined variants */
@@ -85,6 +108,8 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       setFixedRole(null);
       setKeepInstructor(false);
       quotedKey.current = roles.diver?.key ?? null;
+      // Les tarifs de la fiche sont ceux du rôle par défaut.
+      setPricedKey(roles.diver?.key ?? null);
       if (roles.instructor && !labelsAsked.current) {
         labelsAsked.current = true;
         vpdive.myAptitudeLabels().then(setLabels, (e) => {
@@ -196,7 +221,11 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   /** Entry chosen and its sub-choice complete, unless the role is kept as VPDive recorded it. */
   const roleRequired = hasRoles && !fixedRole && (!entry || (entry === 'instructor' && !mode) || (entry === 'volunteer' && !post));
   const roleKeyToSend = fixedRole ? fixedRole.key : hasRoles ? roleKeyFor(entry, mode, post, cls) : null;
-  const showForm = !!detail && !detail.requiresExtraForm && (editing ? detail.canModify : !detail.alreadyRegistered && detail.canRegister);
+  /** Sortie annulée (« [ANNULÉE] » dans le titre) : plus d'inscription ni de modification, la désinscription reste. */
+  const cancelled = event.cancelled || (!!detail && isCancelledTitle(detail.title));
+  const showForm = !!detail && !cancelled && !detail.requiresExtraForm && (editing ? detail.canModify : !detail.alreadyRegistered && detail.canRegister);
+  /** Le tarif affiché n'est pas (encore) celui du rôle choisi : pas d'envoi à un prix faux. */
+  const priceStale = showForm && asks.tariff && (detail?.tariffs.length ?? 0) > 0 && !roleRequired && pricedKey !== roleKeyToSend;
 
   // Prices depend on the role (an instructor often dives for free): quoted again whenever the role to send changes.
   useEffect(() => {
@@ -208,24 +237,27 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       .fetchPricesForRole(detail.token, roleKeyToSend)
       .then(
         (p) => {
-          if (id === priceRequest.current) setPrices(p);
+          if (id !== priceRequest.current) return;
+          setPrices(p);
+          setPricedKey(roleKeyToSend);
+          setStatus((s) => (s.kind === 'error' && s.text.startsWith(PRICE_ERROR) ? { kind: 'idle' } : s));
         },
         (e) => {
           if (onSessionLost(e)) return;
           quotedKey.current = null;
           if (id === priceRequest.current) {
-            setStatus({ kind: 'error', text: `Tarifs non mis à jour pour ce rôle : ${e instanceof Error ? e.message : e}` });
+            setStatus({ kind: 'error', text: `${PRICE_ERROR} : ${e instanceof Error ? e.message : e}` });
           }
         },
       )
       .finally(() => {
         if (id === priceRequest.current) setPricesLoading(false);
       });
-  }, [detail, showForm, roleRequired, roleKeyToSend, onSessionLost]);
+  }, [detail, showForm, roleRequired, roleKeyToSend, onSessionLost, priceAttempt]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!detail || roleRequired || sizeMissing || detail.requiresExtraForm) return;
+    if (!detail || roleRequired || sizeMissing || detail.requiresExtraForm || cancelled || priceStale || pricesLoading) return;
     if (editing ? !detail.canModify : detail.alreadyRegistered || !detail.canRegister) return;
     setBusy(true);
     setStatus({ kind: 'idle' });
@@ -243,7 +275,17 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
         },
         { modification: editing },
       );
-      setStatus({ kind: 'success', text: editing ? 'Votre inscription est modifiée sur VPDive.' : res.message });
+      setStatus({
+        kind: 'success',
+        text: res.waitingList
+          ? editing
+            ? 'Votre inscription est modifiée. Vous êtes toujours sur liste d’attente.'
+            : 'Vous êtes sur liste d’attente : le club vous préviendra si une place se libère.'
+          : editing
+            ? 'Votre inscription est modifiée sur VPDive.'
+            : res.message,
+      });
+      forgetDpEvents();
       onChanged();
       await load(); // show the registered state as VPDive now reports it
     } catch (err) {
@@ -262,6 +304,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
     try {
       await vpdive.unregister(detail.token);
       setStatus({ kind: 'success', text: 'Vous êtes désinscrit de cette sortie.' });
+      forgetDpEvents();
       onChanged();
       await load();
     } catch (err) {
@@ -346,9 +389,16 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 
                 <StatusBanner status={status} />
 
+                {cancelled && (
+                  <Notice tone="warn" title="Sortie annulée">
+                    {detail.alreadyRegistered
+                      ? 'Le club a annulé cette sortie. Vous pouvez vous désinscrire ci-dessous.'
+                      : 'Le club a annulé cette sortie : les inscriptions sont fermées.'}
+                  </Notice>
+                )}
                 {detail.alreadyRegistered && !editing ? (
-                  <RegisteredPanel detail={detail} busy={busy} onCancel={cancel} onEdit={startEdit} />
-                ) : detail.requiresExtraForm ? (
+                  <RegisteredPanel detail={detail} busy={busy} cancelled={cancelled} onCancel={cancel} onEdit={startEdit} />
+                ) : cancelled ? null : detail.requiresExtraForm ? (
                   <Notice tone="info" title="Informations complémentaires demandées">
                     Cette sortie demande de remplir un formulaire spécifique. L’inscription se fait directement sur VPDive.{' '}
                     <a href={VPDIVE_EVENT_URL(detail.token)} target="_blank" rel="noreferrer" className="font-semibold underline">
@@ -602,23 +652,39 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                   {!volunteer ? formatEuro(total) : 'unknown' in volunteer ? '—' : volunteer.zero ? '0 €' : `dès ${formatEuro(volunteer.from)}`}
                 </span>
               </div>
-              <button
-                type="submit"
-                disabled={busy || roleRequired || !!sizeMissing || pricesLoading}
-                className="btn btn-primary h-auto min-h-11 py-2 min-w-0 whitespace-normal leading-tight text-center flex-1 sm:flex-none sm:ml-auto px-6 text-base"
-              >
-                {busy
-                  ? editing
-                    ? 'Enregistrement…'
-                    : 'Inscription…'
-                  : roleRequired
-                    ? 'Choisissez votre rôle'
-                    : sizeMissing
-                      ? `Choisir la taille : ${sizeMissing}`
-                      : editing
-                        ? 'Enregistrer les modifications'
-                        : 'Confirmer l’inscription'}
-              </button>
+              {priceStale && !pricesLoading && !busy ? (
+                // Tarif du rôle choisi non recalculé (VPDive n'a pas répondu) : on le redemande avant tout envoi.
+                <button
+                  type="button"
+                  onClick={() => {
+                    quotedKey.current = null;
+                    setPriceAttempt((n) => n + 1);
+                  }}
+                  className="btn btn-primary h-auto min-h-11 py-2 min-w-0 whitespace-normal leading-tight text-center flex-1 sm:flex-none sm:ml-auto px-6 text-base"
+                >
+                  <RefreshCw className="w-4 h-4 shrink-0" /> Recalculer le tarif
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={busy || roleRequired || !!sizeMissing || pricesLoading || priceStale}
+                  className="btn btn-primary h-auto min-h-11 py-2 min-w-0 whitespace-normal leading-tight text-center flex-1 sm:flex-none sm:ml-auto px-6 text-base"
+                >
+                  {busy
+                    ? editing
+                      ? 'Enregistrement…'
+                      : 'Inscription…'
+                    : roleRequired
+                      ? 'Choisissez votre rôle'
+                      : sizeMissing
+                        ? `Choisir la taille : ${sizeMissing}`
+                        : pricesLoading
+                          ? 'Calcul du tarif…'
+                          : editing
+                            ? 'Enregistrer les modifications'
+                            : 'Confirmer l’inscription'}
+                </button>
+              )}
             </div>
           )}
         </form>
@@ -740,7 +806,20 @@ function ChoiceCard({
   );
 }
 
-function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDetail; busy: boolean; onCancel: () => void; onEdit: () => void }) {
+function RegisteredPanel({
+  detail,
+  busy,
+  cancelled,
+  onCancel,
+  onEdit,
+}: {
+  detail: EventDetail;
+  busy: boolean;
+  /** Sortie annulée : on peut encore se désinscrire, plus modifier. */
+  cancelled: boolean;
+  onCancel: () => void;
+  onEdit: () => void;
+}) {
   const r = detail.myRegistration;
   const roleOption = r?.roleKey ? detail.roles.find((x) => x.key === r.roleKey) : undefined;
   const role = roleOption ? cleanRoleLabel(roleOption.label) : null;
@@ -753,13 +832,24 @@ function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDeta
   });
   const { sizes, buddy, bottle } = parseComment(r?.comment ?? '');
   const sizeText = SIZED_KINDS.filter((k) => sizes[k]).map((k) => `${SIZED_LABEL[k].toLowerCase()} ${sizes[k]}`);
-  const canEdit = detail.canModify && !detail.requiresExtraForm && !!r;
+  const canEdit = detail.canModify && !detail.requiresExtraForm && !!r && !cancelled;
+  const waiting = detail.onWaitingList;
   return (
-    <div className="p-4 rounded-xl bg-ok-soft border border-green/40 text-base space-y-3">
-      <p className="flex items-center gap-2 font-semibold text-base text-ok">
-        <CheckCircle2 className="w-5 h-5" />
-        Vous êtes inscrit à cette sortie
-      </p>
+    <div className={`p-4 rounded-xl border text-base space-y-3 ${waiting ? 'bg-warn-soft border-warn/40' : 'bg-ok-soft border-green/40'}`}>
+      {waiting ? (
+        <div className="text-warn">
+          <p className="flex items-center gap-2 font-semibold text-base">
+            <Clock className="w-5 h-5" />
+            Sur liste d’attente
+          </p>
+          <p className="text-ink mt-1">La sortie est complète : le club vous préviendra si une place se libère.</p>
+        </div>
+      ) : (
+        <p className="flex items-center gap-2 font-semibold text-base text-ok">
+          <CheckCircle2 className="w-5 h-5" />
+          Vous êtes inscrit à cette sortie
+        </p>
+      )}
       {r && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-ink">
           {role && <SummaryRow label="Rôle">{role}</SummaryRow>}
@@ -803,7 +893,7 @@ function RegisteredPanel({ detail, busy, onCancel, onEdit }: { detail: EventDeta
           )}
         </div>
       )}
-      {!canEdit && <p className="text-muted">Le club n’a pas ouvert la modification d’inscription pour cette sortie.</p>}
+      {!canEdit && !cancelled && <p className="text-muted">Le club n’a pas ouvert la modification d’inscription pour cette sortie.</p>}
       {!detail.canUnregister && <p className="text-muted">La désinscription n’est plus possible en ligne : contactez le club.</p>}
     </div>
   );
@@ -852,11 +942,20 @@ function Description({ text }: { text: string }) {
   );
 }
 
+/** Début du message d'échec du recalcul des tarifs (effacé quand un recalcul réussit). */
+const PRICE_ERROR = 'Tarifs non mis à jour pour ce rôle';
+
 function StatusBanner({ status }: { status: Status }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // Sur téléphone, le bandeau peut être loin au-dessus du bouton d'envoi : on le ramène à la vue.
+  useEffect(() => {
+    if (status.kind !== 'idle') ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [status]);
   if (status.kind === 'idle') return null;
   const ok = status.kind === 'success';
   return (
     <div
+      ref={ref}
       role={ok ? 'status' : 'alert'}
       className={`p-3.5 rounded-xl text-base flex items-start gap-2 ${ok ? 'bg-ok-soft text-ok' : 'bg-danger-soft text-danger'}`}
     >
