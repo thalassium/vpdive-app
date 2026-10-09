@@ -17,7 +17,7 @@ function subscribe(onChange: () => void): () => void {
   return () => observer.disconnect();
 }
 
-export function setDarkTheme(dark: boolean): void {
+function setDarkTheme(dark: boolean): void {
   document.documentElement.classList.toggle('dark', dark);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#080e1f' : '#012362');
   try {

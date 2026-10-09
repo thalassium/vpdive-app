@@ -183,4 +183,31 @@ export const appApi = {
       () => undefined,
       () => undefined,
     ),
+  /**
+   * Erreur du navigateur remontée au serveur (écran planté, erreur non rattrapée) : voir
+   * lib/clientErrors.ts, qui trie, tronque et limite les envois. Sans session (le serveur
+   * l'exige), ou si l'envoi échoue, rien ne se passe : ne rejette jamais, rien à attendre.
+   * `keepalive` : l'envoi part même si la page se recharge juste après.
+   */
+  reportClientError: (report: { message: string; stack?: string; url?: string; where?: string }): Promise<void> => {
+    let auth: Record<string, string>;
+    try {
+      auth = vpdive.authHeaders();
+    } catch {
+      return Promise.resolve();
+    }
+    try {
+      return fetch('/api/app?action=client_error', {
+        method: 'POST',
+        keepalive: true,
+        headers: { ...auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(report),
+      }).then(
+        () => undefined,
+        () => undefined,
+      );
+    } catch {
+      return Promise.resolve();
+    }
+  },
 };

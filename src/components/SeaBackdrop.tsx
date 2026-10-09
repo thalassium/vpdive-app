@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+
 /**
  * Fond « carte marine » de l'application, derrière tout le contenu.
  *
@@ -10,8 +12,20 @@
  * demande moins d'animations, cf. index.css).
  *
  * Purement décoratif : aria-hidden, aucun événement, position fixe.
+ * Les bulles s'arrêtent quand l'onglet est caché ou qu'une fenêtre est ouverte (index.css).
  */
 export function SeaBackdrop({ rose = 'right' }: { rose?: 'right' | 'center' | 'none' }) {
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => root.toggleAttribute('data-page-hidden', document.hidden);
+    sync();
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      document.removeEventListener('visibilitychange', sync);
+      root.removeAttribute('data-page-hidden');
+    };
+  }, []);
+
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-canvas print:hidden">
       {/* Profondeur : l'eau fonce doucement vers le bas */}

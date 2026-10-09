@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Check } from 'lucide-react';
 
@@ -36,13 +36,24 @@ interface Props {
  * (défilement à inertie) ; et sur un fond coloré ses options s'affichaient en
  * blanc sur blanc. Ce menu s'affiche par-dessus la page (portail), suit son
  * bouton quand la page défile au lieu de se fermer, et ne se ferme qu'au
- * choix, à un clic ailleurs ou sur Échap.
+ * choix, à un clic ailleurs, sur Échap ou sur Tab.
+ *
+ * Clavier : ↑ ↓ d'une option à l'autre, Début et Fin pour la première et la
+ * dernière ; le focus revient au bouton à la fermeture. Dans un dialogue
+ * (hooks/useDialog), la liste compte comme dedans (data-dialog-portal).
  */
 export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disabled, columns }: Props) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number; minWidth: number; maxHeight: number; up: boolean } | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const listId = useId();
+
+  /** Ferme la liste et rend le focus au bouton (sinon il tomberait sur la page, hors du dialogue). */
+  const close = useCallback(() => {
+    setOpen(false);
+    button.current?.focus({ preventScroll: true });
+  }, []);
 
   // Toujours entier à l'écran : calé sur sa largeur et sa hauteur réelles, ouvert du côté
   // qui a le plus de place, et défilant à l'intérieur s'il ne tient pas.
@@ -80,15 +91,26 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        setOpen(false);
-        button.current?.focus();
+        close();
+        return;
       }
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (e.key === 'Tab') {
+        // Tab quitte la liste : le focus repart du bouton, le dialogue garde sa boucle.
         e.preventDefault();
-        const items = [...(panel.current?.querySelectorAll<HTMLButtonElement>('[role=option]') ?? [])];
-        const i = items.indexOf(document.activeElement as HTMLButtonElement);
-        items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+        close();
+        return;
       }
+      const items = [...(panel.current?.querySelectorAll<HTMLButtonElement>('[role=option]') ?? [])];
+      const i = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next =
+        e.key === 'ArrowDown' ? (i + 1) % items.length
+        : e.key === 'ArrowUp' ? (i + items.length - 1) % items.length
+        : e.key === 'Home' ? 0
+        : e.key === 'End' ? items.length - 1
+        : null;
+      if (next === null) return;
+      e.preventDefault();
+      items[next]?.focus();
     };
     // Le défilement déplace le menu avec son bouton, il ne le ferme pas.
     window.addEventListener('scroll', follow, true);
@@ -102,7 +124,7 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('keydown', key, true);
     };
-  }, [open, place]);
+  }, [open, place, close]);
 
   useEffect(() => {
     if (open) panel.current?.querySelector<HTMLButtonElement>('[aria-selected=true], [role=option]')?.focus({ preventScroll: true });
@@ -117,6 +139,7 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? listId : undefined}
         onClick={() => setOpen((o) => !o)}
         className={triggerClassName}
       >
@@ -126,8 +149,10 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
         createPortal(
           <div
             ref={panel}
+            id={listId}
             role="listbox"
             aria-label={ariaLabel}
+            data-dialog-portal=""
             style={{
               position: 'fixed',
               left: pos?.left ?? -9999,
@@ -142,8 +167,18 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
             }`}
           >
             {sections.map((s, si) => (
-              <div key={si} className={si > 0 && !columns ? 'border-t border-line mt-1 pt-1' : ''}>
-                {s.title && <div className="label px-3 pt-2 pb-1">{s.title}</div>}
+              // Chaque section est un groupe, annoncé par son titre (le titre visible est caché aux lecteurs d'écran pour ne pas être lu deux fois).
+              <div
+                key={si}
+                role={sections.length > 1 || s.title ? 'group' : undefined}
+                aria-label={s.title}
+                className={si > 0 && !columns ? 'border-t border-line mt-1 pt-1' : ''}
+              >
+                {s.title && (
+                  <div aria-hidden className="label px-3 pt-2 pb-1">
+                    {s.title}
+                  </div>
+                )}
                 {s.options.map((o) => {
                   const selected = s.selected === o.value;
                   return (
@@ -154,9 +189,9 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
                       aria-selected={selected}
                       onClick={() => {
                         s.onSelect(o.value);
-                        setOpen(false);
+                        close();
                       }}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-base focus:outline-none focus:bg-raised hover:bg-raised ${selected ? 'bg-tint font-semibold text-brand' : ''}`}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-base outline-none focus-visible:bg-raised focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand hover:bg-raised ${selected ? 'bg-tint font-semibold text-brand' : ''}`}
                     >
                       <span className="w-4 shrink-0">{selected && <Check className="w-4 h-4" strokeWidth={2.5} />}</span>
                       <span className="flex-1 min-w-0">{o.label}</span>

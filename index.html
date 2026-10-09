@@ -3,19 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#012362" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Gabian · Septentrion Environnement</title>
     <meta name="description" content="Gabian, l’appli des sorties de Septentrion Environnement : agenda, inscriptions VPDive, palanquées. Pointe Rouge, Marseille." />
     <meta property="og:title" content="Gabian · Septentrion Environnement" />
     <meta property="og:description" content="Gabian, l’appli des sorties de Septentrion Environnement : agenda, inscriptions VPDive, palanquées. Pointe Rouge, Marseille." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400..700&display=swap" rel="stylesheet">
+    <!-- Police auto-hébergée (public/fonts, @font-face dans src/index.css) : le sous-ensemble latin sert à presque tout le texte. -->
+    <link rel="preload" href="/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin />
     <script>
       // Theme before first paint (no flash): saved choice, else the device setting,
       // followed live as long as nothing has been saved.
