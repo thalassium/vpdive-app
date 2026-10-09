@@ -27,7 +27,8 @@ interface Props {
   onValidate: () => void;
   onReopen: () => void;
   /** Commentaire libre sur l'encadrant d'une palanquée (texte vide : effacé). */
-  onNote: (palanqueeId: string, text: string) => void;
+  /** Commentaire sur un encadrant, posé dans « Qui plonge ? » (texte vide : effacé). */
+  onNote: (guideId: string, text: string) => void;
   /** Plongeurs hors VPDive de la sortie. */
   onGuests: (guests: Guest[]) => void;
   /** Membres VPDive ajoutés sans inscription. */
@@ -170,6 +171,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
           onUnregister={onUnregister}
           onPromote={onPromote}
           onConfirm={() => setConfirmed(true)}
+          notes={dive.notes}
+          onNote={readOnly ? undefined : onNote}
         />
       )}
 
@@ -253,8 +256,6 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
                 index={i + 1}
                 p={p}
                 locked={frozen}
-                note={dive.notes?.[p.id]}
-                onNote={readOnly ? undefined : (text) => onNote(p.id, text)}
                 instructors={instructors}
                 targets={targetsFor(p.id)}
                 onMove={moveTo}

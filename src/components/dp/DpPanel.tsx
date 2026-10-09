@@ -1017,7 +1017,7 @@ function OutingWorkspace({
               setTab('fiche');
             }}
             onReopen={() => updateDive((d) => ({ ...d, validated: null }))}
-            onNote={(palanqueeId, text) => updateDive((d) => setGuideNote(d, palanqueeId, text, me))}
+            onNote={(guideId, text) => updateDive((d) => setGuideNote(d, guideId, text, me))}
             onGuests={(list) => update((d) => ({ ...d, guests: list }))}
             onMembers={(list) => update((d) => ({ ...d, members: list }))}
             onUnregister={isAdmin ? unregister : undefined}

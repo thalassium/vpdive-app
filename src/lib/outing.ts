@@ -31,11 +31,15 @@ export interface Dive {
   sheets: Record<string, PalanqueeSheet>;
   /** id de plongeur → gaz (vide = air) */
   gas: Record<string, string>;
-  /** id de palanquée → commentaire libre à côté de l'encadrant (qui, quand). Absent sur les sorties enregistrées avant. */
+  /**
+   * id de l'encadrant → commentaire libre posé dans « Qui plonge ? » (qui, quand). Absent sur
+   * les sorties enregistrées avant ; ceux d'avant, rangés par palanquée, passent à son encadrant
+   * (pruneOrphans).
+   */
   notes?: Record<string, GuideNote>;
 }
 
-/** Commentaire sur l'encadrant d'une palanquée : le texte, qui l'a écrit et quand (posés par le serveur). */
+/** Commentaire sur un encadrant : le texte, qui l'a écrit et quand (posés par le serveur). */
 export interface GuideNote {
   text: string;
   by: string;
@@ -481,26 +485,40 @@ export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: Ou
 }
 
 /**
- * Fiches de palanquée (paramètres) et commentaires d'encadrant qui ne
- * correspondent plus à aucune palanquée de la plongée (palanquées refaites ou
- * supprimées) : retirés. Rien à retirer : la même plongée est rendue.
+ * Fiches de palanquée (paramètres) qui ne correspondent plus à aucune palanquée
+ * de la plongée (palanquées refaites ou supprimées) : retirées. Les commentaires
+ * d'avant, rangés par palanquée, passent à l'encadrant de cette palanquée (ils
+ * sont désormais rangés par encadrant). Rien à changer : la même plongée est rendue.
  */
 export function pruneOrphans(dive: Dive): Dive {
-  const ids = new Set(dive.plan?.palanquees.map((p) => p.id) ?? []);
-  const orphan = (rec: Record<string, unknown> | undefined) => Object.keys(rec ?? {}).some((id) => !ids.has(id));
-  if (!orphan(dive.sheets) && !orphan(dive.notes)) return dive;
-  const keep = <T,>(rec: Record<string, T>) => Object.fromEntries(Object.entries(rec).filter(([id]) => ids.has(id)));
-  return { ...dive, sheets: keep(dive.sheets), ...(dive.notes ? { notes: keep(dive.notes) } : {}) };
+  const pals = dive.plan?.palanquees ?? [];
+  const ids = new Set(pals.map((p) => p.id));
+  const orphanSheets = Object.keys(dive.sheets).some((id) => !ids.has(id));
+  const legacy = Object.keys(dive.notes ?? {}).filter((id) => ids.has(id));
+  if (!orphanSheets && !legacy.length) return dive;
+  const sheets = Object.fromEntries(Object.entries(dive.sheets).filter(([id]) => ids.has(id)));
+  if (!legacy.length) return { ...dive, sheets };
+  const notes = { ...dive.notes };
+  for (const k of legacy) {
+    const guide = pals.find((p) => p.id === k)?.guide;
+    if (guide && !notes[guide.id]) notes[guide.id] = notes[k]!;
+    delete notes[k];
+  }
+  return { ...dive, sheets, notes };
 }
 
-/** Écrit (ou efface, avec un texte vide) le commentaire sur l'encadrant d'une palanquée. */
-export function setGuideNote(dive: Dive, palanqueeId: string, text: string, by: string, at = new Date().toISOString()): Dive {
+/** Écrit (ou efface, avec un texte vide) le commentaire sur un encadrant. */
+export function setGuideNote(dive: Dive, guideId: string, text: string, by: string, at = new Date().toISOString()): Dive {
   const notes = { ...(dive.notes ?? {}) };
   const clean = text.trim().slice(0, 500);
-  if (clean) notes[palanqueeId] = { text: clean, by, at };
-  else delete notes[palanqueeId];
+  if (clean) notes[guideId] = { text: clean, by, at };
+  else delete notes[guideId];
   return { ...dive, notes };
 }
+
+/** Le commentaire sur l'encadrant d'une palanquée (rangé par encadrant ; par palanquée sur une sortie d'avant). */
+export const guideNoteOf = (dive: Dive, p: { id: string; guide: { id: string } | null }): GuideNote | undefined =>
+  (p.guide ? dive.notes?.[p.guide.id] : undefined) ?? dive.notes?.[p.id];
 
 /** Profondeur saisie sur la fiche (« 25 », « 25 m », « 18,5 ») → mètres ; undefined si rien de lisible. */
 export function parseDepth(text: string): number | undefined {

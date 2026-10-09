@@ -5,7 +5,7 @@ import { SectionTitle } from '../SectionTitle';
 import { Spinner } from '../Spinner';
 import { useConfirm } from '../../hooks/useConfirm';
 import { chosenDepth, depthOf, kindLabel, prerogativeLabel } from '../../lib/palanquees';
-import { diversInWater, emptySheet, parseDepth, type DiveParams, type Dive, type OutingDoc, type PalanqueeSheet, type SafetyHeader } from '../../lib/outing';
+import { diversInWater, emptySheet, parseDepth, type DiveParams, type Dive, type OutingDoc, type PalanqueeSheet, type SafetyHeader, guideNoteOf } from '../../lib/outing';
 import { HEADER_FIELDS, firstNameOf, lastNameOf, missingHeader, noteText, printWarnings, sheetApt, sheetRows } from '../../lib/safetySheet';
 
 interface Props {
@@ -137,7 +137,7 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
         {plan.palanquees.map((p, i) => {
           const sheet = dive.sheets[p.id] ?? emptySheet();
           const rows = sheetRows(p);
-          const note = dive.notes?.[p.id];
+          const note = guideNoteOf(dive, p);
           // Profondeur prévue au-delà de la prérogative de la palanquée : signalée, à confirmer avant d'imprimer.
           const planned = parseDepth(sheet.planned.depth);
           const legal = depthOf(p);

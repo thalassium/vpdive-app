@@ -3,7 +3,7 @@ import { AlertTriangle, Check, ChevronDown, RotateCcw, Trash2, UserMinus } from 
 import type { RosterEntry } from '../../../services/vpdive';
 import { aptitudesFromLabels, isInstructor, prerogativeCode, type Diver } from '../../../lib/palanquees';
 import { PREROGATIVE_OPTIONS, TRAINING_MENU, NO_TRAINING, setDiverChoice, trainingMenuFor } from '../../../lib/palanqueeEdit';
-import { stillUnregistered, toggleCompanion, toggleDiving, type AddedMember, type Guest, type OutingDoc, type Unregistered } from '../../../lib/outing';
+import { stillUnregistered, toggleCompanion, toggleDiving, type AddedMember, type Guest, type GuideNote, type OutingDoc, type Unregistered } from '../../../lib/outing';
 import { message } from '../../../lib/errors';
 import { useConfirm } from '../../../hooks/useConfirm';
 import { Menu } from '../../Menu';
@@ -14,6 +14,7 @@ import { ActionButton } from './ActionButton';
 import { SectionTitle } from '../../SectionTitle';
 import { APT_COL, FN_COL, RolesContext, byName, byRank, hasRows } from './format';
 import { OutingMemberAvatar, OutingMemberButton } from '../../member/MemberLink';
+import { GuideNoteRow } from './GuideNoteRow';
 
 interface Props {
   roster: RosterEntry[];
@@ -32,13 +33,16 @@ interface Props {
   onPromote?: (person: { id: string; name: string }) => Promise<void>;
   /** « Valider les plongeurs » : la liste est arrêtée, on passe aux palanquées. */
   onConfirm: () => void;
+  /** Commentaires sur les encadrants de la plongée (par encadrant), et de quoi les écrire (absent : lecture seule). */
+  notes?: Record<string, GuideNote>;
+  onNote?: (guideId: string, text: string) => void;
 }
 
 /**
  * 1. Qui plonge : encadrants du plus haut au plus bas, puis plongeurs, puis la
  * liste d'attente ; validé par le DP avant les palanquées.
  */
-export function RosterSection({ roster, doc, divers, diving, excluded, readOnly, onSettings, onGuests, onMembers, onUnregister, onPromote, onConfirm }: Props) {
+export function RosterSection({ roster, doc, divers, diving, excluded, readOnly, onSettings, onGuests, onMembers, onUnregister, onPromote, onConfirm, notes, onNote }: Props) {
   const [promoting, setPromoting] = useState<Record<string, string>>({});
   const { confirm, confirmDialog } = useConfirm();
   const settings = doc.settings;
@@ -191,6 +195,12 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
           </div>
         ) : (
           out && onUnregister && <UnregisterAction name={d.name} onConfirm={() => onUnregister({ id: d.id, name: d.name, instructor: isInstructor(d) })} />
+        )}
+        {/* Encadrant : un commentaire libre (stagiaire, consigne…), qui et quand ; repris sur la fiche de sécurité. */}
+        {instructor && !out && (notes?.[d.id] || onNote) && (
+          <div className="w-full pl-8 sm:pl-[4.5rem] pt-1">
+            <GuideNoteRow note={notes?.[d.id]} onNote={onNote ? (text) => onNote(d.id, text) : undefined} />
+          </div>
         )}
       </li>
     );

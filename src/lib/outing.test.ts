@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addedMemberId, adoptRegistrations, companionByComment, divingIds, mustBePlaced, parseDepth, pruneOrphans, sameContent, setGuideNote, toggleCompanion, dayParticipants, defaultRoles, guestEntry, memberEntry, headerFromRoles, newGuest, normalizeOuting, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
+import { addedMemberId, adoptRegistrations, companionByComment, divingIds, mustBePlaced, parseDepth, pruneOrphans, sameContent, setGuideNote, guideNoteOf, toggleCompanion, dayParticipants, defaultRoles, guestEntry, memberEntry, headerFromRoles, newGuest, normalizeOuting, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
 import { aptitudesFromLabels, type Diver } from './palanquees';
 import type { RosterEntry } from '../services/vpdive';
 
@@ -212,13 +212,21 @@ test('accompagnant : désigné il est décoché ; coché, il redevient plongeur 
 
 test('fiches et commentaires orphelins retirés ; commentaire d’encadrant ; profondeur saisie', () => {
   const d = outing().dives[0]!;
-  const noted = setGuideNote(d, 'p1', '  stagiaire MF1  ', 'Hélène', '2026-10-09T10:00:00Z');
-  assert.deepEqual(noted.notes, { p1: { text: 'stagiaire MF1', by: 'Hélène', at: '2026-10-09T10:00:00Z' } });
-  assert.deepEqual(setGuideNote(noted, 'p1', ' ', 'Hélène').notes, {}, 'texte vide : effacé');
+  // Le commentaire est rangé par encadrant (gone1 encadre p1), posé dans « Qui plonge ? ».
+  const note = { text: 'stagiaire MF1', by: 'Hélène', at: '2026-10-09T10:00:00Z' };
+  const noted = setGuideNote(d, 'gone1', '  stagiaire MF1  ', 'Hélène', '2026-10-09T10:00:00Z');
+  assert.deepEqual(noted.notes, { gone1: note });
+  assert.deepEqual(setGuideNote(noted, 'gone1', ' ', 'Hélène').notes, {}, 'texte vide : effacé');
   assert.equal(pruneOrphans(noted), noted, 'rien d’orphelin : même objet');
-  const redone = pruneOrphans({ ...noted, notes: { ...noted.notes, old: { text: 'x', by: '', at: '' } }, plan: { palanquees: [noted.plan!.palanquees[0]!], unassigned: [] } });
+  assert.deepEqual(guideNoteOf(noted, noted.plan!.palanquees[0]!), note, 'repris sur la palanquée de l’encadrant');
+  // Palanquées refaites : la fiche de p2 part, le commentaire (rangé par encadrant) reste.
+  const redone = pruneOrphans({ ...noted, plan: { palanquees: [noted.plan!.palanquees[0]!], unassigned: [] } });
   assert.deepEqual(Object.keys(redone.sheets), ['p1']);
-  assert.deepEqual(Object.keys(redone.notes!), ['p1']);
+  assert.deepEqual(redone.notes, { gone1: note });
+  // Sortie d'avant : commentaire rangé par palanquée, passé à son encadrant (ou retiré sans encadrant).
+  const legacy = pruneOrphans({ ...d, notes: { p1: note, p2: note } });
+  assert.deepEqual(legacy.notes, { gone1: note });
+  assert.deepEqual(guideNoteOf({ ...d, notes: { p1: note } }, d.plan!.palanquees[0]!), note, 'lecture d’une sortie d’avant');
   assert.equal(parseDepth('25'), 25);
   assert.equal(parseDepth('18,5 m'), 18.5);
   assert.equal(parseDepth(''), undefined);

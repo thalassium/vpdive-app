@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, MessageSquare, Pencil, Star, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Star, Trash2 } from 'lucide-react';
 import { Menu } from '../../Menu';
 import {
   TYPE_LABEL,
@@ -19,7 +18,6 @@ import {
   type Palanquee,
   type PalanqueeType,
 } from '../../../lib/palanquees';
-import type { GuideNote } from '../../../lib/outing';
 import { MoveSelect } from './MoveSelect';
 import { TYPES, describe, diplomas, ownPrerogative, type Target } from './format';
 import { OutingMemberAvatar } from '../../member/MemberLink';
@@ -29,8 +27,6 @@ export function PalanqueeCard({
   index,
   p,
   locked,
-  note,
-  onNote,
   instructors,
   targets,
   onMove,
@@ -42,9 +38,6 @@ export function PalanqueeCard({
   index: number;
   p: Palanquee;
   locked: boolean;
-  /** Commentaire sur l'encadrant ; onNote absent : lecture seule. */
-  note?: GuideNote;
-  onNote?: (text: string) => void;
   instructors: Diver[];
   targets: Target[];
   onMove: (d: Diver, target: string) => void;
@@ -108,7 +101,6 @@ export function PalanqueeCard({
       {/* Plongeurs, avec leur prérogative ; celui qui fixe celle de la palanquée est signalé */}
       <ul className="px-4 pt-3 pb-3 space-y-2.5 text-base">
         <GuideRow p={p} eligible={eligible} locked={locked} targets={targets} onMove={onMove} onGuide={onGuide} onRemove={onRemoveGuide} />
-        {(note || (p.guide && onNote)) && <GuideNoteRow note={note} onNote={onNote} />}
         {p.members.map((m) => {
           const own = ownPrerogative(m, p);
           // Signalé seulement s'il fait descendre la palanquée : un autre plongeur aurait pu aller plus loin.
@@ -208,88 +200,6 @@ function GuideRow({
       </div>
       {g && !locked && (
         <MoveSelect targets={targets} onMove={(t) => (t === 'unassigned' ? onRemove() : onMove(g, t))} diver={g} unassignLabel={teaching ? 'Retirer l’enseignant' : 'Retirer l’encadrant (autonome)'} />
-      )}
-    </li>
-  );
-}
-
-/**
- * Commentaire libre à côté de l'encadrant (stagiaire, consigne…) : le texte, qui
- * l'a écrit et quand. Se modifie aussi après validation des palanquées.
- */
-function GuideNoteRow({ note, onNote }: { note?: GuideNote; onNote?: (text: string) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(note?.text ?? '');
-  if (editing && onNote) {
-    const save = () => {
-      onNote(text);
-      setEditing(false);
-    };
-    return (
-      <li className="-mx-2 px-2 flex flex-wrap items-center gap-2">
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && save()}
-          maxLength={500}
-          placeholder="Commentaire sur l’encadrant (stagiaire, consigne…)"
-          aria-label="Commentaire sur l’encadrant"
-          className="field flex-1 min-w-[12rem] sm:h-9 px-2.5 text-sm"
-          autoFocus
-        />
-        <button type="button" onClick={save} className="btn btn-primary sm:h-9 text-sm">
-          <Check className="w-4 h-4" /> Enregistrer
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setText(note?.text ?? '');
-            setEditing(false);
-          }}
-          className="btn btn-quiet sm:h-9 text-sm"
-        >
-          Annuler
-        </button>
-      </li>
-    );
-  }
-  if (!note) {
-    return (
-      <li className="-mx-2 px-2">
-        <button
-          type="button"
-          onClick={() => {
-            setText('');
-            setEditing(true);
-          }}
-          className="inline-flex items-center gap-1.5 max-sm:min-h-11 text-sm text-muted hover:text-brand"
-        >
-          <MessageSquare className="w-4 h-4" /> Commenter l’encadrant
-        </button>
-      </li>
-    );
-  }
-  return (
-    <li className="-mx-2 px-2 flex items-start gap-2 text-sm">
-      <MessageSquare className="w-4 h-4 shrink-0 mt-0.5 text-muted" />
-      <span className="flex-1 min-w-0">
-        <span className="text-ink break-words">{note.text}</span>
-        <span className="block text-muted">
-          par {note.by} le {new Date(note.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
-        </span>
-      </span>
-      {onNote && (
-        <button
-          type="button"
-          onClick={() => {
-            setText(note.text);
-            setEditing(true);
-          }}
-          aria-label="Modifier le commentaire"
-          className="icon-btn relative w-8 h-8 max-sm:before:absolute max-sm:before:-inset-1.5"
-        >
-          <Pencil className="w-4 h-4" />
-        </button>
       )}
     </li>
   );
