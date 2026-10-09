@@ -6,10 +6,10 @@ import { SPOTS, forecastAt, type Spot } from '../../services/marineWeather';
 import { SEUILS, beaufort, compass, level, metres, windColor, worstIn, type Level, type Slot } from '../../lib/marine';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
+import { message } from '../../lib/errors';
 
 const WeatherMap = lazy(() => import('./WeatherMap'));
 
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const p2 = (n: number) => String(n).padStart(2, '0');
 const HOURS = ['06', '09', '12', '15', '18', '21'] as const;
 const PICKED_ID = 'carte';

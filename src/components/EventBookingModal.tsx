@@ -8,6 +8,7 @@ import { GabianLoader } from './Gabian';
 import { BOTTLES, DEFAULT_BOTTLE, SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Bottle, type Size, type SizedKind } from '../lib/gear';
 import { asksFor, canSupervise, classifyRoles, cleanRoleLabel, entryFromRole, roleKeyFor, volunteerTotal, type Entry, type InstructorMode } from '../lib/registration';
 import { isCancelledTitle } from '../lib/agenda';
+import { message } from '../lib/errors';
 
 const VPDIVE_EVENT_URL = (token: string) => `https://septentrion-env.vpdive.com/app/activities/${token}`;
 
@@ -130,7 +131,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       .then(fill)
       .catch((e: unknown) => {
         if (id !== loadRequest.current || onSessionLost(e)) return;
-        setLoadError(e instanceof Error ? e.message : 'Impossible de charger la sortie.');
+        setLoadError(message(e, 'Impossible de charger la sortie.'));
       });
   }, [event.token, onSessionLost]);
   /** Reload (retry, after booking): back to the loading state, then read again. */
@@ -260,7 +261,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           if (onSessionLost(e)) return;
           quotedKey.current = null;
           if (id === priceRequest.current) {
-            setStatus({ kind: 'error', text: `${PRICE_ERROR} : ${e instanceof Error ? e.message : e}` });
+            setStatus({ kind: 'error', text: `${PRICE_ERROR} : ${message(e)}` });
           }
         },
       )
@@ -304,7 +305,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       await load(); // show the registered state as VPDive now reports it
     } catch (err) {
       if (onSessionLost(err)) return;
-      setStatus({ kind: 'error', text: err instanceof Error ? err.message : editing ? 'Modification impossible.' : 'Inscription impossible.' });
+      setStatus({ kind: 'error', text: message(err, editing ? 'Modification impossible.' : 'Inscription impossible.') });
     } finally {
       setBusy(false);
     }
@@ -323,7 +324,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       await load();
     } catch (err) {
       if (onSessionLost(err)) return;
-      setStatus({ kind: 'error', text: err instanceof Error ? err.message : 'Désinscription impossible.' });
+      setStatus({ kind: 'error', text: message(err, 'Désinscription impossible.') });
     } finally {
       setBusy(false);
     }

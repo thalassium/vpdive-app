@@ -2,10 +2,11 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Award, ChevronDown, ExternalLink, FileText, FolderOpen, IdCard, ImageIcon, LogOut } from 'lucide-react';
 import { vpdive, type EmergencyContact, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdive';
-import { ymd } from '../../lib/dates';
+import { ymd, frDate } from '../../lib/dates';
 import type { Me } from '../../services/appApi';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
+import { message } from '../../lib/errors';
 
 /** Ma page profil sur VPDive : informations, documents, niveaux. */
 const VPDIVE_URL = 'https://septentrion-env.vpdive.com/app/profile';
@@ -17,9 +18,7 @@ interface Quals {
   medical: { until: string | null; valid: boolean } | null;
 }
 
-const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** « 2027-03-12 » → « 12/03/2027 ». */
-const frDate = (d: string) => d.split('-').reverse().join('/');
 
 const hasAny = (q: Quals | null): q is Quals => !!q && (q.groups.some((g) => g.items.length > 0) || q.training.length > 0 || !!q.medical);
 
@@ -139,7 +138,7 @@ export function ProfileView({
         }
       } catch (e) {
         if (stale() || onSessionLost(e)) return;
-        setQualsError(errorText(e));
+        setQualsError(message(e));
         return;
       }
     }
@@ -302,7 +301,6 @@ export function ProfileView({
 }
 
 /** « 1985-04-12 » → « 12/04/1985 ». */
-const jjmmaaaa = (iso: string) => (iso ? iso.split('-').reverse().join('/') : '');
 
 /**
  * Mes infos, groupées comme sur une fiche d'adhésion : contact, identité,
@@ -311,7 +309,7 @@ const jjmmaaaa = (iso: string) => (iso ? iso.split('-').reverse().join('/') : ''
  */
 function InfoList({ info }: { info: MemberInfo }) {
   const adresse = [info.address, [info.zipCode, info.city].filter(Boolean).join(' '), info.country].filter(Boolean).join(', ');
-  const naissance = [info.birthday && `le ${jjmmaaaa(info.birthday)}`, info.birthPlace && `à ${info.birthPlace}`].filter(Boolean).join(' ');
+  const naissance = [info.birthday && `le ${frDate(info.birthday)}`, info.birthPlace && `à ${info.birthPlace}`].filter(Boolean).join(' ');
   const groupes: { titre: string; lignes: [string, ReactNode][] }[] = [
     {
       titre: 'Contact',
@@ -332,10 +330,10 @@ function InfoList({ info }: { info: MemberInfo }) {
     {
       titre: 'Adhésion',
       lignes: [
-        ['Membre depuis', jjmmaaaa(info.memberSince)],
+        ['Membre depuis', frDate(info.memberSince)],
         ['Saisons', info.seasons.join(', ')],
         ['Assurance', [info.insurance, info.insuranceYear && `(${info.insuranceYear})`].filter(Boolean).join(' ')],
-        ['Honorabilité', info.honorabilityAt && `contrôle validé le ${jjmmaaaa(info.honorabilityAt)}`],
+        ['Honorabilité', info.honorabilityAt && `contrôle validé le ${frDate(info.honorabilityAt)}`],
         ['Visible des membres', [info.shows.phone && 'téléphone', info.shows.birthday && 'date de naissance'].filter(Boolean).join(', ') || 'ni téléphone ni date de naissance'],
       ],
     },
@@ -348,7 +346,7 @@ function InfoList({ info }: { info: MemberInfo }) {
           {l.expired ? (
             <span className="text-danger"> · expirée</span>
           ) : l.expires ? (
-            <span className="text-muted"> · jusqu’au {jjmmaaaa(l.expires)}</span>
+            <span className="text-muted"> · jusqu’au {frDate(l.expires)}</span>
           ) : l.validated ? (
             <span className="text-ok"> · validée</span>
           ) : (
@@ -433,7 +431,7 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
       setDraft(null);
       setSaved(true);
     } catch (e) {
-      if (!onSessionLost(e)) setError(errorText(e));
+      if (!onSessionLost(e)) setError(message(e));
     } finally {
       setSaving(false);
     }

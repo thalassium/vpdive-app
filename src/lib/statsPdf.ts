@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { pdfText } from './pdfText';
 import { dateFr, monthSeries, monthShort, type Stats } from './stats';
+import { WEEKDAYS } from './dates';
 
 /**
  * Statistiques en PDF (A4 portrait) : les mêmes chiffres et graphiques que
@@ -331,7 +332,7 @@ export function statsPdf(stats: Stats, { from, to, partial }: StatsPdfOptions): 
 
   // Jours de plongée, sous les âges
   ry = heading('Jours de plongée', rightX, ry + 5, rightW);
-  ry = columns(rightX, ry, rightW, 18, stats.weekdays.map((c, i) => ({ label: ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'][i]!, value: c, color: NAVY })));
+  ry = columns(rightX, ry, rightW, 18, stats.weekdays.map((c, i) => ({ label: WEEKDAYS[i]!, value: c, color: NAVY })));
 
   y = Math.max(ly, ry) + 7;
 

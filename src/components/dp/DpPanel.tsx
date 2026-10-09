@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { vpdive, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdive';
-import { ymd } from '../../lib/dates';
+import { ymd, MONTHS, MONTHS_SHORT, weekdayShort } from '../../lib/dates';
 import { DP_SCAN_FAILED, dpWindow, findDpEvents } from '../../services/dpEvents';
 import { appApi, AppApiError, type AppRole, type OutingLock } from '../../services/appApi';
 import {
@@ -32,6 +32,8 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { Tab, TabList, TabPanel } from '../Tabs';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
+import { message } from '../../lib/errors';
+import { isRecord, sessionCache } from '../../lib/cache';
 
 interface Props {
   session: Session;
@@ -81,7 +83,7 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
     };
     return read().then(setEvents, (e: unknown) => {
       if (onSessionLost(e)) return;
-      setListError(e instanceof Error ? e.message : String(e));
+      setListError(message(e));
     });
   }, [role, dpEvents, session.userId, onSessionLost]);
   /** « Réessayer » : l'erreur s'efface, la liste est relue. */
@@ -202,11 +204,8 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
   );
 }
 
-const JOURS = ['Dim.', 'Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.'];
-const MOIS_COURTS = ['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
-const MOIS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 /** « Sam. 14 Oct » */
-const shortDate = (d: Date) => `${JOURS[d.getDay()]} ${d.getDate()} ${MOIS_COURTS[d.getMonth()]}`;
+const shortDate = (d: Date) => `${weekdayShort(d)} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
 
 /** Sorties d'une section (à venir / passées), avec un séparateur par mois. */
 function ListGroup({ label, events, selected, onSelect }: { label: string; events: CalendarEvent[]; selected: CalendarEvent | null; onSelect: (e: CalendarEvent) => void }) {
@@ -215,7 +214,7 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
   for (const e of events) {
     const d = new Date(e.start);
     const key = `${d.getFullYear()}-${d.getMonth()}`;
-    if (months.at(-1)?.key !== key) months.push({ key, title: `${MOIS[d.getMonth()]} ${d.getFullYear()}`, list: [] });
+    if (months.at(-1)?.key !== key) months.push({ key, title: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`, list: [] });
     months.at(-1)!.list.push(e);
   }
   return (
@@ -282,29 +281,16 @@ interface Draft {
   at: string;
   by: string;
 }
-const DRAFT_PREFIX = 'outing-draft:v1:';
-function readDraft(token: string): Draft | null {
-  try {
-    const raw = localStorage.getItem(DRAFT_PREFIX + token);
-    return raw ? (JSON.parse(raw) as Draft) : null;
-  } catch {
-    return null;
-  }
-}
-function writeDraft(token: string, draft: Draft) {
-  try {
-    localStorage.setItem(DRAFT_PREFIX + token, JSON.stringify(draft));
-  } catch {
-    // Stockage plein ou interdit : rien de plus à faire, l'enregistrement reste la vraie sauvegarde.
-  }
-}
-function clearDraft(token: string) {
-  try {
-    localStorage.removeItem(DRAFT_PREFIX + token);
-  } catch {
-    // Rien à faire.
-  }
-}
+/** Brouillons sur l'appareil (localStorage), sans limite de durée ; une forme inattendue est ignorée. */
+const drafts = sessionCache(
+  'outing-draft:v1:',
+  Infinity,
+  (v): v is Draft => isRecord(v) && isRecord(v.doc) && Array.isArray(v.doc.dives) && typeof v.baseRev === 'number' && typeof v.by === 'string',
+  { field: '', storage: () => localStorage },
+);
+const readDraft = (token: string) => drafts.read(token);
+const writeDraft = (token: string, draft: Draft) => drafts.write(token, draft);
+const clearDraft = (token: string) => drafts.forget(token);
 
 /** Cet onglet, pour le bail d'édition : le même après un rechargement de la page (sessionStorage). */
 function editorClient(): string {
@@ -428,7 +414,7 @@ function OutingWorkspace({
       .then(show)
       .catch((e: unknown) => {
         if (onSessionLost(e)) return;
-        setLoadError(e instanceof Error ? e.message : String(e));
+        setLoadError(message(e));
       });
   }, [token, client, derive, me, onSessionLost]);
   /** Relire la sortie (« Réessayer », version de l'autre chargée) : l'erreur s'efface d'abord. */

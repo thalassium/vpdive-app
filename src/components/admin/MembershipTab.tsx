@@ -6,7 +6,7 @@ import { Spinner } from '../Spinner';
 import { GabianLoader } from '../Gabian';
 import { MemberSearch } from '../dp/MemberSearch';
 import { vpdive, isUnavailable } from '../../services/vpdive';
-import { ymd } from '../../lib/dates';
+import { ymd, frDate } from '../../lib/dates';
 import { appApi, type FfessmImport, type MemberWriteLog } from '../../services/appApi';
 import { applyJob, type WriteJob } from '../../services/memberWriter';
 import {
@@ -51,7 +51,8 @@ import {
 } from '../../lib/membership';
 import { normalizeName } from '../../lib/fuzzy';
 import { describeSnapshot } from '../../lib/memberWrite';
-import { cacheKey } from './memberCache';
+import { recordCache } from './memberCache';
+import { message } from '../../lib/errors';
 
 /**
  * Gestion des adhésions, étapes 2 à 4 : chaque personne de la saison vue par
@@ -61,24 +62,6 @@ import { cacheKey } from './memberCache';
 
 /** Erreurs d'affilée avant de s'arrêter ; VPDive indisponible (pare-feu, réseau) : tout de suite. */
 const MAX_FAILURES = 3;
-const CACHE_TTL_MS = 6 * 3600_000;
-function readCache(uct: string): VpRecord | null {
-  try {
-    const v = JSON.parse(sessionStorage.getItem(cacheKey(uct)) ?? 'null') as { at: number; record: VpRecord } | null;
-    return v && Date.now() - v.at < CACHE_TTL_MS && Array.isArray(v.record?.seasons) ? v.record : null;
-  } catch {
-    return null;
-  }
-}
-function writeCache(uct: string, record: VpRecord) {
-  try {
-    sessionStorage.setItem(cacheKey(uct), JSON.stringify({ at: Date.now(), record }));
-  } catch {
-    // Stockage plein ou interdit : la fiche sera relue.
-  }
-}
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const frDay = (ymd: string) => (ymd ? ymd.slice(0, 10).split('-').reverse().join('/') : '');
 
 export type MembershipStep = 'diagnostic' | 'quickfix' | 'arbitrage';
 type Filter = 'gaps' | 'ok' | 'all';
@@ -242,7 +225,7 @@ export function MembershipTab({
     const cached: Record<string, VpRecord> = {};
     const todo: string[] = [];
     for (const u of ids) {
-      const c = fresh ? null : readCache(u);
+      const c = fresh ? null : recordCache.read(u);
       if (c) cached[u] = c;
       else todo.push(u);
     }
@@ -255,7 +238,7 @@ export function MembershipTab({
       try {
         const record = await vpdive.memberRecord(u, { fresh, priority: 'low' });
         if (run.current !== id) return;
-        writeCache(u, record);
+        recordCache.write(u, record);
         setRecords((r) => ({ ...r, [u]: record }));
         failures = 0;
       } catch (e) {
@@ -556,7 +539,7 @@ export function MembershipTab({
         try {
           const res = await applyJob(job, season, ids);
           if (res.after) {
-            writeCache(job.uct, res.after);
+            recordCache.write(job.uct, res.after);
             setRecords((rs) => ({ ...rs, [job.uct]: res.after! }));
           }
           setResults((rs) => [...rs, { uct: job.uct, name: job.name, ok: res.ok, message: res.message, ...(res.warning ? { warning: res.warning } : {}) }]);
@@ -766,7 +749,7 @@ export function MembershipTab({
                   <li key={r.p.key} className={`px-4 py-3 grid gap-x-4 gap-y-2 lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_minmax(0,16rem)_minmax(0,15rem)] items-start ${check ? 'bg-raised/50' : ''}`}>
                     <div className={`min-w-0 ${check ? 'opacity-60' : ''}`}>
                       <p className="font-semibold text-ink break-words">{r.p.name}</p>
-                      <p className="text-sm text-muted">{r.p.birthDate ? `né le ${frDay(r.p.birthDate)}` : ''}</p>
+                      <p className="text-sm text-muted">{r.p.birthDate ? `né le ${frDate(r.p.birthDate)}` : ''}</p>
                     </div>
                     <p className={`text-sm text-ink ${check ? 'opacity-60' : ''}`}>{c.text}</p>
                     <div className={`min-w-0 ${check ? 'opacity-60' : ''}`}>
@@ -932,7 +915,7 @@ function CheckBox({ check, onSave }: { check?: CaseCheck; onSave: (checked: bool
       {check && (
         <>
           <p className="text-xs text-muted">
-            par {check.by} le {frDay(check.at)}
+            par {check.by} le {frDate(check.at)}
           </p>
           <input
             value={comment}
@@ -965,7 +948,7 @@ function PersonRow({ row, season }: { row: Row; season: number }) {
       <div className="min-w-0">
         <p className="font-semibold text-ink break-words">{p.name}</p>
         <p className="text-sm text-muted">
-          {p.birthDate ? `né le ${frDay(p.birthDate)}` : 'naissance inconnue'}
+          {p.birthDate ? `né le ${frDate(p.birthDate)}` : 'naissance inconnue'}
           {p.email && <span className="block truncate">{p.email}</span>}
         </p>
       </div>
@@ -1177,7 +1160,7 @@ function FfessmImportBox<Row>({
         {current === undefined
           ? `Export des ${what}…`
           : current
-            ? `FFESSM, ${what} : ${current.rows.length}${current.period ? `, ${current.period.toLowerCase()}` : ''} · déposé par ${current.by} le ${frDay(current.at)}`
+            ? `FFESSM, ${what} : ${current.rows.length}${current.period ? `, ${current.period.toLowerCase()}` : ''} · déposé par ${current.by} le ${frDate(current.at)}`
             : `FFESSM, ${what} : aucun export déposé`}
         {info && !info.warn && ` · ${info.text}`}
       </span>

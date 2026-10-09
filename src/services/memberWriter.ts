@@ -9,11 +9,11 @@ import { SessionExpiredError, vpdive, type CallPace } from './vpdive';
 import { appApi } from './appApi';
 import { capacityEntries, checkWrite, generalEntries, insuranceEntries, licenceEntries, rawHasLicence, snapshot, type Entry, type Expect, type RawMember } from '../lib/memberWrite';
 import { licenceEnd, type Fix, type VpRecord } from '../lib/membership';
+import { message } from '../lib/errors';
 
 // Plus lent que les lectures : ce sont des écritures, et le pare-feu de VPDive veille.
 // Chaque appel de l'écriture d'une fiche attend 800 ms après le précédent (au lieu de 400).
 const PACE: CallPace = { gap: 800 };
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export interface WriteJob {
   uct: string;

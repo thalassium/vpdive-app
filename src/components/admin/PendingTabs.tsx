@@ -6,7 +6,8 @@ import { GabianLoader } from '../Gabian';
 import { vpdive, type PendingValidation } from '../../services/vpdive';
 import { appApi, type RegistrationRequest } from '../../services/appApi';
 import { useConfirm } from '../../hooks/useConfirm';
-import { cacheKey } from './memberCache';
+import { docsStatusCache, recordCache } from './memberCache';
+import { message } from '../../lib/errors';
 
 /*
  * Les deux onglets « à traiter d'abord » de la gestion des adhésions : tant
@@ -14,16 +15,11 @@ import { cacheKey } from './memberCache';
  * compte, et les vérifications (Adhésions, Relance) le verraient manquant.
  */
 
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Après une validation, la fiche du membre gardée en session est périmée. */
 function forgetMember(uct: string) {
-  try {
-    sessionStorage.removeItem(cacheKey(uct));
-    sessionStorage.removeItem(`docs-status:${uct}`);
-  } catch {
-    // Stockage indisponible : rien à oublier.
-  }
+  recordCache.forget(uct);
+  docsStatusCache.forget(uct);
 }
 
 function Empty({ children }: { children: string }) {

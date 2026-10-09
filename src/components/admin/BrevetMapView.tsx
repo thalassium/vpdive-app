@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, Plus, RotateCcw, X } from 'lucide-react';
 import { vpdive } from '../../services/vpdive';
 import { automaticLevels, type BrevetMap } from '../../lib/membership';
+import { message } from '../../lib/errors';
 
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
  * Correspondance des brevets (roue crantée de l'onglet Adhésions) : pour chaque

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, Copy, Package, RefreshCw, X } from 'lucide-react';
 import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdive';
-import { ymd } from '../../lib/dates';
+import { ymd, shortDay } from '../../lib/dates';
 import { appApi } from '../../services/appApi';
 import { BOTTLES } from '../../lib/gear';
 import { aggregateMaterial, isUnknownSize, materialText, sortedSizes, BOTTLE_SHORT, type MaterialPerson } from '../../lib/material';
@@ -11,11 +11,10 @@ import { Menu } from '../Menu';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
+import { message } from '../../lib/errors';
 
 /** « sam. 11 oct. » */
-const dayLabel = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
 const timeLabel = (e: CalendarEvent) => (e.allDay ? 'Journée' : new Date(e.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
  * Matériel (admin) : pour une sortie, tout ce qu'il faut préparer le jour même
@@ -127,7 +126,7 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
                     trigger={
                       <>
                         <span className="flex-1 min-w-0 truncate">
-                          <span className="font-semibold text-brand">{dayLabel(selected.start)}</span> · {selected.title}
+                          <span className="font-semibold text-brand">{shortDay(selected.start)}</span> · {selected.title}
                         </span>
                         <ChevronDown className="w-4 h-4 text-muted shrink-0" />
                       </>
@@ -140,7 +139,7 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
                         value: e.token,
                         label: (
                           <span className="block truncate">
-                            {dayLabel(e.start)} · {e.title}
+                            {shortDay(e.start)} · {e.title}
                           </span>
                         ),
                         hint: `${e.registeredCount}`,
@@ -168,7 +167,7 @@ function OutingButton({ event: e, active, onSelect }: { event: CalendarEvent; ac
       className={`w-full text-left pl-3 pr-4 py-2.5 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-tint border-brand' : 'border-transparent hover:bg-raised'}`}
     >
       <span className="w-[5.75rem] shrink-0 whitespace-nowrap">
-        <span className="block text-sm font-bold tabular-nums text-brand">{dayLabel(e.start)}</span>
+        <span className="block text-sm font-bold tabular-nums text-brand">{shortDay(e.start)}</span>
         <span className="block text-sm text-muted tabular-nums">
           {isToday ? <span className="alpha inline-block bg-pink text-on-pink pl-1.5 text-xs font-semibold">Aujourd’hui</span> : timeLabel(e)}
         </span>
@@ -258,7 +257,7 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
   if (error) return <Failure text={error} onRetry={load} />;
   if (!summary) return <p className="py-10 text-center text-muted">Lecture des inscriptions sur VPDive…</p>;
 
-  const title = `${dayLabel(event.start)} · ${event.title}`;
+  const title = `${shortDay(event.start)} · ${event.title}`;
   const copy = async () => {
     const text = materialText(summary, title);
     try {
@@ -280,7 +279,7 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
         <div className="flex-1 min-w-0">
           <h3 className="text-lg font-semibold text-ink truncate">{event.title}</h3>
           <p className="text-sm text-muted">
-            {dayLabel(event.start)} · {timeLabel(event)} · {divers} plongeur{divers > 1 ? 's' : ''}
+            {shortDay(event.start)} · {timeLabel(event)} · {divers} plongeur{divers > 1 ? 's' : ''}
             {summary.people.length > divers && ` · ${summary.people.length - divers} à bord sans plonger`}
             {summary.waiting.length > 0 && ` · ${summary.waiting.length} en liste d’attente`}
           </p>

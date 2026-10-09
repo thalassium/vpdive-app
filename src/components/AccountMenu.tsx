@@ -6,6 +6,7 @@ import { appApi, type AppRole } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
 import { ROLE_LABEL } from '../lib/roleLabels';
 import { MENU_ITEM_CLS, menuKeys } from './menuKeys';
+import { message } from '../lib/errors';
 
 /** Un membre choisi dans « Voir en tant que », avec son rôle dans l'appli. */
 export interface ViewAsPick {
@@ -189,7 +190,7 @@ function ViewAsPicker({ onBack, onPick, onSessionLost }: { onBack: () => void; o
         setRoles(new Map(entries.map((e) => [e.uct, e.role])));
         setMembers(list);
       },
-      (e) => !cancelled && !onSessionLost(e) && setError(e instanceof Error ? e.message : String(e)),
+      (e) => !cancelled && !onSessionLost(e) && setError(message(e)),
     );
     return () => {
       cancelled = true;

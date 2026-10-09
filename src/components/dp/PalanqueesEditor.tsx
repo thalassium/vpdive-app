@@ -72,6 +72,7 @@ import {
 } from '../../lib/outing';
 import { Menu } from '../Menu';
 import { useConfirm } from '../../hooks/useConfirm';
+import { message } from '../../lib/errors';
 
 interface Props {
   title: string;
@@ -388,7 +389,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
       await onPromote({ id: d.id, name: d.name });
       setPromoting(({ [d.id]: _, ...rest }) => rest);
     } catch (e) {
-      setPromoting((p) => ({ ...p, [d.id]: e instanceof Error ? e.message : String(e) }));
+      setPromoting((p) => ({ ...p, [d.id]: message(e) }));
     }
   };
   const waiting = new Set(roster.filter((r) => r.waitingList).map((r) => r.id));
@@ -744,7 +745,7 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
       await onAdd(picked, chosen);
       close();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(message(e));
     } finally {
       setBusy(false);
     }
@@ -834,7 +835,7 @@ function UnregisterAction({ name, onConfirm }: { name: string; onConfirm: () => 
     try {
       await onConfirm();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(message(e));
       setBusy(false);
     }
   };

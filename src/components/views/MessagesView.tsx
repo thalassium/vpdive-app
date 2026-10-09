@@ -5,6 +5,7 @@ import { Cromagnon } from '../Cromagnon';
 import { messaging, type ChatMember, type ChatMessage, type ChatSummary, type ChatThread } from '../../services/messaging';
 import { vpdive, type MemberMatch } from '../../services/vpdive';
 import { normalizeName, rankByName } from '../../lib/fuzzy';
+import { message } from '../../lib/errors';
 
 /**
  * Une seule relecture pour tout l'écran : la liste (première page) et le fil
@@ -15,7 +16,6 @@ const POLL_MS = 20_000;
 
 type Me = { uct: string; name: string; picture: string };
 
-const errorText = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
 // ── Dates ───────────────────────────────────────────────────────
 
@@ -166,7 +166,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
         if (!lostRef.current) onReadRef.current();
       } catch (e) {
         if (lost(e)) return;
-        if (!quiet) setListError(errorText(e, 'Les conversations n’ont pas pu être chargées.'));
+        if (!quiet) setListError(message(e, 'Les conversations n’ont pas pu être chargées.'));
       } finally {
         if (!quiet) setListLoading(false);
       }
@@ -192,7 +192,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
         return true;
       } catch (e) {
         if (lost(e) || openIdRef.current !== id) return false;
-        if (!quiet) setThreadError(errorText(e, 'La conversation n’a pas pu être chargée.'));
+        if (!quiet) setThreadError(message(e, 'La conversation n’a pas pu être chargée.'));
         return false;
       } finally {
         if (!quiet && openIdRef.current === id) setThreadLoading(false);
@@ -329,7 +329,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
       if (!lostRef.current) onReadRef.current();
     } catch (err) {
       if (lost(err) || openIdRef.current !== chatId) return;
-      setOutbox((o) => o.map((x) => (x.id === tempId ? { ...x, status: 'failed', error: errorText(err, '') } : x)));
+      setOutbox((o) => o.map((x) => (x.id === tempId ? { ...x, status: 'failed', error: message(err, '') } : x)));
     }
   };
 
@@ -608,7 +608,7 @@ function NewChat({
       },
       (e) => {
         if (cancelled || lost(e)) return;
-        setDirError(errorText(e, 'L’annuaire du club n’a pas pu être chargé.'));
+        setDirError(message(e, 'L’annuaire du club n’a pas pu être chargé.'));
       },
     );
     return () => {
@@ -639,7 +639,7 @@ function NewChat({
       onCreated(messaging.draft({ uct: person.id, name: person.name, picture: person.picture }, me));
     } catch (e) {
       if (lost(e)) return;
-      setCreateError(errorText(e, 'La conversation n’a pas pu être créée.'));
+      setCreateError(message(e, 'La conversation n’a pas pu être créée.'));
       setCreating(false);
     }
   };

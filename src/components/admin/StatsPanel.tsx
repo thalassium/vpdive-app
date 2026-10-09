@@ -7,6 +7,9 @@ import { Avatar } from '../Avatar';
 import { Spinner } from '../Spinner';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
+import { message } from '../../lib/errors';
+import { WEEKDAYS } from '../../lib/dates';
+import { isRecord, sessionCache } from '../../lib/cache';
 
 /**
  * Statistiques de la saison (super-admin) : sorties, plongeurs, niveaux,
@@ -22,7 +25,6 @@ type Preset = PresetId | 'custom';
 
 // v2 : la liste garde aussi l'équipe non inscrite (pilote, DP désignés dans VPDive).
 const CACHE_PREFIX = 'stats-roster:v2:';
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const nf = new Intl.NumberFormat('fr-FR');
 const n = (x: number) => nf.format(x);
 const plural = (x: number, one: string, many: string) => `${n(x)} ${x > 1 ? many : one}`;
@@ -32,21 +34,11 @@ function toPerson(r: RosterEntry): StatPerson {
 }
 const finished = (e: CalendarEvent) => Date.parse(e.end || e.start) < Date.now() - 24 * 3600_000;
 type Cached = { rows: StatPerson[]; staff: StatStaff[] };
-function readCache(token: string): Cached | null {
-  try {
-    const raw = localStorage.getItem(CACHE_PREFIX + token);
-    return raw ? (JSON.parse(raw) as Cached) : null;
-  } catch {
-    return null;
-  }
-}
-function writeCache(token: string, value: Cached) {
-  try {
-    localStorage.setItem(CACHE_PREFIX + token, JSON.stringify(value));
-  } catch {
-    // Stockage plein ou interdit : la liste sera relue la prochaine fois.
-  }
-}
+/** Liste d'une sortie terminée, gardée sur l'appareil (elle ne change plus), sans limite de durée. */
+const rosterCache = sessionCache(CACHE_PREFIX, Infinity, (v): v is Cached => isRecord(v) && Array.isArray(v.rows) && Array.isArray(v.staff), {
+  field: '',
+  storage: () => localStorage,
+});
 
 export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; onSessionLost: (e: unknown) => boolean }) {
   const { ref: dialogRef } = useDialog({ onClose, label: 'stats' });
@@ -76,7 +68,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
       setProgress({ done, total: todo.length });
       for (const e of todo) {
         if (id !== run.current) return;
-        const cached = finished(e) ? readCache(e.token) : null;
+        const cached = finished(e) ? rosterCache.read(e.token) : null;
         if (cached) {
           setRosters((r) => ({ ...r, [e.token]: cached.rows }));
           setStaff((r) => ({ ...r, [e.token]: cached.staff }));
@@ -86,7 +78,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
             if (id !== run.current) return;
             const rows = read.roster.map(toPerson);
             const crew: StatStaff[] = read.staff.map((x) => ({ id: x.id, name: x.name, ...(x.picture ? { picture: x.picture } : {}), roles: x.roles }));
-            if (finished(e)) writeCache(e.token, { rows, staff: crew });
+            if (finished(e)) rosterCache.write(e.token, { rows, staff: crew });
             setRosters((r) => ({ ...r, [e.token]: rows }));
             setStaff((r) => ({ ...r, [e.token]: crew }));
           } catch (err) {
@@ -598,7 +590,6 @@ function ActivitiesSection({ stats }: { stats: Stats }) {
   );
 }
 
-const WEEKDAYS = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
 
 function WeekdaysSection({ stats }: { stats: Stats }) {
   const max = Math.max(1, ...stats.weekdays);

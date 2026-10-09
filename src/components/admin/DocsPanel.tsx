@@ -5,7 +5,7 @@ import { Tab as TabItem, TabList, TabPanel } from '../Tabs';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { vpdive, isUnavailable, type RosterEntry } from '../../services/vpdive';
-import { ymd } from '../../lib/dates';
+import { ymd, shortDay } from '../../lib/dates';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
 import { messaging } from '../../services/messaging';
 import { bulkReminderText, checkDocs, reminderText, seasonOfOuting, type DocIssue, type DocKind, type DocsStatus } from '../../lib/docsCheck';
@@ -13,6 +13,8 @@ import { MembershipTab, type MembershipStep } from './MembershipTab';
 import { PendingDocumentsTab, RegistrationRequestsTab } from './PendingTabs';
 import type { PendingValidation } from '../../services/vpdive';
 import type { RegistrationRequest } from '../../services/appApi';
+import { message } from '../../lib/errors';
+import { docsStatusCache } from './memberCache';
 
 /**
  * Le parcours, dans l'ordre : 1 à traiter (sinon VPDive ignore la personne ou
@@ -78,32 +80,10 @@ type Filter = 'all' | DocKind | 'ignored';
 type Phase = 'events' | 'rosters' | 'status' | 'stopped' | 'done' | 'error';
 
 const DAYS_AHEAD = 60;
-const CACHE_TTL_MS = 6 * 3600_000;
 /** Erreurs d'affilée sur les fiches membres avant de s'arrêter ; VPDive indisponible (pare-feu, réseau) : tout de suite. */
 const MAX_FAILURES = 3;
 
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-/** « sam. 11 oct. » */
-const dayLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
 
-const cacheKey = (uct: string) => `docs-status:${uct}`;
-function readCache(uct: string): DocsStatus | null {
-  try {
-    const raw = sessionStorage.getItem(cacheKey(uct));
-    if (!raw) return null;
-    const { at, status } = JSON.parse(raw) as { at: number; status: DocsStatus };
-    return Date.now() - at < CACHE_TTL_MS && status && Array.isArray(status.seasons) && Array.isArray(status.licences) ? status : null;
-  } catch {
-    return null;
-  }
-}
-function writeCache(uct: string, status: DocsStatus) {
-  try {
-    sessionStorage.setItem(cacheKey(uct), JSON.stringify({ at: Date.now(), status }));
-  } catch {
-    // Navigation privée ou stockage plein : on relira la fiche la prochaine fois.
-  }
-}
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'Tout' },
@@ -144,10 +124,10 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   const [pendingDocs, setPendingDocs] = useState<PendingValidation[] | null>(null);
   const [docsError, setDocsError] = useState<string | null>(null);
   const fetchRequests = useCallback(() => {
-    appApi.registrationRequests().then(setRequests, (e) => onSessionLost(e) || setRequestsError(e instanceof Error ? e.message : String(e)));
+    appApi.registrationRequests().then(setRequests, (e) => onSessionLost(e) || setRequestsError(message(e)));
   }, [onSessionLost]);
   const fetchPendingDocs = useCallback(() => {
-    vpdive.pendingValidations().then(setPendingDocs, (e) => onSessionLost(e) || setDocsError(e instanceof Error ? e.message : String(e)));
+    vpdive.pendingValidations().then(setPendingDocs, (e) => onSessionLost(e) || setDocsError(message(e)));
   }, [onSessionLost]);
   /** « Réessayer » : la liste repasse en lecture, puis est relue. */
   const loadRequests = () => {
@@ -239,7 +219,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
     const cached: Record<string, DocsStatus> = {};
     const todo: string[] = [];
     for (const u of ucts) {
-      const c = readCache(u);
+      const c = docsStatusCache.read(u);
       if (c) cached[u] = c;
       else todo.push(u);
     }
@@ -255,7 +235,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
       try {
         const status = await vpdive.memberStatus(uct, { priority: 'low' });
         if (run.current !== id) return;
-        writeCache(uct, status);
+        docsStatusCache.write(uct, status);
         setStatuses((prev) => ({ ...prev, [uct]: status }));
         failures = 0;
       } catch (e) {
@@ -309,7 +289,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
           }
           // VPDive ne répond plus (pare-feu, réseau) : inutile de lire les sorties suivantes.
           if (isUnavailable(e)) throw e;
-          errors.push(`${ev.title} (${dayLabel(date)}) : ${message(e)}`);
+          errors.push(`${ev.title} (${shortDay(date)}) : ${message(e)}`);
           setRosterErrors([...errors]);
         }
         setProgress({ done: i + 1, total: events.length });
@@ -750,7 +730,7 @@ function MemberCard({ row, checked, onToggle, onRemind, onIgnore }: { row: Row; 
               <IssueChip key={i.kind} issue={i} />
             ))}
           </span>
-          {next && <span className="mt-1 block text-sm text-muted">Prochaine sortie : {dayLabel(next.outing.date)}</span>}
+          {next && <span className="mt-1 block text-sm text-muted">Prochaine sortie : {shortDay(next.outing.date)}</span>}
         </span>
       </label>
       <span className="flex flex-col sm:flex-row items-stretch gap-1.5 shrink-0">
@@ -789,7 +769,7 @@ function ReminderSheet({
       ? bulkReminderText({ year: seasonOfOuting(next.outing.date), from: me.name })
       : reminderText({
           firstName: first.firstname,
-          date: dayLabel(next.outing.date),
+          date: shortDay(next.outing.date),
           title: next.outing.title,
           kinds: first.issues.filter((i) => i.level !== 'muted').map((i) => i.kind),
           year: seasonOfOuting(next.outing.date),
@@ -801,7 +781,7 @@ function ReminderSheet({
 
   const withEmail = rows.filter((r) => r.email);
   const noEmail = rows.filter((r) => !r.email);
-  const subject = bulk ? 'Ton dossier VPDive pour les prochaines sorties' : `Ton dossier VPDive pour la sortie du ${dayLabel(next.outing.date)}`;
+  const subject = bulk ? 'Ton dossier VPDive pour les prochaines sorties' : `Ton dossier VPDive pour la sortie du ${shortDay(next.outing.date)}`;
   const query = `subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
   const mailHref = bulk
     ? `mailto:?bcc=${withEmail.map((r) => encodeURIComponent(r.email)).join(',')}&${query}`
@@ -843,7 +823,7 @@ function ReminderSheet({
             </h3>
             {!bulk && (
               <p className="text-sm text-muted">
-                {dayLabel(next.outing.date)} · {next.outing.title}
+                {shortDay(next.outing.date)} · {next.outing.title}
               </p>
             )}
           </div>

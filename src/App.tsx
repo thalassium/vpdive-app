@@ -24,6 +24,8 @@ import { PERSIST_PREFIX } from './services/vpdive/transport';
 import { DP_SCAN_FAILED, dpWindow, findDpEvents } from './services/dpEvents';
 import { appApi, type AppRole, type Me } from './services/appApi';
 import { inBackground } from './lib/clientErrors';
+import { message } from './lib/errors';
+import { isStringArray, sessionCache } from './lib/cache';
 
 // Hors du paquet principal : l'agenda et la fiche de réservation s'affichent tout de suite, le reste
 // est téléchargé en tâche de fond peu après la connexion (preloadScreens), pour s'ouvrir sans attente.
@@ -146,24 +148,8 @@ function clearSessionCaches() {
  * d'inscrits à chaque visite. Seulement si toutes les listes ont été lues (services/dpEvents.ts).
  */
 const DP_CACHE_TTL = 60 * 60 * 1000;
-const dpCacheKey = (s: Session) => `dp-events:${s.userId ?? ''}`;
-const readDpCache = (key: string): string[] | null => {
-  try {
-    const raw = sessionStorage.getItem(key);
-    if (!raw) return null;
-    const v = JSON.parse(raw) as { at: number; tokens: string[] };
-    return Date.now() - v.at < DP_CACHE_TTL && Array.isArray(v.tokens) ? v.tokens : null;
-  } catch {
-    return null;
-  }
-};
-const writeDpCache = (key: string, tokens: string[]) => {
-  try {
-    sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), tokens }));
-  } catch {
-    // Stockage plein ou interdit : on relira à la prochaine visite.
-  }
-};
+const dpCache = sessionCache('dp-events:', DP_CACHE_TTL, isStringArray, { field: 'tokens' });
+const dpCacheKey = (s: Session) => String(s.userId ?? '');
 
 /**
  * « Voir en tant que » (super-admin) : les droits d'un autre membre, simulés
@@ -248,7 +234,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
   const isAdmin = role === 'admin' || role === 'superadmin';
   const dpKey = dpCacheKey(session);
   // Sorties DP gardées une heure dans l'onglet : pas de relecture des listes d'inscrits à chaque visite.
-  const cachedDp = useMemo(() => (me?.role === 'member' ? readDpCache(dpKey) : null), [me?.role, dpKey]);
+  const cachedDp = useMemo(() => (me?.role === 'member' ? dpCache.read(dpKey) : null), [me?.role, dpKey]);
   /** Sorties où le membre connecté est DP (jetons) ; null tant qu'on ne les connaît pas (ou pas membre simple). */
   const dpEvents = dpScan ?? cachedDp;
   const isDp = (dpEvents?.length ?? 0) > 0;
@@ -268,7 +254,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
     } catch (e) {
       if (id !== loadId.current || handleSessionLost(e)) return;
       setEvents([]);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(message(e));
     } finally {
       if (id === loadId.current) setIsLoading(false);
     }
@@ -295,7 +281,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
         if (handleSessionLost(e)) return;
         console.warn('Rôle dans l’appli non lu :', e);
         // Autre erreur qu'une session perdue : la messagerie propose de réessayer au lieu de charger sans fin.
-        setMeError(e instanceof Error ? e.message : String(e));
+        setMeError(message(e));
       },
     );
   }, [handleSessionLost]);
@@ -322,7 +308,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
       const scan = await findDpEvents(mine, (r) => r.id === String(userId), { cancelled: () => cancelled });
       if (!scan) return;
       // Gardé une heure seulement si toutes les listes ont été lues : un échec n'est pas un « pas DP ».
-      if (scan.complete) writeDpCache(key, scan.tokens);
+      if (scan.complete) dpCache.write(key, scan.tokens);
       setDpScan(scan.tokens);
       setDpFailed(!scan.complete);
     })().catch((e) => {

@@ -15,6 +15,7 @@
 
 import type { RosterEntry } from '../services/vpdive';
 import { seasonLabel, seasonOf } from './membership';
+import { frDate } from './dates';
 
 /** Saison d'une sortie, pour les messages de relance (« 2026/2027 »). */
 export const seasonOfOuting = (outingDate: string) => seasonLabel(seasonOf(outingDate));
@@ -58,7 +59,6 @@ export function isFfessm(organization: string, number: string): boolean {
 }
 
 /** AAAA-MM-JJ → JJ/MM/AAAA */
-export const frDate = (d: string): string => d.split('-').reverse().join('/');
 
 const localToday = (): string => {
   const d = new Date();

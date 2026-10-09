@@ -7,6 +7,8 @@ import { searchFragments } from '../../lib/fuzzy';
 import { SessionExpiredError, type ReadOptions } from './transport';
 import { obj, str, num, pictureUrl, VPDIVE_ORIGIN, type Json } from './parse';
 import { getSession, request, requestList } from './auth';
+import { frDate } from '../../lib/dates';
+import { isStringArray, sessionCache } from '../../lib/cache';
 
 /** Durée de vie des lectures en cache (transport.ts). */
 const TTL = {
@@ -17,6 +19,8 @@ const TTL = {
 } as const;
 /** Fiche d'un autre membre (/user?uct_token, /user/member) : lectures en lot des admins, partagées entre écrans. */
 export const MEMBER_TTL = 5 * 60_000;
+/** Mes niveaux (inscription comme encadrant), gardés 6 h dans l'onglet. */
+const labelsCache = sessionCache('my-labels:', 6 * 3_600_000, isStringArray, { field: 'labels' });
 
 /** A club member found by name (VPDive's member picker search). */
 export interface MemberMatch {
@@ -192,7 +196,7 @@ export function documentsOf(u: Json): MemberDocument[] {
   const med = obj(u.file_medical_examination);
   if (med) {
     const until = str(u.medical_examination).slice(0, 10);
-    push('Certificat médical', until ? `valable jusqu’au ${until.split('-').reverse().join('/')}` : str(med.name), str(med.link), str(med.name), str(med.type));
+    push('Certificat médical', until ? `valable jusqu’au ${frDate(until)}` : str(med.name), str(med.link), str(med.name), str(med.type));
   }
   const licences = Array.isArray(u.user_licence) ? u.user_licence.map(obj) : [];
   for (const [id, raw] of Object.entries(obj(u.file_licence) ?? {})) {
@@ -322,16 +326,8 @@ export async function myAptitudeLabels(): Promise<string[] | null> {
   const s = getSession();
   if (!s) throw new SessionExpiredError();
   const uct = s.traceability;
-  const key = `my-labels:${uct}`;
-  try {
-    const cached = obj(JSON.parse(sessionStorage.getItem(key) ?? 'null'));
-    const at = num(cached?.at) ?? 0;
-    if (Array.isArray(cached?.labels) && at + 6 * 3_600_000 > Date.now()) {
-      return cached.labels.filter((l): l is string => typeof l === 'string');
-    }
-  } catch {
-    // Stockage indisponible ou illisible : on redemande à VPDive.
-  }
+  const cached = labelsCache.read(uct);
+  if (cached) return cached;
   let labels: string[];
   try {
     labels = (await myFile(uct)).profile.labels;
@@ -344,10 +340,6 @@ export async function myAptitudeLabels(): Promise<string[] | null> {
       return null;
     }
   }
-  try {
-    sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), labels }));
-  } catch {
-    // Navigation privée : simplement pas de cache.
-  }
+  labelsCache.write(uct, labels);
   return labels;
 }

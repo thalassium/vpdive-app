@@ -7,6 +7,9 @@ import { normalizeName, rankByName } from '../lib/fuzzy';
 import { findDuplicates, type DuplicateGroup } from '../lib/duplicates';
 import { useDialog } from '../hooks/useDialog';
 import { GabianLoader } from './Gabian';
+import { message } from '../lib/errors';
+import { frDate } from '../lib/dates';
+import { sessionCache } from '../lib/cache';
 
 interface Props {
   me: Me;
@@ -47,7 +50,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
       setMembers(list);
     } catch (e) {
       if (onSessionLost(e)) return;
-      setError(e instanceof Error ? e.message : String(e));
+      setError(message(e));
     }
   }, [onSessionLost]);
   /** Relire (bouton) : on repart de l'état de chargement. */
@@ -75,7 +78,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
       setRoles(new Map(entries.map((e) => [e.uct, e])));
     } catch (e) {
       if (onSessionLost(e)) return;
-      setRoleError(`${m.name} : ${e instanceof Error ? e.message : String(e)}`);
+      setRoleError(`${m.name} : ${message(e)}`);
     } finally {
       setBusy(null);
     }
@@ -120,14 +123,14 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
       setChecking(true);
       for (const id of ids) {
         if (!live) return;
-        const cached = readMemberCache(id);
+        const cached = memberCache.read(id);
         if (cached !== null) {
           setMemberOk((p) => ({ ...p, [id]: cached }));
           continue;
         }
         try {
           const ok = await vpdive.isClubMember(id, { priority: 'low' });
-          writeMemberCache(id, ok);
+          memberCache.write(id, ok);
           if (live) setMemberOk((p) => ({ ...p, [id]: ok }));
         } catch (e) {
           if (onSessionLost(e)) return;
@@ -296,24 +299,8 @@ function seenLabel(iso: string): string {
   return `le ${d.toLocaleDateString('fr-FR', opts)} à ${time}`;
 }
 
-const MEMBER_CACHE_MS = 6 * 3600_000;
-function readMemberCache(uct: string): boolean | null {
-  try {
-    const raw = sessionStorage.getItem(`club-member-v2:${uct}`);
-    if (!raw) return null;
-    const { at, ok } = JSON.parse(raw) as { at: number; ok: boolean };
-    return Date.now() - at < MEMBER_CACHE_MS && typeof ok === 'boolean' ? ok : null;
-  } catch {
-    return null;
-  }
-}
-function writeMemberCache(uct: string, ok: boolean) {
-  try {
-    sessionStorage.setItem(`club-member-v2:${uct}`, JSON.stringify({ at: Date.now(), ok }));
-  } catch {
-    // Stockage indisponible : la fiche sera relue la prochaine fois.
-  }
-}
+/** Statut « Membre » d'un compte (fiche par fiche), gardé 6 h dans l'onglet. */
+const memberCache = sessionCache('club-member-v2:', 6 * 3600_000, (v): v is boolean => typeof v === 'boolean', { field: 'ok' });
 
 /** Un membre, ses rôles à droite ; ouvert, ses niveaux et qualifications lus dans son profil VPDive. */
 function MemberRow({
@@ -348,7 +335,7 @@ function MemberRow({
   useEffect(() => {
     if (!open || profile) return;
     vpdive.memberProfile(member.id).then(setProfile, (e) => {
-      if (!onSessionLost(e)) setError(e instanceof Error ? e.message : String(e));
+      if (!onSessionLost(e)) setError(message(e));
     });
   }, [open, profile, member.id, onSessionLost]);
 
@@ -401,7 +388,7 @@ function MemberRow({
               <Line label="Qualifications" values={profile.qualifications} />
               {profile.medicalUntil && (
                 <p className="text-muted">
-                  Certificat médical jusqu’au <span className="text-ink">{profile.medicalUntil.slice(0, 10).split('-').reverse().join('/')}</span>
+                  Certificat médical jusqu’au <span className="text-ink">{frDate(profile.medicalUntil)}</span>
                 </p>
               )}
             </>
