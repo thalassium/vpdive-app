@@ -1,31 +1,31 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, RefreshCw, Settings, UserRound, Users, Wind, BarChart3 } from 'lucide-react';
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
 import { StandardCalendar } from './components/StandardCalendar';
-import { gridRange } from './lib/agenda';
 import { EventBookingModal } from './components/EventBookingModal';
 import { SeaBackdrop } from './components/SeaBackdrop';
 import { CaptainHat, HeaderMenu } from './components/HeaderMenu';
-import { AccountMenu, type ViewAsPick } from './components/AccountMenu';
+import { AccountMenu } from './components/AccountMenu';
 import { ROLE_LABEL } from './lib/roleLabels';
-import { sameName } from './lib/fuzzy';
 import { Avatar } from './components/Avatar';
 import { Cromagnon } from './components/Cromagnon';
 import { GabianLoader } from './components/Gabian';
 import { ErrorBoundary, PanelError } from './components/ErrorBoundary';
 import { ReconnectDialog } from './components/ReconnectDialog';
 import { CoursesView } from './components/views/CoursesView';
-import { messaging } from './services/messaging';
-import { vpdive, SessionExpiredError, type CalendarEvent, type Session } from './services/vpdive';
-import { ymd } from './lib/dates';
-import { PERSIST_PREFIX } from './services/vpdive/transport';
-import { DP_SCAN_FAILED, dpWindow, findDpEvents } from './services/dpEvents';
-import { appApi, type AppRole, type Me } from './services/appApi';
+import { vpdive, type CalendarEvent, type Session } from './services/vpdive';
+import { DP_SCAN_FAILED } from './services/dpEvents';
+import type { AppRole } from './services/appApi';
 import { inBackground } from './lib/clientErrors';
-import { message } from './lib/errors';
-import { isStringArray, sessionCache } from './lib/cache';
+import { useSessionState } from './hooks/useSessionState';
+import { useMe } from './hooks/useMe';
+import { useDpEvents } from './hooks/useDpEvents';
+import { useViewAs } from './hooks/useViewAs';
+import { useUnread } from './hooks/useUnread';
+import { useTab, TABS, type Tab } from './hooks/useTab';
+import { useAgenda } from './hooks/useAgenda';
 
 // Hors du paquet principal : l'agenda et la fiche de réservation s'affichent tout de suite, le reste
 // est téléchargé en tâche de fond peu après la connexion (preloadScreens), pour s'ouvrir sans attente.
@@ -83,112 +83,8 @@ function preloadScreens(list: Screen[]): () => void {
   return () => clearTimeout(id);
 }
 
-const thisMonth = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-
-/**
- * Les quatre onglets ; l'onglet actif est dans l'adresse (#cours…), et chaque changement
- * d'onglet pose une entrée d'historique : le bouton Retour du téléphone revient à
- * l'onglet précédent au lieu de quitter l'appli.
- */
-type Tab = 'agenda' | 'cours' | 'messages' | 'profil';
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'agenda', label: 'Agenda' },
-  { id: 'cours', label: 'Cours' },
-  { id: 'messages', label: 'Messagerie' },
-  { id: 'profil', label: 'Profil' },
-];
-const tabFromHash = (): Tab => {
-  const h = window.location.hash.replace('#', '');
-  return TABS.some((t) => t.id === h) ? (h as Tab) : 'agenda';
-};
-/** Adresse d'un onglet : l'agenda sans rien (« / »), les autres en #onglet. */
-const tabUrl = (t: Tab) => (t === 'agenda' ? `${location.pathname}${location.search}` : `#${t}`);
-
-/**
- * Appli ouverte directement sur un autre onglet que l'agenda (lien, favori, raccourci
- * #messages) : l'agenda est glissé dessous dans l'historique, pour que Retour y mène
- * avant de quitter l'appli. Une fois par chargement de page, pas après un rechargement.
- */
-let historySeeded = false;
-function seedHistory() {
-  if (historySeeded) return;
-  historySeeded = true;
-  const nav = performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined;
-  if (nav?.type !== 'navigate' || history.state !== null) return;
-  const tab = tabFromHash();
-  if (tab === 'agenda') return;
-  history.replaceState(null, '', tabUrl('agenda'));
-  history.pushState(null, '', tabUrl(tab));
-}
-
-/** Caches de session de l'appli (documents, adhésions, libellés, météo, sorties DP, lectures VPDive) : effacés à la déconnexion, le téléphone peut être partagé. */
-const SESSION_CACHE_PREFIXES = ['docs-status:', 'member-record:', 'club-member-v2:', 'my-labels:', 'meteo:', 'dp-events:', PERSIST_PREFIX];
-function clearSessionCaches() {
-  try {
-    const keys: string[] = [];
-    for (let i = 0; i < sessionStorage.length; i++) {
-      const k = sessionStorage.key(i);
-      if (k && SESSION_CACHE_PREFIXES.some((p) => k.startsWith(p))) keys.push(k);
-    }
-    keys.forEach((k) => sessionStorage.removeItem(k));
-    // Listes d'inscrits gardées pour les statistiques (sur l'appareil, d'une session à l'autre).
-    const kept: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k?.startsWith('stats-roster:')) kept.push(k);
-    }
-    kept.forEach((k) => localStorage.removeItem(k));
-  } catch {
-    // Stockage interdit (navigation privée) : rien à effacer.
-  }
-}
-
-/**
- * Sorties où le membre est DP, gardées une heure dans l'onglet pour ne pas relire toutes les listes
- * d'inscrits à chaque visite. Seulement si toutes les listes ont été lues (services/dpEvents.ts).
- */
-const DP_CACHE_TTL = 60 * 60 * 1000;
-const dpCache = sessionCache('dp-events:', DP_CACHE_TTL, isStringArray, { field: 'tokens' });
-const dpCacheKey = (s: Session) => String(s.userId ?? '');
-
-/**
- * « Voir en tant que » (super-admin) : les droits d'un autre membre, simulés
- * dans le navigateur. Son rôle dans l'appli, et les sorties où il est DP
- * (null tant qu'on les cherche, avec l'avancement de la recherche). Le serveur, lui, voit toujours le compte connecté.
- */
-type ViewAs = ViewAsPick & { dpEvents: string[] | null; progress: { done: number; total: number } | null; failed: boolean };
-
 export default function App() {
-  const [session, setSession] = useState<Session | null>(() => vpdive.getSession());
-  /**
-   * Session VPDive perdue en cours d'usage (expirée, révoquée) : le message de la fenêtre
-   * de reconnexion. L'écran reste monté dessous, rien de ce qui était saisi n'est perdu.
-   */
-  const [lost, setLost] = useState<string | null>(null);
-
-  const handleSessionLost = useCallback((e: unknown) => {
-    if (e instanceof SessionExpiredError) {
-      setLost(e.message);
-      return true;
-    }
-    return false;
-  }, []);
-
-  const handleLogout = useCallback(async () => {
-    // D'abord le serveur de l'appli (il lui faut encore la session VPDive), puis VPDive, puis le local.
-    await appApi.logout();
-    vpdive.logout();
-    clearSessionCaches();
-    setLost(null);
-    setSession(null);
-  }, []);
-
-  /** Reconnecté : même membre, l'écran continue avec la nouvelle session ; autre membre, tout repart de zéro. */
-  const handleReconnected = (s: Session) => {
-    if (session && session.userId !== s.userId) clearSessionCaches();
-    setLost(null);
-    setSession(s);
-  };
+  const { session, setSession, lost, onSessionLost, logout, reconnected } = useSessionState();
 
   // Premier lancement, ou après « Se déconnecter » : la page de connexion entière.
   if (!session) return <LoginPage onLoginSuccess={setSession} />;
@@ -196,130 +92,52 @@ export default function App() {
   return (
     <>
       {/* Clé = membre : un autre compte remonte tout de zéro, rien (rôle, menu DP, pastille, « voir en tant que ») ne survit au changement. */}
-      <SignedIn key={String(session.userId ?? session.email)} session={session} onLogout={handleLogout} onSessionLost={handleSessionLost} />
-      {lost && <ReconnectDialog notice={lost} email={session.email} onReconnected={handleReconnected} onLogout={() => void handleLogout()} />}
+      <SignedIn key={String(session.userId ?? session.email)} session={session} onLogout={logout} onSessionLost={onSessionLost} />
+      {lost && <ReconnectDialog notice={lost} email={session.email} onReconnected={reconnected} onLogout={() => void logout()} />}
     </>
   );
 }
 
 /** Tout ce qui dépend d'une session connectée : état, appels VPDive et écran principal. */
 function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { session: Session; onLogout: () => void; onSessionLost: (e: unknown) => boolean }) {
-  const [month, setMonth] = useState<Date>(thisMonth);
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { month, setMonth, events, isLoading, error, loadEvents } = useAgenda(handleSessionLost);
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
   const [panel, setPanel] = useState<'dp' | 'weather' | 'material' | 'members' | 'docs' | 'stats' | null>(null);
   const [dpEvent, setDpEvent] = useState<CalendarEvent | null>(null);
-  const [me, setMe] = useState<Me | null>(null);
-  const [meError, setMeError] = useState<string | null>(null);
-  /** Sorties où le membre connecté est DP (jetons), trouvées en lisant les listes d'inscrits. */
-  const [dpScan, setDpScan] = useState<string[] | null>(null);
-  /** Une liste d'inscrits (ou l'agenda) n'a pas pu être lue : le menu DP propose de réessayer. */
-  const [dpFailed, setDpFailed] = useState(false);
-  const [dpRetry, setDpRetry] = useState(0);
+  const { me, meError, fetchMe, retryMe } = useMe(handleSessionLost);
   /** Photo relue sur VPDive pour les sessions enregistrées avant que la session la garde. */
   const [fetchedPicture, setFetchedPicture] = useState<string | undefined>(undefined);
   // La photo relue (à l’ouverture du profil) passe avant celle gardée dans la session.
   const picture = fetchedPicture ?? session.picture;
-  const [tab, setTabState] = useState<Tab>(tabFromHash);
-  const [unread, setUnread] = useState(0);
-  const [viewAs, setViewAs] = useState<ViewAs | null>(null);
-  const viewAsId = useRef(0);
-  const loadId = useRef(0);
+  const { tab, goTo } = useTab();
+  const { unread, refreshUnread } = useUnread(handleSessionLost);
+  const {
+    viewAs,
+    start: startViewAs,
+    stop: stopViewAs,
+    retry: retryViewAs,
+  } = useViewAs(handleSessionLost, () => {
+    setActiveEvent(null);
+    setPanel(null);
+  });
   // Rôle dans l'appli, décidé par le serveur (server/handler.ts) : super-admin,
   // admin (admin VPDive dont le rôle n'a pas été retiré) ou membre.
   const realRole = me?.role ?? 'member';
   const role = viewAs?.role ?? realRole;
   const isAdmin = role === 'admin' || role === 'superadmin';
-  const dpKey = dpCacheKey(session);
-  // Sorties DP gardées une heure dans l'onglet : pas de relecture des listes d'inscrits à chaque visite.
-  const cachedDp = useMemo(() => (me?.role === 'member' ? dpCache.read(dpKey) : null), [me?.role, dpKey]);
+  const dp = useDpEvents(session, me?.role === 'member', handleSessionLost);
   /** Sorties où le membre connecté est DP (jetons) ; null tant qu'on ne les connaît pas (ou pas membre simple). */
-  const dpEvents = dpScan ?? cachedDp;
-  const isDp = (dpEvents?.length ?? 0) > 0;
+  const dpEvents = dp.dpEvents;
+  const isDp = dp.isDp;
   const canDp = isAdmin || (viewAs ? (viewAs.dpEvents?.length ?? 0) > 0 : isDp);
   /** Recherche des sorties DP incomplète (simple membre, ou membre vu « en tant que ») : à réessayer. */
-  const dpUnchecked = viewAs ? viewAs.role === 'member' && viewAs.failed : me?.role === 'member' && dpFailed;
-
-  /** `fresh` : relecture demandée (bouton Actualiser), sans le cache court du transport. */
-  const loadEvents = useCallback(async (fresh = false) => {
-    const id = ++loadId.current; // ignore answers for a month the member already left
-    const [start, end] = gridRange(month);
-    setIsLoading(true);
-    setError(null);
-    try {
-      const list = await vpdive.fetchEvents(ymd(start), ymd(end), { fresh, priority: 'high' });
-      if (id === loadId.current) setEvents(list);
-    } catch (e) {
-      if (id !== loadId.current || handleSessionLost(e)) return;
-      setEvents([]);
-      setError(message(e));
-    } finally {
-      if (id === loadId.current) setIsLoading(false);
-    }
-  }, [month, handleSessionLost]);
+  const dpUnchecked = viewAs ? viewAs.role === 'member' && viewAs.failed : dp.failed;
+  /** « Réessayer » la recherche des sorties DP : la sienne, ou celle du membre vu « en tant que ». */
+  const retryDp = () => (viewAs ? retryViewAs() : dp.retry());
 
   // Les autres écrans arrivent en tâche de fond, une fois l'agenda affiché : ceux que le rôle
   // permet d'ouvrir (l'administration et le menu DP seulement pour qui y a accès).
   useEffect(() => preloadScreens(screensFor(realRole, isDp)), [realRole, isDp]);
-
-  useEffect(() => {
-    // Nouveau mois : l'indicateur de chargement s'allume tout de suite, c'est voulu.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadEvents();
-  }, [loadEvents]);
-
-  // Rôle relu à chaque visite (la session VPDive dure 30 jours, les rôles peuvent changer entre-temps).
-  const fetchMe = useCallback(() => {
-    appApi.me().then(
-      (m) => {
-        setMe(m);
-        setMeError(null);
-      },
-      (e) => {
-        if (handleSessionLost(e)) return;
-        console.warn('Rôle dans l’appli non lu :', e);
-        // Autre erreur qu'une session perdue : la messagerie propose de réessayer au lieu de charger sans fin.
-        setMeError(message(e));
-      },
-    );
-  }, [handleSessionLost]);
-  useEffect(() => {
-    fetchMe();
-  }, [fetchMe]);
-  const retryMe = () => {
-    setMeError(null);
-    fetchMe();
-  };
-
-  // Un membre qui n'est pas admin a le menu DP s'il est directeur de plongée
-  // d'une sortie où il est inscrit (même fenêtre que le menu DP : 14 jours en arrière, 60 en avant).
-  const userId = session.userId;
-  const isMember = me?.role === 'member';
-  useEffect(() => {
-    if (!isMember || cachedDp) return;
-    const key = dpKey;
-    let cancelled = false;
-    (async () => {
-      const [from, to] = dpWindow();
-      const mine = (await vpdive.fetchEvents(from, to)).filter((e) => e.registered);
-      // Toutes ses sorties comme DP (le menu DP en a besoin), listes lues une à une.
-      const scan = await findDpEvents(mine, (r) => r.id === String(userId), { cancelled: () => cancelled });
-      if (!scan) return;
-      // Gardé une heure seulement si toutes les listes ont été lues : un échec n'est pas un « pas DP ».
-      if (scan.complete) dpCache.write(key, scan.tokens);
-      setDpScan(scan.tokens);
-      setDpFailed(!scan.complete);
-    })().catch((e) => {
-      if (handleSessionLost(e) || cancelled) return;
-      console.warn('Rôle DP non vérifié :', e);
-      setDpFailed(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isMember, cachedDp, dpKey, userId, handleSessionLost, dpRetry]);
 
   // Photo du compte : les sessions enregistrées avant ce champ la relisent une fois sur VPDive.
   const sessionPicture = session.picture;
@@ -327,71 +145,6 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
     if (sessionPicture !== undefined) return;
     vpdive.refreshPicture().then(setFetchedPicture, (e) => handleSessionLost(e) || console.warn('Photo non lue :', e));
   }, [sessionPicture, handleSessionLost]);
-
-  /** Voir le site avec les droits d'un membre : son rôle, puis les sorties où VPDive l'inscrit DP (même fenêtre que le menu DP). */
-  const startViewAs = useCallback(
-    async (pick: ViewAsPick) => {
-      const id = ++viewAsId.current;
-      setActiveEvent(null);
-      setPanel(null);
-      // Admin simulé : le menu DP lui est acquis, inutile de lire une seule liste d'inscrits.
-      if (pick.role !== 'member') return setViewAs({ ...pick, dpEvents: [], progress: null, failed: false });
-      setViewAs({ ...pick, dpEvents: null, progress: null, failed: false });
-      const update = (patch: Partial<ViewAs>) => {
-        if (id === viewAsId.current) setViewAs((v) => (v && v.uct === pick.uct ? { ...v, ...patch } : v));
-      };
-      try {
-        const [from, to] = dpWindow();
-        // Seulement les sorties qui ont des inscrits, une liste à la fois : le pare-feu VPDive bloque les rafales.
-        const list = (await vpdive.fetchEvents(from, to)).filter((e) => e.registeredCount > 0);
-        const scan = await findDpEvents(list, (r) => sameName(r.name, pick.name), {
-          onProgress: (done, total) => update({ progress: { done, total } }),
-          cancelled: () => id !== viewAsId.current,
-        });
-        if (scan) update({ dpEvents: scan.tokens, progress: null, failed: !scan.complete });
-      } catch (e) {
-        if (handleSessionLost(e)) return;
-        update({ dpEvents: [], progress: null, failed: true });
-      }
-    },
-    [handleSessionLost],
-  );
-  /** « Réessayer » la recherche des sorties DP : la sienne, ou celle du membre vu « en tant que ». */
-  const retryDp = () => {
-    if (viewAs) {
-      const { dpEvents: _, progress: __, failed: ___, ...pick } = viewAs;
-      void startViewAs(pick);
-      return;
-    }
-    setDpFailed(false);
-    setDpRetry((n) => n + 1);
-  };
-  const stopViewAs = () => {
-    viewAsId.current++;
-    setViewAs(null);
-    setActiveEvent(null);
-    setPanel(null);
-  };
-
-  // Retour / Suivant du téléphone ou du navigateur, lien #onglet : l'onglet suit l'adresse.
-  useEffect(() => {
-    seedHistory();
-    const onNav = () => setTabState(tabFromHash());
-    window.addEventListener('hashchange', onNav);
-    window.addEventListener('popstate', onNav);
-    return () => {
-      window.removeEventListener('hashchange', onNav);
-      window.removeEventListener('popstate', onNav);
-    };
-  }, []);
-  /** Autre onglet : une entrée d'historique de plus, que Retour défera. */
-  const goTo = (t: Tab) => {
-    if (t !== tab) {
-      history.pushState(null, '', tabUrl(t));
-      setTabState(t);
-    }
-    window.scrollTo({ top: 0 });
-  };
 
   // Après une reconnexion (fenêtre ReconnectDialog), ce qui avait échoué faute de session est relu.
   const tokenSeen = useRef(session.token);
@@ -401,28 +154,6 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
     void loadEvents();
     fetchMe();
   }, [session.token, loadEvents, fetchMe]);
-
-  // Pastille de la messagerie (celle de VPDive) : conversations non lues, relues toutes les minutes.
-  const refreshUnread = useCallback(() => {
-    if (!vpdive.getSession()) return;
-    // Session perdue pendant la relecture : retour à la connexion, pas une pastille à zéro en silence.
-    messaging.unread().then(setUnread, (e) => {
-      if (!handleSessionLost(e)) setUnread(0);
-    });
-  }, [handleSessionLost]);
-  useEffect(() => {
-    // Onglet caché : pas de relecture (pare-feu VPDive) ; relue dès le retour au premier plan.
-    const tick = () => {
-      if (!document.hidden) refreshUnread();
-    };
-    tick();
-    const id = window.setInterval(tick, 60_000);
-    document.addEventListener('visibilitychange', tick);
-    return () => {
-      window.clearInterval(id);
-      document.removeEventListener('visibilitychange', tick);
-    };
-  }, [refreshUnread]);
 
   const displayName = `${session.firstName} ${session.lastName}`.trim() || session.email;
   const connected = !error && !isLoading;
