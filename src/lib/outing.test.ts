@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addedMemberId, adoptRegistrations, dayParticipants, defaultRoles, guestEntry, memberEntry, headerFromRoles, newGuest, normalizeOuting, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
+import { addedMemberId, adoptRegistrations, companionByComment, divingIds, mustBePlaced, parseDepth, pruneOrphans, sameContent, setGuideNote, toggleCompanion, dayParticipants, defaultRoles, guestEntry, memberEntry, headerFromRoles, newGuest, normalizeOuting, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
 import { aptitudesFromLabels, type Diver } from './palanquees';
 import type { RosterEntry } from '../services/vpdiveApi';
 
@@ -78,8 +78,9 @@ const outing = (): OutingDoc => ({
 
 test('désinscrits : retirés des palanquées, des rôles et des postes ; la palanquée sans encadrant reste, la plongée touchée est dévalidée', () => {
   const roster = [person('a'), person('b'), person('c'), person('x'), person('gone4', [], true)];
-  const { doc, departed } = syncWithRoster(outing(), roster);
-  assert.deepEqual(departed.sort(), ['Nom gone1', 'Nom gone2', 'Nom gone3', 'Nom gone4']);
+  const { doc, departed, waitlisted } = syncWithRoster(outing(), roster);
+  assert.deepEqual(departed.sort(), ['Nom gone1', 'Nom gone2', 'Nom gone3']);
+  assert.deepEqual(waitlisted, ['Nom gone4'], 'passé en liste d’attente : dit à part, pas « désinscrit »');
   const d1 = doc.dives[0]!;
   assert.equal(d1.validated, null, 'composition changée : fiche à refaire');
   assert.deepEqual(d1.plan!.palanquees.map((p) => [p.id, p.guide?.id ?? null, p.members.map((m) => m.id)]), [
@@ -100,6 +101,7 @@ test('désinscrits : rien à faire quand tout le monde est là (même objet, rie
   const before = outing();
   before.settings.excluded = ['x'];
   const roster = ['a', 'b', 'c', 'x', 'gone1', 'gone2', 'gone3', 'gone4'].map((id) => person(id));
+  before.settings.seen = roster.map((r) => r.id);
   const { doc, departed } = syncWithRoster(before, roster);
   assert.deepEqual(departed, []);
   assert.equal(doc, before, 'même objet : rien à enregistrer');
@@ -174,4 +176,60 @@ test('membre ajouté sans inscription : dans la liste, puis remplacé par son in
   assert.deepEqual(adopted.settings.excluded, ['42']);
   assert.deepEqual(adopted.members, []);
   assert.equal(adoptRegistrations(doc, []), doc, 'pas inscrit : inchangé');
+});
+
+test('nouvel inscrit après la création : pilote, sécurité surface ou accompagnant décochés ; les autres cochés ; fiche ancienne sans « seen »', () => {
+  const doc: OutingDoc = { ...outing(), dives: [], roles: {}, volunteers: {} };
+  doc.settings = { excluded: [], seen: ['a'] };
+  const companion = { ...person('acc'), comment: 'Un accompagnant non plongeur' };
+  const roster = [person('a'), person('pil', ['Pilote']), person('sec', ['Sécurité surface']), person('dp', ['Directeur de plongée']), companion, person('new')];
+  const { doc: synced } = syncWithRoster(doc, roster);
+  assert.deepEqual(synced.settings.excluded.sort(), ['acc', 'pil', 'sec']);
+  assert.deepEqual(synced.settings.companions, ['acc']);
+  assert.deepEqual(synced.settings.seen, ['a', 'pil', 'sec', 'dp', 'acc', 'new']);
+  // Le DP coche le pilote : à la synchronisation suivante, il n'est plus nouveau, il reste coché.
+  const checked = { ...synced, settings: toggleDiving(synced.settings, 'pil', true) };
+  assert.equal(syncWithRoster(checked, roster).doc, checked, 'rien de nouveau : même objet');
+  // Fiche enregistrée avant « seen » : personne n'est nouveau, on retient la liste.
+  const legacy: OutingDoc = { ...doc, settings: { excluded: [] } };
+  const fromLegacy = syncWithRoster(legacy, roster).doc;
+  assert.deepEqual(fromLegacy.settings.excluded, []);
+  assert.deepEqual(fromLegacy.settings.seen, roster.map((r) => r.id));
+});
+
+test('accompagnant : désigné il est décoché ; coché, il redevient plongeur ; à placer : ni rôle ni accompagnant', () => {
+  let s = toggleCompanion({ excluded: [] }, 'a', true);
+  assert.deepEqual(s, { excluded: ['a'], companions: ['a'] });
+  s = toggleDiving(s, 'a', true);
+  assert.deepEqual(s, { excluded: [], companions: [] });
+  const settings = { excluded: [], companions: ['acc'] };
+  const unplaced = [{ id: 'dp' }, { id: 'acc' }, { id: 'x' }, { id: 'pil' }];
+  assert.deepEqual(mustBePlaced(unplaced, { dp: ['dp'], pilote: ['pil'] }, settings).map((d) => d.id), ['x']);
+  assert.ok(companionByComment({ comment: 'Accompagnante, ne plonge pas' }));
+  assert.ok(companionByComment({ comment: 'non-plongeur' }));
+  assert.ok(!companionByComment({ comment: 'Binôme souhaité : Jean' }));
+});
+
+test('fiches et commentaires orphelins retirés ; commentaire d’encadrant ; profondeur saisie', () => {
+  const d = outing().dives[0]!;
+  const noted = setGuideNote(d, 'p1', '  stagiaire MF1  ', 'Hélène', '2026-10-09T10:00:00Z');
+  assert.deepEqual(noted.notes, { p1: { text: 'stagiaire MF1', by: 'Hélène', at: '2026-10-09T10:00:00Z' } });
+  assert.deepEqual(setGuideNote(noted, 'p1', ' ', 'Hélène').notes, {}, 'texte vide : effacé');
+  assert.equal(pruneOrphans(noted), noted, 'rien d’orphelin : même objet');
+  const redone = pruneOrphans({ ...noted, notes: { ...noted.notes, old: { text: 'x', by: '', at: '' } }, plan: { palanquees: [noted.plan!.palanquees[0]!], unassigned: [] } });
+  assert.deepEqual(Object.keys(redone.sheets), ['p1']);
+  assert.deepEqual(Object.keys(redone.notes!), ['p1']);
+  assert.equal(parseDepth('25'), 25);
+  assert.equal(parseDepth('18,5 m'), 18.5);
+  assert.equal(parseDepth(''), undefined);
+  assert.equal(parseDepth('m'), undefined);
+});
+
+test('qui plonge réellement : les placés s’il y a une composition, sinon les cochés ; même contenu sans la révision', () => {
+  const doc = outing();
+  assert.deepEqual([...divingIds(doc, [])].sort(), ['a', 'b', 'c', 'gone1', 'gone2', 'gone3']);
+  const noPlan: OutingDoc = { ...doc, dives: [{ ...doc.dives[0]!, plan: null }] };
+  assert.deepEqual([...divingIds(noPlan, [person('a'), person('x'), person('w', [], true)])], ['a'], 'x décoché, w en liste d’attente');
+  assert.ok(sameContent(doc, { ...doc, rev: 4, updatedAt: 'hier', updatedBy: 'Lucas' }));
+  assert.ok(!sameContent(doc, { ...doc, header: { ...doc.header, lieu: 'Riou' } }));
 });

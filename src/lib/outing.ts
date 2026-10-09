@@ -30,6 +30,15 @@ export interface Dive {
   sheets: Record<string, PalanqueeSheet>;
   /** id de plongeur → gaz (vide = air) */
   gas: Record<string, string>;
+  /** id de palanquée → commentaire libre à côté de l'encadrant (qui, quand). Absent sur les sorties enregistrées avant. */
+  notes?: Record<string, GuideNote>;
+}
+
+/** Commentaire sur l'encadrant d'une palanquée : le texte, qui l'a écrit et quand (posés par le serveur). */
+export interface GuideNote {
+  text: string;
+  by: string;
+  at: string;
 }
 
 export interface SafetyHeader {
@@ -50,7 +59,17 @@ export interface OutingDoc {
   rev?: number;
   updatedAt?: string;
   updatedBy?: string;
-  settings: DiverSettings & { excluded: string[] };
+  settings: DiverSettings & {
+    excluded: string[];
+    /** Accompagnants : à bord, ne plongent pas (désignés par le DP, ou « accompagnant » dans leur message d'inscription). */
+    companions?: string[];
+    /**
+     * Inscrits déjà vus par la fiche : un inscrit arrivé depuis reçoit les choix
+     * par défaut d'un nouvel inscrit (pilote, sécurité surface, accompagnant :
+     * décochés). Absent sur les sorties enregistrées avant : personne n'est nouveau.
+     */
+    seen?: string[];
+  };
   header: SafetyHeader;
   dives: Dive[];
   /** Bénévoles de la sortie : id de poste → inscrits (2 au plus). Absent sur les sorties enregistrées avant. */
@@ -250,10 +269,41 @@ export function outOfWater(roster: RosterEntry[], settings: OutingDoc['settings'
   return new Set([...settings.excluded, ...roster.filter((r) => r.waitingList).map((r) => r.id)]);
 }
 
-/** Coche ou décoche un inscrit dans « Qui plonge ? ». */
+/** Coche ou décoche un inscrit dans « Qui plonge ? ». Cocher un accompagnant en fait un plongeur. */
 export function toggleDiving(settings: OutingDoc['settings'], id: string, diving: boolean): OutingDoc['settings'] {
   const excluded = settings.excluded.filter((x) => x !== id);
-  return { ...settings, excluded: diving ? excluded : [...excluded, id] };
+  const companions = diving && settings.companions?.includes(id) ? { companions: settings.companions.filter((x) => x !== id) } : {};
+  return { ...settings, ...companions, excluded: diving ? excluded : [...excluded, id] };
+}
+
+/** Message d'inscription d'un accompagnant (« Un accompagnant non plongeur ») : VPDive n'a pas de statut pour cela. */
+const COMPANION_COMMENT = /accompagn|non[- ]?plongeu/i;
+export const companionByComment = (r: Pick<RosterEntry, 'comment'>) => COMPANION_COMMENT.test(r.comment);
+
+/**
+ * Accompagnant ou non : un accompagnant est à bord sans plonger. Le désigner le
+ * décoche ; le retirer le laisse décoché (le DP le coche s'il plonge).
+ */
+export function toggleCompanion(settings: OutingDoc['settings'], id: string, companion: boolean): OutingDoc['settings'] {
+  const companions = (settings.companions ?? []).filter((x) => x !== id);
+  if (!companion) return { ...settings, companions };
+  return { ...settings, companions: [...companions, id], excluded: settings.excluded.includes(id) ? settings.excluded : [...settings.excluded, id] };
+}
+
+/**
+ * Hors de l'eau par défaut, pour un nouvel inscrit : liste d'attente, pilote ou
+ * sécurité surface seulement, accompagnant d'après son message.
+ */
+const outByDefault = (r: RosterEntry) => r.waitingList || (r.roles.length > 0 && r.roles.every((x) => SURFACE_ROLES.test(x))) || companionByComment(r);
+
+/**
+ * Ceux qui plongent sans être dans aucune palanquée et qu'il faut placer avant
+ * de valider : tous, sauf ceux qui ont un rôle de la sortie (DP, pilote,
+ * sécurité surface : ils peuvent rester à bord) et les accompagnants.
+ */
+export function mustBePlaced<T extends { id: string }>(unplaced: T[], roles: Roles, settings: OutingDoc['settings']): T[] {
+  const companions = new Set(settings.companions ?? []);
+  return unplaced.filter((d) => !companions.has(d.id) && rolesOf(roles, d.id).length === 0);
 }
 
 /**
@@ -290,7 +340,9 @@ export function newOuting(event: CalendarEvent, roster: RosterEntry[], clubName:
     settings: {
       levels: {},
       training: {},
-      excluded: roster.filter((r) => r.waitingList || (r.roles.length > 0 && r.roles.every((x) => SURFACE_ROLES.test(x)))).map((r) => r.id),
+      excluded: roster.filter(outByDefault).map((r) => r.id),
+      companions: roster.filter((r) => !r.waitingList && companionByComment(r)).map((r) => r.id),
+      seen: roster.map((r) => r.id),
     },
     header: {
       etablissement: clubName,
@@ -336,19 +388,33 @@ export function nextDive(doc: OutingDoc): Dive {
  * qui perd son encadrant garde ses plongeurs, désormais sans encadrant (« À
  * revoir ») ; une palanquée vidée disparaît. Une plongée validée dont la
  * composition change est dévalidée : sa fiche de sécurité n'est plus juste.
- * `departed` : les désinscrits retirés d'une composition, pour le dire au DP.
- * Rien ne change : les mêmes plongées (même objet) sont rendues.
+ * Un inscrit arrivé depuis la dernière fois (`settings.seen`) reçoit les choix
+ * d'un nouvel inscrit : pilote, sécurité surface ou accompagnant, il est décoché.
+ * `departed` : les désinscrits retirés d'une composition, `waitlisted` ceux
+ * passés en liste d'attente, pour le dire au DP.
+ * Rien ne change : le même objet est rendu.
  */
-export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: OutingDoc; departed: string[] } {
+export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: OutingDoc; departed: string[]; waitlisted: string[] } {
   const present = new Set(dayParticipants(roster).map((r) => r.id));
   const listed = new Set(roster.map((r) => r.id));
-  const excluded = outOfWater(roster, doc.settings);
+  // Nouveaux inscrits : décochés s'ils ne plongent pas d'ordinaire, comme à la création de la fiche.
+  const seenBefore = doc.settings.seen ? new Set(doc.settings.seen) : null;
+  const newcomers = seenBefore ? roster.filter((r) => !seenBefore.has(r.id)) : [];
+  const newOut = newcomers.filter((r) => outByDefault(r) && !doc.settings.excluded.includes(r.id)).map((r) => r.id);
+  const newCompanions = newcomers.filter((r) => !r.waitingList && companionByComment(r) && !doc.settings.companions?.includes(r.id)).map((r) => r.id);
+  const settingsIn =
+    newOut.length || newCompanions.length
+      ? { ...doc.settings, excluded: [...doc.settings.excluded, ...newOut], companions: [...(doc.settings.companions ?? []), ...newCompanions] }
+      : doc.settings;
+  const excluded = outOfWater(roster, settingsIn);
   const gone = new Map<string, string>();
+  const waiting = new Map<string, string>();
   let moved = 0;
   const keep = <T extends Diver | null>(d: T): T => {
     if (!d) return d;
     if (!present.has(d.id)) {
-      gone.set(d.id, d.name);
+      // Encore dans la liste mais plus inscrit : passé en liste d'attente, pas désinscrit.
+      (listed.has(d.id) ? waiting : gone).set(d.id, d.name);
       return null as T;
     }
     if (excluded.has(d.id)) {
@@ -362,16 +428,14 @@ export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: Ou
   const dives = doc.dives.map((dive) => {
     const gas = Object.fromEntries(Object.entries(dive.gas).filter(([id]) => present.has(id) && !excluded.has(id)));
     if (!dive.plan) return Object.keys(gas).length === Object.keys(dive.gas).length ? dive : { ...dive, gas };
-    const before = gone.size + moved;
+    const before = gone.size + waiting.size + moved;
     const palanquees = dive.plan.palanquees
       .map((p) => ({ ...p, guide: keep(p.guide), extra: keep(p.extra), members: p.members.filter((m) => keep(m) !== null) }))
       .filter((p) => p.guide || p.extra || p.members.length > 0);
     const unassigned = dive.plan.unassigned.filter((u) => keep(u.diver) !== null);
-    const changed = gone.size + moved > before || palanquees.length !== dive.plan.palanquees.length;
+    const changed = gone.size + waiting.size + moved > before || palanquees.length !== dive.plan.palanquees.length;
     if (!changed) return Object.keys(gas).length === Object.keys(dive.gas).length ? dive : { ...dive, gas };
-    const kept = new Set(palanquees.map((p) => p.id));
-    const sheets = Object.fromEntries(Object.entries(dive.sheets).filter(([id]) => kept.has(id)));
-    return { ...dive, plan: { palanquees, unassigned }, validated: null, sheets, gas };
+    return pruneOrphans({ ...dive, plan: { palanquees, unassigned }, validated: null, gas });
   });
 
   const roles: Roles = {};
@@ -385,18 +449,94 @@ export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: Ou
     if (ids?.length) volunteers[id] = ids;
   }
 
-  const unchanged = dives.every((d, i) => d === doc.dives[i]) && sameIds(roles, doc.roles) && sameIds(volunteers, doc.volunteers) && doc.settings.excluded.every((id) => listed.has(id));
-  if (unchanged) return { doc, departed: [] };
+  // Ce que la fiche a vu : la liste actuelle (un désinscrit qui revient redevient un nouvel inscrit).
+  const seen = roster.map((r) => r.id);
+  const sameSeen = !!seenBefore && seenBefore.size === seen.length && seen.every((id) => seenBefore.has(id));
+  const unchanged =
+    settingsIn === doc.settings &&
+    sameSeen &&
+    dives.every((d, i) => d === doc.dives[i]) &&
+    sameIds(roles, doc.roles) &&
+    sameIds(volunteers, doc.volunteers) &&
+    doc.settings.excluded.every((id) => listed.has(id)) &&
+    (doc.settings.companions ?? []).every((id) => listed.has(id));
+  if (unchanged) return { doc, departed: [], waitlisted: [] };
   return {
     doc: {
       ...doc,
-      settings: { ...doc.settings, excluded: doc.settings.excluded.filter((id) => listed.has(id)) },
+      settings: {
+        ...settingsIn,
+        excluded: settingsIn.excluded.filter((id) => listed.has(id)),
+        ...(settingsIn.companions ? { companions: settingsIn.companions.filter((id) => listed.has(id)) } : {}),
+        seen,
+      },
       dives,
       ...(doc.roles ? { roles } : {}),
       ...(doc.volunteers ? { volunteers } : {}),
     },
     departed: [...new Set(gone.values())],
+    waitlisted: [...new Set(waiting.values())],
   };
+}
+
+/**
+ * Fiches de palanquée (paramètres) et commentaires d'encadrant qui ne
+ * correspondent plus à aucune palanquée de la plongée (palanquées refaites ou
+ * supprimées) : retirés. Rien à retirer : la même plongée est rendue.
+ */
+export function pruneOrphans(dive: Dive): Dive {
+  const ids = new Set(dive.plan?.palanquees.map((p) => p.id) ?? []);
+  const orphan = (rec: Record<string, unknown> | undefined) => Object.keys(rec ?? {}).some((id) => !ids.has(id));
+  if (!orphan(dive.sheets) && !orphan(dive.notes)) return dive;
+  const keep = <T,>(rec: Record<string, T>) => Object.fromEntries(Object.entries(rec).filter(([id]) => ids.has(id)));
+  return { ...dive, sheets: keep(dive.sheets), ...(dive.notes ? { notes: keep(dive.notes) } : {}) };
+}
+
+/** Écrit (ou efface, avec un texte vide) le commentaire sur l'encadrant d'une palanquée. */
+export function setGuideNote(dive: Dive, palanqueeId: string, text: string, by: string, at = new Date().toISOString()): Dive {
+  const notes = { ...(dive.notes ?? {}) };
+  const clean = text.trim().slice(0, 500);
+  if (clean) notes[palanqueeId] = { text: clean, by, at };
+  else delete notes[palanqueeId];
+  return { ...dive, notes };
+}
+
+/** Profondeur saisie sur la fiche (« 25 », « 25 m », « 18,5 ») → mètres ; undefined si rien de lisible. */
+export function parseDepth(text: string): number | undefined {
+  const m = /\d+(?:[.,]\d+)?/.exec(text);
+  const n = m ? Number(m[0].replace(',', '.')) : NaN;
+  return n > 0 ? n : undefined;
+}
+
+/**
+ * Qui plonge réellement : les plongeurs placés dans les palanquées d'au moins
+ * une plongée ; sans composition encore, ceux qui sont cochés « plonge ».
+ * `roster` : la liste telle que l'écran DP la lit (withGuests).
+ */
+export function divingIds(doc: OutingDoc, roster: RosterEntry[]): Set<string> {
+  const plans = doc.dives.map((d) => d.plan).filter((p): p is Plan => !!p && p.palanquees.length > 0);
+  if (plans.length) {
+    return new Set(plans.flatMap((p) => p.palanquees.flatMap((x) => [x.guide, x.extra, ...x.members])).filter((d): d is Diver => !!d).map((d) => d.id));
+  }
+  const out = outOfWater(roster, doc.settings);
+  return new Set(roster.filter((r) => !out.has(r.id)).map((r) => r.id));
+}
+
+/** Même contenu de fiche, sans compter la révision ni qui l'a enregistrée (pour un brouillon déjà parti). */
+export function sameContent(a: OutingDoc, b: OutingDoc): boolean {
+  const stable = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(stable);
+    if (!v || typeof v !== 'object') return v;
+    const o = v as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(o)
+        .filter((k) => o[k] !== undefined)
+        .sort()
+        .map((k) => [k, stable(o[k])]),
+    );
+  };
+  const strip = ({ rev: _r, updatedAt: _a, updatedBy: _b, ...rest }: OutingDoc) => rest;
+  return JSON.stringify(stable(strip(a))) === JSON.stringify(stable(strip(b)));
 }
 
 /** Mêmes identifiants par clé (les clés vides comptent comme absentes). */
