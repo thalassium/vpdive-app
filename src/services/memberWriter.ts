@@ -44,6 +44,8 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
   const done: string[] = [];
   /** Au moins un envoi a changé la fiche. */
   let wrote = false;
+  /** Le bloc en cours d'envoi, pour dire lequel VPDive a refusé. */
+  let current = '';
   let before: ReturnType<typeof snapshot> | null = null;
   let after: VpRecord | undefined;
   let result: WriteResult;
@@ -111,7 +113,9 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
     for (const b of blocks) {
       if (b.kind === 'licence' && refreshed) continue;
       const entries = b.entries();
+      current = KIND_LABEL[b.kind] ?? b.kind;
       await vpdive.updateMember(uct, entries, PACE);
+      current = '';
       wrote = true;
       done.push(KIND_LABEL[b.kind] ?? b.kind);
     }
@@ -131,7 +135,8 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
       }
       throw e;
     }
-    result = { ok: false, message: wrote ? `Écrit en partie (${done.join(', ')}), puis : ${message(e)}` : `Rien écrit : ${message(e)}`, ...(after ? { after } : {}) };
+    const refused = current ? `bloc « ${current} » refusé par VPDive : ${message(e)}` : message(e);
+    result = { ok: false, message: wrote ? `Écrit en partie (${done.join(', ')}), puis : ${refused}` : `Rien écrit : ${refused}`, ...(after ? { after } : {}) };
   }
 
   // Le journal garde la fiche d'avant : sans lui, on ne continue pas le lot.

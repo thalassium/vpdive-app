@@ -130,6 +130,25 @@ interface Job {
 
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Json) : null);
+
+/**
+ * Détail des erreurs de formulaire VPDive, quelle que soit leur forme : tableau
+ * de chaînes, tableau de {field, message}, ou objet { champ: message | [messages] }.
+ */
+export function formErrors(errors: unknown): string[] {
+  const one = (x: unknown): string => (typeof x === 'string' ? x : Array.isArray(x) ? x.map(one).filter(Boolean).join(', ') : '');
+  if (Array.isArray(errors)) {
+    return errors
+      .map((x) => {
+        if (typeof x === 'string') return x;
+        const o = obj(x);
+        return o ? [str(o.field), str(o.message) || one(o.messages)].filter(Boolean).join(' : ') : '';
+      })
+      .filter(Boolean);
+  }
+  const o = obj(errors);
+  return o ? Object.entries(o).map(([field, v]) => [field, one(v) || str(obj(v)?.message)].filter(Boolean).join(' : ')).filter(Boolean) : [];
+}
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const num = (v: unknown): number | null => {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
@@ -417,11 +436,7 @@ export class Transport {
       const base = str(r?.message) || str(r?.error) || `Erreur VPDive (HTTP ${status})`;
       // 400 responses list what is missing in `errors` (codehelp/docapi.txt).
       // Les formulaires de fiche répondent `errors: [{field, message}]`.
-      const details = Array.isArray(r?.errors)
-        ? r.errors
-            .map((x) => (typeof x === 'string' ? x : obj(x) ? [str(obj(x)!.field), str(obj(x)!.message)].filter(Boolean).join(' : ') : ''))
-            .filter(Boolean)
-        : [];
+      const details = formErrors(r?.errors);
       throw new VpDiveError(details.length ? `${base} : ${details.join(', ')}` : base, status);
     }
     if (data === null) {

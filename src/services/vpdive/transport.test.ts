@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GAP_MS, Transport, isAborted, isNetwork, isRateLimited, isSessionLost, isUnavailable, type Auth } from './transport';
+import { GAP_MS, Transport, formErrors, isAborted, isNetwork, isRateLimited, isSessionLost, isUnavailable, type Auth } from './transport';
 
 /**
  * Banc d'essai : horloge simulée (les pauses avancent l'horloge sans attendre),
@@ -282,4 +282,11 @@ test('lecture gardée dans l’onglet (persist) : relue par une autre instance d
   // Tout oublier (déconnexion) vide aussi l'onglet.
   b.transport.clear();
   assert.equal(storage.length, 0);
+});
+
+test('erreurs de formulaire VPDive : toutes les formes donnent le champ et le message', () => {
+  assert.deepEqual(formErrors([{ field: 'insurance_year', message: 'Cette valeur n’est pas valide.' }]), ['insurance_year : Cette valeur n’est pas valide.']);
+  assert.deepEqual(formErrors({ email: ['Adresse invalide.'], civility: 'Choix invalide.' }), ['email : Adresse invalide.', 'civility : Choix invalide.']);
+  assert.deepEqual(formErrors(['Champ manquant']), ['Champ manquant']);
+  assert.deepEqual(formErrors(null), []);
 });
