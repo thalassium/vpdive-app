@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { dayWeather, metres, type DayWeather, type Slot } from '../lib/marine';
-import { listDaysOf } from '../lib/agenda';
+import { gridRange, listDaysOf } from '../lib/agenda';
 import { ChevronLeft, ChevronRight, Wind, RefreshCw, AlertCircle, Check } from 'lucide-react';
 import { ymd, type CalendarEvent } from '../services/vpdiveApi';
 import { SPOTS, forecastAt } from '../services/marineWeather';
@@ -15,17 +15,6 @@ interface Props {
   error: string | null;
   onRefresh: () => void;
   onOpenEvent: (ev: CalendarEvent) => void;
-}
-
-/** Visible grid for a month, Monday first: [first day shown, last day shown]. */
-export function gridRange(month: Date): [Date, Date] {
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const start = new Date(first);
-  start.setDate(1 - ((first.getDay() + 6) % 7));
-  const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-  const end = new Date(last);
-  end.setDate(last.getDate() + ((7 - ((last.getDay() + 6) % 7) - 1) % 7));
-  return [start, end];
 }
 
 const eventDay = (ev: CalendarEvent) => ymd(new Date(ev.start));
@@ -127,14 +116,17 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
   }, [month, m]);
 
   // Jour montré sous la grille sur téléphone : aujourd'hui s'il est dans le mois, sinon la première sortie du mois.
-  useEffect(() => {
+  // Revu quand le mois, les sorties ou la date changent : pendant le rendu, d'après ce qu'avait vu le rendu précédent.
+  const [dayFor, setDayFor] = useState<{ year: number; m: number; byDay: Record<string, CalendarEvent[]>; today: string } | null>(null);
+  if (!dayFor || dayFor.year !== year || dayFor.m !== m || dayFor.byDay !== byDay || dayFor.today !== todayStr) {
+    setDayFor({ year, m, byDay, today: todayStr });
     const visible = (d: string) => Number(d.slice(5, 7)) - 1 === m && Number(d.slice(0, 4)) === year;
     setSelectedDay((cur) => {
       if (cur && visible(cur)) return cur;
       if (visible(todayStr)) return todayStr;
       return Object.keys(byDay).filter(visible).sort()[0] ?? null;
     });
-  }, [m, year, byDay, todayStr]);
+  }
 
   // Current month: the list starts the day before (older outings are history); other months show in full.
   const isCurrentMonth = inMonth(todayStr);

@@ -29,24 +29,28 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
   const [listError, setListError] = useState<string | null>(null);
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
 
-  const loadList = useCallback(async () => {
-    setListError(null);
-    setEvents(null);
-    try {
-      const from = new Date();
-      from.setDate(from.getDate() - 7);
-      const to = new Date();
-      to.setDate(to.getDate() + 60);
-      setEvents(await vpdive.fetchEvents(ymd(from), ymd(to)));
-    } catch (e) {
+  /** Lit les sorties ; la liste est posée par les rappels de la promesse. */
+  const fetchList = useCallback(() => {
+    const from = new Date();
+    from.setDate(from.getDate() - 7);
+    const to = new Date();
+    to.setDate(to.getDate() + 60);
+    return vpdive.fetchEvents(ymd(from), ymd(to)).then(setEvents, (e: unknown) => {
       if (onSessionLost(e)) return;
       setListError(message(e));
-    }
+    });
   }, [onSessionLost]);
+  /** « Réessayer » : la liste repasse en lecture, puis est relue. */
+  const loadList = () => {
+    setListError(null);
+    setEvents(null);
+    void fetchList();
+  };
 
+  // À l'ouverture, la liste est déjà en lecture (null) : il n'y a qu'à la lire.
   useEffect(() => {
-    loadList();
-  }, [loadList]);
+    void fetchList();
+  }, [fetchList]);
 
   const { ref: dialogRef } = useDialog({ onClose, label: 'material' });
 
@@ -197,12 +201,10 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
   const [copied, setCopied] = useState(false);
   const { confirm, confirmDialog } = useConfirm();
 
-  const load = useCallback(async () => {
-    setError(null);
-    setRoster(null);
-    setOuting(null);
-    try {
-      const [r, saved] = await Promise.all([
+  /** Lit les inscrits et la fiche de sortie ; elles sont posées par les rappels de la promesse. */
+  const fetchMaterial = useCallback(
+    () =>
+      Promise.all([
         vpdive.fetchRoster(event.token),
         // Sans réponse du serveur de l'appli, on compte d'après les rôles VPDive.
         appApi.getOuting(event.token).then(
@@ -212,18 +214,29 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
             return null;
           },
         ),
-      ]);
-      setOuting(saved);
-      setRoster(r);
-    } catch (e) {
-      if (onSessionLost(e)) return;
-      setError(message(e));
-    }
-  }, [event.token, onSessionLost]);
+      ])
+        .then(([r, saved]) => {
+          setOuting(saved);
+          setRoster(r);
+        })
+        .catch((e: unknown) => {
+          if (onSessionLost(e)) return;
+          setError(message(e));
+        }),
+    [event.token, onSessionLost],
+  );
+  /** « Réessayer » : tout repasse en lecture, puis est relu. */
+  const load = () => {
+    setError(null);
+    setRoster(null);
+    setOuting(null);
+    void fetchMaterial();
+  };
 
+  // À l'ouverture (une par sortie : composant remonté à chaque sortie choisie), tout est déjà en lecture.
   useEffect(() => {
-    load();
-  }, [load]);
+    void fetchMaterial();
+  }, [fetchMaterial]);
 
   useEffect(() => {
     if (!copied) return;

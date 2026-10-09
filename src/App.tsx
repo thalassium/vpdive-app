@@ -3,7 +3,8 @@ import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, Graduation
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
-import { StandardCalendar, gridRange } from './components/StandardCalendar';
+import { StandardCalendar } from './components/StandardCalendar';
+import { gridRange } from './lib/agenda';
 import { EventBookingModal } from './components/EventBookingModal';
 import { SeaBackdrop } from './components/SeaBackdrop';
 import { CaptainHat, HeaderMenu } from './components/HeaderMenu';

@@ -50,6 +50,7 @@ import {
 } from '../../lib/membership';
 import { normalizeName } from '../../lib/fuzzy';
 import { describeSnapshot } from '../../lib/memberWrite';
+import { cacheKey } from './memberCache';
 
 /**
  * Gestion des adhésions, étapes 2 à 4 : chaque personne de la saison vue par
@@ -60,8 +61,6 @@ import { describeSnapshot } from '../../lib/memberWrite';
 const READ_GAP_MS = 500;
 const MAX_FAILURES = 3;
 const CACHE_TTL_MS = 6 * 3600_000;
-// v4 : l’assurance est lue dans le choix de la liste (insurance_choice), comme sur le site VPDive.
-export const cacheKey = (uct: string) => `member-record:v4:${uct}`;
 function readCache(uct: string): VpRecord | null {
   try {
     const v = JSON.parse(sessionStorage.getItem(cacheKey(uct)) ?? 'null') as { at: number; record: VpRecord } | null;
@@ -919,7 +918,12 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
  */
 function CheckBox({ check, onSave }: { check?: CaseCheck; onSave: (checked: boolean | undefined, comment: string) => void }) {
   const [comment, setComment] = useState(check?.comment ?? '');
-  useEffect(() => setComment(check?.comment ?? ''), [check?.comment]);
+  // Commentaire changé ailleurs (autre admin, enregistrement) : le champ le reprend, pendant le rendu.
+  const [shown, setShown] = useState(check?.comment);
+  if (check?.comment !== shown) {
+    setShown(check?.comment);
+    setComment(check?.comment ?? '');
+  }
   return (
     <div className="min-w-0 space-y-1.5">
       <label className="inline-flex items-center gap-2 max-sm:min-h-11 cursor-pointer text-sm font-medium text-ink">

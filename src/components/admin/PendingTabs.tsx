@@ -6,7 +6,7 @@ import { GabianLoader } from '../Gabian';
 import { vpdive, type PendingValidation } from '../../services/vpdiveApi';
 import { appApi, type RegistrationRequest } from '../../services/appApi';
 import { useConfirm } from '../../hooks/useConfirm';
-import { cacheKey } from './MembershipTab';
+import { cacheKey } from './memberCache';
 
 /*
  * Les deux onglets « à traiter d'abord » de la gestion des adhésions : tant

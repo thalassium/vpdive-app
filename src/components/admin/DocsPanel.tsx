@@ -133,47 +133,51 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
    * sont pas validés, les vérifications les voient manquants). Puis les
    * vérifications : Adhésions (HelloAsso × FFESSM × VPDive) et Relance.
    */
-  const [tab, setTab] = useState<Tab>('todo');
-  const isStep = tab === 'diagnostic' || tab === 'quickfix' || tab === 'arbitrage';
-  /**
-   * L'onglet des adhésions lit beaucoup (annuaire, HelloAsso, exports, une fiche par membre) :
-   * monté à la première visite d'une étape 2 à 4, puis gardé (données lues une fois).
-   */
-  const [stepsOpened, setStepsOpened] = useState(false);
-  useEffect(() => {
-    if (isStep) setStepsOpened(true);
-  }, [isStep]);
+  /** L'onglet choisi par l'admin ; tant qu'il n'en a choisi aucun, celui de l'ouverture (plus bas). */
+  const [chosenTab, setChosenTab] = useState<Tab | null>(null);
   /** Compteurs des étapes 3 et 4, calculés par l'onglet des adhésions (une fois monté). */
   const [stepCounts, setStepCounts] = useState<{ fixes: number; cases: number } | null>(null);
   /** Écriture dans VPDive en cours (étape 3) : le panneau ne se ferme pas. */
   const membershipBusy = useRef(false);
   /** Rempli par l'onglet des adhésions : oublie la fiche d'un membre validé à l'étape 1. */
   const forgetMember = useRef<((uct: string) => void) | null>(null);
-  /** L'admin a choisi un onglet : on ne le change plus pour lui. */
-  const chosen = useRef(false);
   const [requests, setRequests] = useState<RegistrationRequest[] | null>(null);
   const [requestsError, setRequestsError] = useState<string | null>(null);
   const [pendingDocs, setPendingDocs] = useState<PendingValidation[] | null>(null);
   const [docsError, setDocsError] = useState<string | null>(null);
-  const loadRequests = useCallback(() => {
-    setRequestsError(null);
-    setRequests(null);
+  const fetchRequests = useCallback(() => {
     appApi.registrationRequests().then(setRequests, (e) => onSessionLost(e) || setRequestsError(e instanceof Error ? e.message : String(e)));
   }, [onSessionLost]);
-  const loadPendingDocs = useCallback(() => {
-    setDocsError(null);
-    setPendingDocs(null);
+  const fetchPendingDocs = useCallback(() => {
     vpdive.pendingValidations().then(setPendingDocs, (e) => onSessionLost(e) || setDocsError(e instanceof Error ? e.message : String(e)));
   }, [onSessionLost]);
+  /** « Réessayer » : la liste repasse en lecture, puis est relue. */
+  const loadRequests = () => {
+    setRequestsError(null);
+    setRequests(null);
+    fetchRequests();
+  };
+  const loadPendingDocs = () => {
+    setDocsError(null);
+    setPendingDocs(null);
+    fetchPendingDocs();
+  };
+  // À l'ouverture, les listes sont déjà en lecture (null) : il n'y a qu'à les lire.
   useEffect(() => {
-    loadRequests();
-    loadPendingDocs();
-  }, [loadRequests, loadPendingDocs]);
-  // À l'ouverture : le premier onglet qui a quelque chose à traiter, sinon les adhésions.
-  useEffect(() => {
-    if (chosen.current || requests === null || pendingDocs === null) return;
-    setTab(requests.length || pendingDocs.length ? 'todo' : 'diagnostic');
-  }, [requests, pendingDocs]);
+    fetchRequests();
+    fetchPendingDocs();
+  }, [fetchRequests, fetchPendingDocs]);
+  // Tant que l'admin n'a pas choisi d'onglet : le premier qui a quelque chose à traiter, sinon les adhésions
+  // (« À traiter » pendant la lecture des deux listes).
+  const tab: Tab = chosenTab ?? (requests !== null && pendingDocs !== null && !requests.length && !pendingDocs.length ? 'diagnostic' : 'todo');
+  const isStep = tab === 'diagnostic' || tab === 'quickfix' || tab === 'arbitrage';
+  /**
+   * L'onglet des adhésions lit beaucoup (annuaire, HelloAsso, exports, une fiche par membre) :
+   * monté à la première visite d'une étape 2 à 4, puis gardé (données lues une fois).
+   * Retenu pendant le rendu (état dérivé d'un rendu précédent), pas dans un effet.
+   */
+  const [stepsOpened, setStepsOpened] = useState(false);
+  if (isStep && !stepsOpened) setStepsOpened(true);
   /** La relance ne lit VPDive qu'une fois son onglet ouvert. */
   const [relanceOpened, setRelanceOpened] = useState(false);
   const [outings, setOutings] = useState<Outing[] | null>(null);
@@ -321,13 +325,19 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
     }
   }, [checkStatuses]);
 
-  useEffect(() => {
-    if (!relanceOpened) return;
-    load();
-    return () => {
+  /** Première ouverture de la relance : elle lit VPDive (pas avant). */
+  const openRelance = () => {
+    if (relanceOpened) return;
+    setRelanceOpened(true);
+    void load();
+  };
+  // Fermeture du panneau : la lecture en cours s'arrête.
+  useEffect(
+    () => () => {
       run.current++;
-    };
-  }, [load, relanceOpened]);
+    },
+    [],
+  );
 
   const stop = () => {
     run.current++;
@@ -340,8 +350,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
 
   // Échap et le bouton Retour ferment la relance si elle est ouverte (jamais en plein envoi), sinon le panneau
   // (jamais en pleine écriture dans VPDive).
-  const reminderOpen = useRef(false);
-  reminderOpen.current = reminder !== null;
+  // useDialog relit ses fonctions à chaque appel : `reminder` y est toujours celui du dernier rendu.
   const reminderBusy = useRef(false);
   const { confirm, confirmDialog } = useConfirm();
   /** Identifiants des onglets et de leurs panneaux (les étapes 2 à 4 partagent un panneau). */
@@ -349,10 +358,10 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   const tabId = (key: Tab) => `${tabsId}-tab-${key}`;
   const panelId = (key: Tab) => `${tabsId}-panel-${key === 'todo' || key === 'relance' ? key : 'steps'}`;
   const { ref: dialogRef } = useDialog({
-    onClose: () => (reminderOpen.current ? setReminder(null) : onClose()),
+    onClose: () => (reminder !== null ? setReminder(null) : onClose()),
     canClose: () => {
       if (reminderBusy.current) return false;
-      if (reminderOpen.current || !membershipBusy.current) return true;
+      if (reminder !== null || !membershipBusy.current) return true;
       // Écriture dans VPDive en cours : on ne ferme pas tout de suite, on pose la question (requestClose ferme si accepté).
       void requestClose();
       return false;
@@ -477,10 +486,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                   id={tabId(key)}
                   controls={panelId(key)}
                   selected={on}
-                  onSelect={() => {
-                    chosen.current = true;
-                    setTab(key);
-                  }}
+                  onSelect={() => setChosenTab(key)}
                   className={`h-10 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 inline-flex items-center gap-2 rounded-t-md transition-colors ${
                     first ? (on ? 'border-warn text-warn bg-warn-soft' : 'border-transparent text-warn bg-warn-soft/60 hover:bg-warn-soft') : on ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'
                   }`}
@@ -504,9 +510,8 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               controls={panelId('relance')}
               selected={tab === 'relance'}
               onSelect={() => {
-                chosen.current = true;
-                setTab('relance');
-                setRelanceOpened(true);
+                setChosenTab('relance');
+                openRelance();
               }}
               className={`h-10 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 transition-colors ${tab === 'relance' ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'}`}
             >

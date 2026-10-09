@@ -614,7 +614,7 @@ function NewChat({
     return () => {
       cancelled = true;
     };
-  }, [attempt, me.uct, lost]);
+  }, [attempt, me.uct, me.name, lost]);
 
   const results = useMemo(() => {
     const q = query.trim();

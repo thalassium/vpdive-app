@@ -235,7 +235,10 @@ export function parseFfessmBrevets(text: string): { rows: FfessmBrevet[]; period
 /** Brevets délivrés, par n° de licence. */
 export const brevetsByLicence = (rows: FfessmBrevet[]): Record<string, string[]> => {
   const out: Record<string, string[]> = {};
-  for (const r of rows) (out[r.licence] ??= []).includes(r.brevet) || out[r.licence]!.push(r.brevet);
+  for (const r of rows) {
+    const list = (out[r.licence] ??= []);
+    if (!list.includes(r.brevet)) list.push(r.brevet);
+  }
   return out;
 };
 

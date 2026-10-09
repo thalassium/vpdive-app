@@ -58,9 +58,9 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
   /** Enregistre ce qui reste et dit si tout est bien enregistré. */
   const closeRef = useRef<() => Promise<boolean>>(async () => true);
 
-  const loadList = useCallback(async () => {
-    setListError(null);
-    try {
+  /** Lit les sorties du DP ; la liste est posée par les rappels de la promesse. */
+  const fetchList = useCallback(() => {
+    const read = async () => {
       const today = new Date();
       const from = new Date(today);
       from.setDate(from.getDate() - 14);
@@ -80,16 +80,22 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
         }
         list = dp;
       }
-      setEvents(list);
-    } catch (e) {
+      return list;
+    };
+    return read().then(setEvents, (e: unknown) => {
       if (onSessionLost(e)) return;
       setListError(e instanceof Error ? e.message : String(e));
-    }
+    });
   }, [role, dpEvents, session.userId, onSessionLost]);
+  /** « Réessayer » : l'erreur s'efface, la liste est relue. */
+  const loadList = () => {
+    setListError(null);
+    void fetchList();
+  };
 
   useEffect(() => {
-    loadList();
-  }, [loadList]);
+    void fetchList();
+  }, [fetchList]);
 
   /**
    * Quitter la sortie ouverte (fermer, revenir à la liste, en choisir une autre) :
@@ -398,10 +404,9 @@ function OutingWorkspace({
     [event, session.clubName],
   );
 
-  const load = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const [r, res] = await Promise.all([vpdive.fetchRoster(token), appApi.getOuting(token, client)]);
+  /** Lit la liste et la fiche ; l'écran est rempli par les rappels de la promesse. */
+  const fetchOuting = useCallback(() => {
+    const show = ([r, res]: [RosterEntry[], Awaited<ReturnType<typeof appApi.getOuting>>]) => {
       const v = derive(res.doc, r);
       // Ouvrir une fiche ne l'enregistre pas : la synchronisation ne part qu'avec le premier geste de celui qui tient la main.
       revRef.current = res.doc?.rev ?? 0;
@@ -420,15 +425,25 @@ function OutingWorkspace({
         if (res.doc && sameContent(draft.doc, res.doc)) clearDraft(token);
         else setDraftOffer(draft);
       }
-    } catch (e) {
-      if (onSessionLost(e)) return;
-      setLoadError(e instanceof Error ? e.message : String(e));
-    }
+    };
+    // .catch après .then : un échec en remplissant l'écran s'affiche aussi comme sortie indisponible.
+    return Promise.all([vpdive.fetchRoster(token), appApi.getOuting(token, client)])
+      .then(show)
+      .catch((e: unknown) => {
+        if (onSessionLost(e)) return;
+        setLoadError(e instanceof Error ? e.message : String(e));
+      });
   }, [token, client, derive, me, onSessionLost]);
+  /** Relire la sortie (« Réessayer », version de l'autre chargée) : l'erreur s'efface d'abord. */
+  const load = () => {
+    setLoadError(null);
+    return fetchOuting();
+  };
 
+  // À l'ouverture (une par sortie : composant remonté à chaque sortie choisie), pas d'erreur à effacer.
   useEffect(() => {
-    load();
-  }, [load]);
+    void fetchOuting();
+  }, [fetchOuting]);
 
   /** Relit la fiche enregistrée et qui la tient ; la remplace à l'écran si rien n'est en attente ici. */
   const refresh = useCallback(async () => {
@@ -532,8 +547,11 @@ function OutingWorkspace({
     if (saveStateRef.current === 'pending') timer.current = setTimeout(() => void flushRef.current(), 800);
   };
   const flushRef = useRef(flush);
+  // Pour le renouvellement de la main (effet plus bas), la dernière version, comme flush.
+  const backToServerRef = useRef(backToServer);
   useEffect(() => {
     flushRef.current = flush;
+    backToServerRef.current = backToServer;
   });
 
   // En fermant ou en changeant de sortie : ce qui n'est pas encore parti est enregistré, puis la main est rendue.
@@ -575,7 +593,7 @@ function OutingWorkspace({
           if (saveStateRef.current === 'saved') {
             setNotice(`${takenBy()} a pris la main pendant votre absence.`);
             void refresh();
-          } else backToServer(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
+          } else backToServerRef.current(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
         }
       }
     };

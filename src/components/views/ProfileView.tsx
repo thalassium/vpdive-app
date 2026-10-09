@@ -148,10 +148,14 @@ export function ProfileView({
 
   useEffect(() => {
     load();
-    return () => {
-      request.current++;
-    };
   }, [load]);
+  // Fermeture du profil : la lecture en cours n'écrit plus rien (une nouvelle lecture, elle, invalide la précédente d'elle-même).
+  useEffect(
+    () => () => {
+      request.current++;
+    },
+    [],
+  );
 
   const name = `${session.firstName} ${session.lastName}`.trim() || me?.name || session.email;
   const roleLabel = me?.role === 'superadmin' ? 'Super-admin' : me?.role === 'admin' ? 'Admin' : null;
@@ -399,9 +403,9 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
   const [noPhone, setNoPhone] = useState(false);
   const errorId = useId();
 
+  // À l'ouverture, le contact est déjà en lecture (undefined) ; « réessayer » l'y remet avant de relire.
   useEffect(() => {
     let cancelled = false;
-    setContact(undefined);
     vpdive.myEmergencyContact().then(
       (c) => !cancelled && setContact(c),
       (e) => !cancelled && !onSessionLost(e) && setContact(null),
@@ -495,7 +499,14 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
             ) : contact === null ? (
               <p role="alert" className="text-danger">
                 Contact d’urgence illisible,{' '}
-                <button type="button" onClick={() => setAttempt((n) => n + 1)} className="font-semibold underline underline-offset-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContact(undefined);
+                    setAttempt((n) => n + 1);
+                  }}
+                  className="font-semibold underline underline-offset-2"
+                >
                   réessayer
                 </button>
               </p>

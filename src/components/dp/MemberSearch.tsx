@@ -5,6 +5,8 @@ import { rankByName, searchFragments } from '../../lib/fuzzy';
 import { Avatar } from '../Avatar';
 
 type State = { state: 'idle' } | { state: 'busy' } | { state: 'done'; matches: MemberMatch[] } | { state: 'unavailable' };
+/** Trop court pour chercher (moins de trois lettres). */
+const tooShort = (text: string) => text.trim().replace(/\s/g, '').length < 3;
 
 /**
  * Chercher un membre du club par son nom, comme le champ binôme (BuddyField) :
@@ -16,11 +18,9 @@ export function MemberSearch({ onPick, exclude = [] }: { onPick: (m: MemberMatch
   const requestId = useRef(0);
 
   useEffect(() => {
+    // Trop court : la recherche a été remise au repos à la frappe (onChange).
+    if (tooShort(typed)) return;
     const q = typed.trim();
-    if (q.replace(/\s/g, '').length < 3) {
-      setSearch({ state: 'idle' });
-      return;
-    }
     const id = ++requestId.current;
     const timer = setTimeout(async () => {
       setSearch({ state: 'busy' });
@@ -46,7 +46,10 @@ export function MemberSearch({ onPick, exclude = [] }: { onPick: (m: MemberMatch
           autoComplete="off"
           autoFocus
           value={typed}
-          onChange={(e) => setTyped(e.target.value)}
+          onChange={(e) => {
+            setTyped(e.target.value);
+            if (tooShort(e.target.value)) setSearch({ state: 'idle' });
+          }}
           placeholder="Prénom et nom du membre"
           aria-label="Chercher un membre VPDive"
           className="field w-full pl-10"

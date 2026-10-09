@@ -108,8 +108,8 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     [onSessionLost],
   );
 
-  const load = useCallback(async () => {
-    const id = ++run.current;
+  /** Tout repart de zéro : nouvelle période, ou « Réessayer ». */
+  const resetStats = () => {
     setError(null);
     setEvents(null);
     setRosters({});
@@ -117,33 +117,58 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     setDpFromApp({});
     setAppMembers({});
     setProgress(null);
-    try {
-      const to = range.to < presetRange('year', new Date()).to ? range.to : presetRange('year', new Date()).to;
-      const list = (await vpdive.fetchEvents(range.from, to)).filter((e) => Date.parse(e.start) <= Date.now());
-      if (id !== run.current) return;
-      setEvents(list);
-      // Un seul appel au serveur de l'appli pour toutes les sorties ; sans réponse, VPDive seul.
-      appApi
-        .outingRoles(list.map((e) => e.token))
-        .then(({ roles, members }) => {
-          if (id !== run.current) return;
-          setDpFromApp(Object.fromEntries(Object.entries(roles).map(([k, r]) => [k, r?.dp])));
-          setAppMembers(Object.fromEntries(Object.entries(members).map(([k, list]) => [k, list.map((m) => ({ ...m, roles: [] }))])));
-        })
-        .catch((e) => onSessionLost(e));
-      await readRosters(list, id);
-    } catch (e) {
-      if (id !== run.current || onSessionLost(e)) return;
-      setError(message(e));
-    }
-  }, [range.from, range.to, readRosters, onSessionLost]);
+  };
+  // Une période valable (du ≤ au) se lit ; une autre période valable remet tout à zéro dès ce rendu,
+  // d'après la période du rendu précédent (pas dans l'effet qui lit).
+  const validRange = !!(range.from && range.to && range.from <= range.to);
+  const rangeKey = `${range.from}|${range.to}`;
+  const [readRange, setReadRange] = useState(rangeKey);
+  if (validRange && readRange !== rangeKey) {
+    setReadRange(rangeKey);
+    resetStats();
+  }
 
+  /** Lit l'agenda de la période, puis les inscrits : tout est posé par les rappels de la promesse. */
+  const fetchStats = useCallback(() => {
+    const id = ++run.current;
+    const to = range.to < presetRange('year', new Date()).to ? range.to : presetRange('year', new Date()).to;
+    return vpdive
+      .fetchEvents(range.from, to)
+      .then((all) => {
+        const list = all.filter((e) => Date.parse(e.start) <= Date.now());
+        if (id !== run.current) return;
+        setEvents(list);
+        // Un seul appel au serveur de l'appli pour toutes les sorties ; sans réponse, VPDive seul.
+        appApi
+          .outingRoles(list.map((e) => e.token))
+          .then(({ roles, members }) => {
+            if (id !== run.current) return;
+            setDpFromApp(Object.fromEntries(Object.entries(roles).map(([k, r]) => [k, r?.dp])));
+            setAppMembers(Object.fromEntries(Object.entries(members).map(([k, list]) => [k, list.map((m) => ({ ...m, roles: [] }))])));
+          })
+          .catch((e) => onSessionLost(e));
+        return readRosters(list, id);
+      })
+      .catch((e: unknown) => {
+        if (id !== run.current || onSessionLost(e)) return;
+        setError(message(e));
+      });
+  }, [range.from, range.to, readRosters, onSessionLost]);
+  /** « Réessayer » (agenda illisible) : tout repart de zéro et se relit. */
+  const load = () => {
+    resetStats();
+    void fetchStats();
+  };
+
+  /** Invalide la lecture en cours : elle s'arrête à sa prochaine étape. */
+  const cancelRun = useCallback(() => {
+    run.current++;
+  }, []);
+  // Autre période (ou fermeture) : la lecture de l'ancienne s'arrête.
   useEffect(() => {
-    if (range.from && range.to && range.from <= range.to) void load();
-    return () => {
-      run.current++;
-    };
-  }, [load, range.from, range.to]);
+    if (validRange) void fetchStats();
+    return cancelRun;
+  }, [fetchStats, cancelRun, validRange]);
 
   const stop = () => {
     run.current++;

@@ -175,21 +175,24 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
   };
 
   // Prévision au point choisi.
-  const [slots, setSlots] = useState<Slot[] | null>(null);
-  const [forecastError, setForecastError] = useState<string | null>(null);
+  // La réponse garde la demande à laquelle elle répond : un autre point (ou « Réessayer ») remet
+  // aussitôt l'écran en lecture, sans effacer l'état dans l'effet.
   const [attempt, setAttempt] = useState(0);
+  const forecastKey = `${spot.lat},${spot.lon},${attempt}`;
+  const [forecast, setForecast] = useState<{ key: string; slots: Slot[] | null; error: string | null } | null>(null);
+  const current = forecast?.key === forecastKey ? forecast : null;
+  const slots = current?.slots ?? null;
+  const forecastError = current?.error ?? null;
   useEffect(() => {
     let live = true;
-    setSlots(null);
-    setForecastError(null);
     forecastAt(spot.lat, spot.lon).then(
-      (s) => live && setSlots(s),
-      (e) => live && setForecastError(message(e)),
+      (s) => live && setForecast({ key: forecastKey, slots: s, error: null }),
+      (e) => live && setForecast({ key: forecastKey, slots: null, error: message(e) }),
     );
     return () => {
       live = false;
     };
-  }, [spot.lat, spot.lon, attempt]);
+  }, [spot.lat, spot.lon, forecastKey]);
 
   // Sorties de la semaine : un seul appel, indépendant de la prévision.
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);

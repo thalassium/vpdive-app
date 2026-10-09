@@ -11,6 +11,8 @@ interface Props {
 }
 
 type Search = { state: 'idle' } | { state: 'busy' } | { state: 'done'; matches: MemberMatch[] } | { state: 'unavailable' };
+/** Trop court pour chercher (moins de trois lettres). */
+const tooShort = (text: string) => text.trim().replace(/\s/g, '').length < 3;
 
 /**
  * « Je souhaite plonger avec… » : le plongeur tape un prénom et un nom comme il
@@ -26,11 +28,9 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
 
   useEffect(() => {
     if (picked) return;
+    // Trop court : la recherche a été remise au repos par `type`, à la frappe.
+    if (tooShort(typed)) return;
     const q = typed.trim();
-    if (q.replace(/\s/g, '').length < 3) {
-      setSearch({ state: 'idle' });
-      return;
-    }
     const id = ++requestId.current;
     const timer = setTimeout(async () => {
       setSearch({ state: 'busy' });
@@ -52,6 +52,7 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
     setTyped(text);
     setPicked(null);
     onChange(text);
+    if (tooShort(text)) setSearch({ state: 'idle' });
   };
   const pick = (m: MemberMatch) => {
     setPicked(m);

@@ -87,15 +87,16 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 
   const cls = useMemo(() => classifyRoles(detail?.roles ?? []), [detail]);
 
-  const load = useCallback(async () => {
+  /**
+   * Reads the outing into the form (no state reset first: see `load`). The form is
+   * filled in the promise's callbacks, never synchronously by the caller.
+   */
+  const fetchDetail = useCallback(() => {
     // Only the latest load may touch the form. Otherwise an earlier answer shows
     // the form, the member starts ticking items, and a later answer (React dev
     // mode runs effects twice; a reload after booking does too) wipes the ticks.
     const id = ++loadRequest.current;
-    setLoadError(null);
-    setDetail(null);
-    try {
-      const d = await vpdive.fetchEventDetail(event.token);
+    const fill = (d: EventDetail) => {
       if (id !== loadRequest.current) return;
       setDetail(d);
       setPrices(Object.fromEntries(d.tariffs.map((t) => [t.token, t.price])));
@@ -122,15 +123,27 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       setBottle(DEFAULT_BOTTLE);
       setPeople(1);
       setEditing(false);
-    } catch (e) {
-      if (id !== loadRequest.current || onSessionLost(e)) return;
-      setLoadError(e instanceof Error ? e.message : 'Impossible de charger la sortie.');
-    }
+    };
+    // .catch after .then: a failure while filling the form shows as a load error too.
+    return vpdive
+      .fetchEventDetail(event.token)
+      .then(fill)
+      .catch((e: unknown) => {
+        if (id !== loadRequest.current || onSessionLost(e)) return;
+        setLoadError(e instanceof Error ? e.message : 'Impossible de charger la sortie.');
+      });
   }, [event.token, onSessionLost]);
+  /** Reload (retry, after booking): back to the loading state, then read again. */
+  const load = useCallback(async () => {
+    setLoadError(null);
+    setDetail(null);
+    await fetchDetail();
+  }, [fetchDetail]);
 
+  // On opening, the form is already in its loading state: just read.
   useEffect(() => {
-    load();
-  }, [load]);
+    void fetchDetail();
+  }, [fetchDetail]);
 
   // Échap, bouton Retour, focus et verrou de défilement : hooks/useDialog. Pas de fermeture pendant un envoi.
   const { ref: dialogRef } = useDialog({ onClose, canClose: () => !busy, label: 'inscription' });
@@ -191,7 +204,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
    * the wetsuit size once), sent in the message to the club.
    */
   const choiceGear = checkedGear.filter((m) => m.choices.length > 0);
-  const neededKinds = SIZED_KINDS.filter((k) => checkedGear.some((m) => m.choices.length === 0 && sizedKinds(m.name).includes(k)));
+  const neededKinds = useMemo(() => SIZED_KINDS.filter((k) => checkedGear.some((m) => m.choices.length === 0 && sizedKinds(m.name).includes(k))), [checkedGear]);
   const sizeMissing =
     choiceGear.find((m) => !choiceOf[m.id])?.name ?? (neededKinds.find((k) => !kindSize[k]) ? SIZED_LABEL[neededKinds.find((k) => !kindSize[k])!].toLowerCase() : null);
 
@@ -320,7 +333,8 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const start = detail?.start || event.start;
   const end = detail?.end || event.end;
   const location = detail?.location || event.location;
-  let step = 0;
+  /** Section numbers, in the order the sections show (some are conditional). */
+  const nextStep = stepCounter();
 
   return (
     <div
@@ -430,7 +444,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     {/* Entry: diver, instructor (N4/E1…E4 only), volunteer on a surface post. The DP is never offered. */}
                     {hasRoles && !fixedRole && (
                       <section>
-                        <SectionTitle n={++step}>Je viens comme…</SectionTitle>
+                        <SectionTitle n={nextStep()}>Je viens comme…</SectionTitle>
                         <div role="radiogroup" aria-label="Je viens comme" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <ChoiceCard role="radio" selected={entry === 'diver'} onClick={() => pick('diver')}>
                             <span className="text-base font-medium">Plongeur</span>
@@ -465,7 +479,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     )}
                     {fixedRole && (
                       <section>
-                        <SectionTitle n={++step}>Votre rôle</SectionTitle>
+                        <SectionTitle n={nextStep()}>Votre rôle</SectionTitle>
                         <p className="text-base text-ink">
                           {cleanRoleLabel(fixedRole.label) || 'Rôle'} <span className="text-muted">(attribué par le club)</span>
                         </p>
@@ -475,7 +489,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     {/* Tariff */}
                     {asks.tariff && detail.tariffs.length > 0 && (
                       <section>
-                        <SectionTitle n={++step} hint={pricesLoading ? 'Mise à jour des tarifs…' : undefined}>
+                        <SectionTitle n={nextStep()} hint={pricesLoading ? 'Mise à jour des tarifs…' : undefined}>
                           Formule
                         </SectionTitle>
                         <div className={`rounded-xl border border-line divide-y divide-line ${pricesLoading ? 'opacity-60' : ''}`}>
@@ -512,7 +526,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     {asks.gear && (
                       <section>
                         <SectionTitle
-                          n={++step}
+                          n={nextStep()}
                           hint={
                             detail.materials.length === 0
                               ? undefined
@@ -991,7 +1005,13 @@ function SectionTitle({ children, n, hint }: { children: ReactNode; n: number; h
   );
 }
 
-export function formatEuro(n: number): string {
+/** Numbers each section of the form as it renders: 1, 2, 3… */
+function stepCounter(): () => number {
+  let n = 0;
+  return () => ++n;
+}
+
+function formatEuro(n: number): string {
   if (n === 0) return 'Gratuit';
   return n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: n % 1 ? 2 : 0 });
 }
