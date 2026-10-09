@@ -235,6 +235,50 @@ test('arbitrage : homonymes, parents, absent, invité, licence non prise, autre 
   assert.deepEqual(arbitrageCases(withLic!, sure, other, viewOf(withLic!, other, 2027, null)).map((c) => c.kind), ['licence-other']);
 });
 
+test('rapprochement : une naissance différente sur la fiche interdit « sûr » (Jean/Jeanne, Léa/Léa-Marie, père/fils)', () => {
+  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: [], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
+  // Seul compte Membre « à ce nom » (préfixe jean/jeanne), mais née en 2010.
+  const [jean] = buildPeople([item({ firstName: 'Jean', lastName: 'Dupont', birthDate: '1980-03-03', email: 'jean@ex.org' })], [], 2027);
+  const jeanne = [{ id: 'j', name: 'DUPONT Jeanne', picture: '' }];
+  assert.equal(matchPerson(jean!, jeanne, { j: rec({ birthday: '2010-06-06' }) }).status, 'confirm');
+  assert.equal(matchPerson(jean!, jeanne, { j: rec({}) }).status, 'sure', 'naissance vide sur la fiche : le nom seul vaut encore');
+  // Même e-mail, mais pas la même personne (le parent qui a donné son e-mail).
+  assert.equal(matchPerson(jean!, jeanne, { j: rec({ birthday: '2010-06-06', email: 'jean@ex.org' }) }).status, 'confirm');
+  // Un autre e-mail propre, sans naissance : le nom seul ne suffit plus.
+  assert.equal(matchPerson(jean!, jeanne, { j: rec({ email: 'jeanne@ex.org' }) }).status, 'confirm');
+  assert.equal(matchPerson(jean!, jeanne, { j: rec({ email: 'parent@example.org' }) }).status, 'sure', 'e-mail du payeur : pas un doute');
+  // Léa / Léa-Marie.
+  const [lea] = buildPeople([item({})], [], 2027);
+  const leaMarie = [{ id: 'lm', name: 'MARTIN Léa-Marie', picture: '' }];
+  assert.equal(matchPerson(lea!, leaMarie, { lm: rec({ birthday: '2015-01-01' }) }).status, 'confirm');
+  // Père et fils homonymes : un seul compte Membre (le père), même nom exact.
+  const [fils] = buildPeople([item({ firstName: 'Jean', lastName: 'Dupont', birthDate: '2008-02-02' })], [], 2027);
+  const dir: VpMember[] = [
+    { id: 'pere', name: 'DUPONT Jean', picture: '' },
+    { id: 'fils', name: 'Jean DUPONT', picture: '' },
+  ];
+  const m = matchPerson(fils!, dir, { pere: rec({ birthday: '1975-05-05' }), fils: rec({ member: false }) });
+  assert.equal(m.status, 'confirm');
+  assert.equal(matchPerson(fils!, dir.slice(0, 1), { pere: rec({ birthday: '1975-05-05' }) }).status, 'confirm', 'même nom (accents près) : pas sûr non plus');
+  // Même licence, mais naissance différente : à confirmer aussi (erreur de saisie à regarder).
+  const row = { licence: 'A-16-1', name: 'DUPONT Jean', birthDate: '2008-02-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
+  const [lic] = buildPeople([], [row], 2027);
+  const withLic = rec({ birthday: '1975-05-05', licences: [{ number: 'A-16-1', organization: 'F.F.E.S.S.M.', expires: '' }] });
+  assert.equal(matchPerson(lic!, dir.slice(0, 1), { pere: withLic }).status, 'confirm');
+  assert.equal(matchPerson(lic!, dir.slice(0, 1), { pere: { ...withLic, birthday: '2008-02-02' } }).why, 'même n° de licence');
+});
+
+test('rapprochement : choix mémorisé vers un membre sorti de l’annuaire = « choix obsolète », jamais sûr', () => {
+  const [lea] = buildPeople([item({})], [], 2027);
+  const dir: VpMember[] = [{ id: 'u1', name: 'MARTIN Léa', picture: '' }];
+  const rec: VpRecord = { email: '', birthday: '1990-04-02', seasons: [], licences: [], insurance: '', insuranceYear: null, member: true, levels: [] };
+  const m = matchPerson(lea!, dir, { u1: rec }, { uct: 'parti', by: 'Lucas', at: '' });
+  assert.equal(m.status, 'confirm');
+  assert.deepEqual(m.candidates.map((c) => c.id), ['u1']);
+  assert.match(m.obsolete ?? '', /choix obsolète/);
+  assert.equal(matchPerson(lea!, [], {}, { uct: 'parti', by: 'Lucas', at: '' }).status, 'missing');
+});
+
 test('parents : même nom de famille ou payeur HelloAsso ; un seul compte au même nom (accents près) est sûr', () => {
   const [tom] = buildPeople([item({ firstName: 'Tom', lastName: 'Petit', birthDate: '2012-05-05', payerName: 'Claire Durand' })], [], 2027);
   const dir: VpMember[] = [

@@ -193,9 +193,11 @@ export function MembershipTab({
   const wanted = useMemo(() => {
     if (!people || !directory || !links) return [];
     const ids = new Set<string>();
+    const known = new Set(directory.map((m) => m.id));
     for (const p of people) {
       const link = links[p.key];
-      if (link) {
+      // Un choix vers un membre sorti de l'annuaire (« choix obsolète ») : on relit les homonymes.
+      if (link && (link.uct === 'none' || known.has(link.uct))) {
         if (link.uct !== 'none') ids.add(link.uct);
       } else for (const m of candidatesFor(p, directory)) ids.add(m.id);
     }
@@ -256,7 +258,7 @@ export function MembershipTab({
     return people.map((p) => {
       const match = matchPerson(p, directory, records, links[p.key]);
       const record = match.member ? (records[match.member.id] ?? null) : null;
-      const cands = links[p.key] ? [] : candidatesFor(p, directory);
+      const cands = links[p.key] && !match.obsolete ? [] : candidatesFor(p, directory);
       const view = viewOf(p, record, season, brevets, brevetMap);
       const fixes = quickFixes(p, match, record, season, lackingBrevets(p, record, brevets, brevetMap));
       const family = match.status === 'missing' && !match.why ? familyCandidates(p, directory) : [];
@@ -857,9 +859,12 @@ function VpdiveStatus({ match, pending }: { match: Match; pending: boolean }) {
   if (pending) return <p className="text-sm text-muted">Lecture des fiches…</p>;
   if (match.parent) return <p className="text-sm text-muted">{match.why}</p>;
   return (
-    <p className="text-sm text-warn font-medium inline-flex items-center gap-1.5">
-      <UserX className="w-4 h-4" /> {match.status === 'confirm' ? 'Homonymes : à trancher (étape 4)' : match.why || 'Pas de fiche VPDive (étape 4)'}
-    </p>
+    <div className="text-sm">
+      {match.obsolete && <p className="text-warn">{match.obsolete}</p>}
+      <p className="text-warn font-medium inline-flex items-center gap-1.5">
+        <UserX className="w-4 h-4" /> {match.status === 'confirm' ? 'Homonymes : à trancher (étape 4)' : match.why || 'Pas de fiche VPDive (étape 4)'}
+      </p>
+    </div>
   );
 }
 
@@ -899,6 +904,7 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
   if (match.status === 'confirm') {
     return (
       <div className="space-y-1.5 text-sm">
+        {match.obsolete && <p className="text-warn">{match.obsolete}</p>}
         <p className="text-warn font-medium">{pending ? 'Lecture des fiches…' : 'À confirmer'}</p>
         {match.candidates.map((m) => (
           <button key={m.id} type="button" onClick={() => onChoose(m.id)} className="w-full flex items-center gap-2 px-2 py-1 rounded-lg border border-field-border hover:bg-tint text-left">
@@ -920,6 +926,7 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
   }
   return (
     <div className="text-sm space-y-1">
+      {match.obsolete && <p className="text-warn">{match.obsolete}</p>}
       <p className="text-muted inline-flex items-center gap-1.5">
         <UserX className="w-4 h-4" /> {match.why || 'Aucun membre à ce nom'}
       </p>
@@ -927,7 +934,7 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
         <button type="button" onClick={() => setSearching(true)} className="underline text-muted hover:text-brand">
           Chercher dans VPDive
         </button>
-        {match.why && (
+        {(match.why || match.obsolete) && (
           <button type="button" onClick={() => onChoose(null)} className="underline text-muted hover:text-brand">
             annuler
           </button>

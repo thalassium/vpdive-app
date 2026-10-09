@@ -451,9 +451,22 @@ export function candidatesFor(p: Pick<Person, 'name'>, directory: VpMember[], ma
 export const flatLicence = (s: string) => s.replace(/[^a-z0-9]/gi, '').toUpperCase();
 const sameEmail = (a: string, b: string) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 
-/** Ce qui prouve que ce membre VPDive est bien la personne. */
+/**
+ * Ce qui prouve que ce membre VPDive n'est PAS la personne : deux dates de
+ * naissance connues et différentes (« Jean Dupont » 1980 n'est pas « DUPONT
+ * Jeanne » 2010, ni le père homonyme). Aucune règle ne passe alors outre.
+ */
+export function contradiction(p: Pick<Person, 'birthDate'>, r: VpRecord | undefined): string | null {
+  if (!r || !p.birthDate || !r.birthday || r.birthday === p.birthDate) return null;
+  return `né(e) le ${r.birthday.split('-').reverse().join('/')} selon VPDive`;
+}
+
+/** E-mail propre différent sur la fiche (ni celui de l'adhérent, ni celui du payeur) : un doute pour un rapprochement par le nom seul. */
+const otherEmail = (p: Pick<Person, 'email' | 'payerEmail'>, r: VpRecord) => !!r.email && !!p.email && !sameEmail(r.email, p.email) && !sameEmail(r.email, p.payerEmail);
+
+/** Ce qui prouve que ce membre VPDive est bien la personne (jamais s'il y a une preuve contraire). */
 export function evidence(p: Person, m: VpMember, r: VpRecord | undefined): string | null {
-  if (!r) return null;
+  if (!r || contradiction(p, r)) return null;
   if (p.ffessm && r.licences.some((l) => flatLicence(l.number) === flatLicence(p.ffessm!.licence))) return 'même n° de licence';
   const close = nameScore(p.name, m.name);
   if (p.birthDate && r.birthday === p.birthDate && close >= 0.75) return 'même date de naissance';
@@ -473,6 +486,8 @@ export interface Match {
   candidates: VpMember[];
   /** Mineur sans fiche, rattaché par un admin au compte d'un parent. */
   parent?: VpMember;
+  /** Choix d'un admin devenu caduc (membre sorti de l'annuaire) : à refaire. */
+  obsolete?: string;
 }
 
 /**
@@ -515,6 +530,11 @@ export function matchPerson(p: Person, directory: VpMember[], records: Record<st
     const member = directory.find((m) => m.id === link.uct);
     if (member && link.relation === 'parent') return { status: 'missing', member: null, why: `rattaché à ${member.name} (parent), selon ${link.by}`, candidates: [], parent: member };
     if (member) return { status: 'sure', member, why: `choisi par ${link.by}`, candidates: [] };
+    // Le membre choisi n'est plus dans l'annuaire : on le dit, et le rapprochement automatique ne vaut que proposition.
+    const auto = matchPerson(p, directory, records);
+    const obsolete = `choix obsolète : le membre choisi par ${link.by} n’est plus dans l’annuaire`;
+    if (auto.status === 'sure') return { status: 'confirm', member: null, why: '', candidates: [auto.member!], obsolete };
+    return { ...auto, obsolete };
   }
   const found = candidatesFor(p, directory);
   if (found.length === 0) return { status: 'missing', member: null, why: '', candidates: [] };
@@ -525,12 +545,17 @@ export function matchPerson(p: Person, directory: VpMember[], records: Record<st
   const proven = candidates.map((m) => ({ m, why: evidence(p, m, records[m.id]) })).filter((x) => x.why);
   if (proven.length === 1) return { status: 'sure', member: proven[0]!.m, why: proven[0]!.why!, candidates: [] };
   const allRead = found.every((m) => records[m.id]);
-  if (!proven.length && allRead && members.length === 1 && nameScore(p.name, members[0]!.name) >= 0.9) {
+  // Par le nom seul : seulement si la fiche n'a pas de naissance (ou la même) et pas d'autre e-mail propre.
+  const nameOnly = (m: VpMember) => {
+    const r = records[m.id];
+    return !!r && !contradiction(p, r) && ((!!p.birthDate && r.birthday === p.birthDate) || !otherEmail(p, r));
+  };
+  if (!proven.length && allRead && members.length === 1 && nameScore(p.name, members[0]!.name) >= 0.9 && nameOnly(members[0]!)) {
     return { status: 'sure', member: members[0]!, why: found.length > 1 ? 'seul compte Membre à ce nom' : 'même nom, compte Membre', candidates: [] };
   }
   // Un seul compte au même nom, accents et casse mis à part : c'est la personne.
   const same = candidates.filter((m) => sameName(p.name, m.name));
-  if (!proven.length && allRead && same.length === 1) return { status: 'sure', member: same[0]!, why: 'même nom (accents près)', candidates: [] };
+  if (!proven.length && allRead && same.length === 1 && nameOnly(same[0]!)) return { status: 'sure', member: same[0]!, why: 'même nom (accents près)', candidates: [] };
   return { status: 'confirm', member: null, why: '', candidates: proven.length ? proven.map((x) => x.m) : candidates };
 }
 
