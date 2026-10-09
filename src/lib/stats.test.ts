@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { aptitudesFromLabels } from './palanquees';
-import { computeStats, dateFr, diverLevel, isDiveActivity, monthSeries, presetRange, staffLevel, type StatEvent, type StatPerson } from './stats';
+import { computeStats, dateFr, diverLevel, isDiveActivity, monthSeries, presetRange, seasonPresetLabel, staffLevel, type StatEvent, type StatPerson } from './stats';
 
 const ev = (token: string, start: string, activity = 'Sortie', registered = 0, max: number | null = null): StatEvent => ({ token, start, activity, registered, max });
 const p = (id: string, levels: string[], extra: Partial<StatPerson> = {}): StatPerson => ({ id, name: `Nom ${id}`, age: 30, levels, training: [], roles: [], waitingList: false, ...extra });
@@ -72,6 +72,42 @@ test('périodes : depuis janvier, 12 derniers mois, année précédente', () => 
   assert.deepEqual(presetRange('12m', today), { from: '2025-10-09', to: '2026-10-08' });
   assert.deepEqual(presetRange('last-year', today), { from: '2025-01-01', to: '2025-12-31' });
 });
+
+test('périodes : saison en cours et saison précédente, du 1er septembre au 31 août', () => {
+  const october = new Date(2026, 9, 8);
+  assert.deepEqual(presetRange('season', october), { from: '2026-09-01', to: '2026-10-08' });
+  assert.deepEqual(presetRange('last-season', october), { from: '2025-09-01', to: '2026-08-31' });
+  assert.equal(seasonPresetLabel('season', october), 'Saison 2026/2027');
+  assert.equal(seasonPresetLabel('last-season', october), 'Saison 2025/2026');
+  const august = new Date(2026, 7, 31);
+  assert.deepEqual(presetRange('season', august), { from: '2025-09-01', to: '2026-08-31' });
+  assert.deepEqual(presetRange('last-season', august), { from: '2024-09-01', to: '2025-08-31' });
+});
+
+test('comptes fusionnés : une même personne sous deux comptes VPDive compte une fois ; un DP ajouté sans inscription compte comme DP', () => {
+  const events = [ev('a', '2026-03-14T08:15:00'), ev('b', '2026-03-15T08:15:00'), ev('c', '2026-03-21T08:15:00')];
+  const rosters = {
+    a: [p('guest', [], { name: 'Stephane SARTORETTO', age: null }), p('x', ['P1'])],
+    b: [p('member', ['P2'], { name: 'SARTORETTO Stéphane', age: 58 }), p('x', ['P1'])],
+    c: [p('x', ['P1']), p('dupont', ['P1'], { name: 'DUPONT Jean' }), p('dupond', ['P1'], { name: 'DUPOND Jean' })],
+  };
+  const crew = { c: [{ id: 'uct:U1', name: 'GINS Niels', roles: [] }] };
+  const s = computeStats(events, rosters, { c: ['uct:U1'] }, crew);
+  assert.equal(s.divers, 4, 'Sartoretto une fois ; Dupont et Dupond (noms proches) restent deux personnes');
+  assert.deepEqual(s.merged, [{ name: 'SARTORETTO Stéphane', accounts: 2 }]);
+  assert.deepEqual(s.levels.find((l) => l.label === 'N2'), { label: 'N2', count: 1 }, 'le niveau du compte membre');
+  assert.equal(s.regulars.find((r) => r.name === 'SARTORETTO Stéphane')?.count, 2);
+  assert.deepEqual(s.directors.map((d) => [d.id, d.name, d.count]), [['uct:U1', 'GINS Niels', 1]]);
+  assert.deepEqual(s.dpKnown, { known: 1, of: 3 });
+});
+
+test('comptes fusionnés : le DP ajouté dans l’appli rejoint son compte VPDive du même nom', () => {
+  const events = [ev('a', '2026-03-14T08:15:00'), ev('b', '2026-03-15T08:15:00')];
+  const rosters = { a: [p('42', ['MF1'], { name: 'GINS Niels', roles: ['Directeur de plongée'] })], b: [p('x', ['P1'])] };
+  const s = computeStats(events, rosters, { b: ['uct:U1'] }, { b: [{ id: 'uct:U1', name: 'Niels Gins', roles: [] }] });
+  assert.deepEqual(s.directors.map((d) => [d.id, d.count]), [['42', 2]]);
+});
+
 
 test('DP : celui de l’appli l’emporte sur le rôle pris à l’inscription ; « Directrice » reconnu', () => {
   const events = [ev('a', '2026-03-14T08:15:00'), ev('b', '2026-03-15T08:15:00'), ev('c', '2026-03-21T08:15:00')];
