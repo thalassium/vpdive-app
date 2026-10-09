@@ -23,7 +23,11 @@
  *   POST ?action=arbitrage_checks {key, checked, comment}  admin : cocher / décocher, commenter
  *   GET  ?action=member_writes            admin : journal des écritures de fiches VPDive (corrections rapides)
  *   POST ?action=member_writes {uct, name, kinds, ok, message, before}  admin : une fiche écrite (ou refusée),
- *                                         avec ce qu'elle contenait avant (pour revenir en arrière à la main)
+ *                                         avec ce qu'elle contenait avant (pour revenir en arrière à la main ; 8 Ko au plus)
+ *   POST ?action=client_error {message, stack?, url?, where?}  tout membre identifié : erreur de l'appli
+ *                                         dans le navigateur, journalisée (ligne JSON) ; répond 204
+ *
+ * La sauvegarde quotidienne (Vercel Cron) passe par /api/backup (server/backup.ts).
  *
  * La messagerie n'est plus ici : l'appli lit et écrit directement celle de VPDive.
  *
@@ -39,24 +43,31 @@
  * Retirer le rôle admin ici ne change rien dans VPDive : la personne garde ses
  * droits sur vpdive.com, elle perd seulement les écrans admin de l'appli.
  *
- * Clés du stockage, par club :
+ * Clés du stockage, par club (durée de conservation entre crochets ; sans, gardée indéfiniment) :
  *   club:<id>:roles                  rôles donnés / retirés (écrit seulement par ?action=role)
- *   club:<id>:known                  ce que l'appli sait de chaque membre connecté (écrit à chaque passage)
- *   club:<id>:outing:<event>         fiche de la sortie
+ *   club:<id>:known                  ce que l'appli sait de chaque membre connecté (écrit à chaque passage ;
+ *                                    les membres pas revus depuis 18 mois en sont retirés à l'écriture)
+ *   club:<id>:outing:<event>         fiche de la sortie [2 ans après le dernier enregistrement]
  *   club:<id>:outing:<event>:lock    verrou le temps d'un enregistrement
  *   club:<id>:docs-ignored           suivi des documents
- *   club:<id>:ffessm                 export FFESSM des licences déposé (gestion des adhésions)
- *   club:<id>:ffessm-brevets         export FFESSM des brevets déposé
- *   club:<id>:member-links           rapprochements choisis à la main
+ *   club:<id>:ffessm                 export FFESSM des licences déposé (gestion des adhésions) [13 mois]
+ *   club:<id>:ffessm-brevets         export FFESSM des brevets déposé [13 mois]
+ *   club:<id>:member-links           rapprochements choisis à la main [13 mois après le dernier choix]
  *   club:<id>:arbitrage-checks       cas d'arbitrage vérifiés (qui, quand, commentaire)
- *   club:<id>:member-writes          journal des écritures de fiches VPDive (les 300 dernières)
+ *   club:<id>:member-writes-log      journal des écritures de fiches VPDive : liste Redis, la plus récente
+ *                                    en tête, les 300 dernières [chaque entrée 1 an]
+ *   club:<id>:member-writes          ancien journal (un tableau dans une clé), repris dans la liste puis effacé
  *   club:<id>:brevet-map             correspondance des brevets
- *   app:helloasso-token              jeton HelloAsso en cours
+ *   <clé>:lock                       verrou le temps d'une lecture-modification-écriture
+ *   app:helloasso-token              jeton HelloAsso en cours [le temps de sa validité]
  */
 import { HttpError, forget, identify, isDpOf, type Caller } from './auth.js';
-import { getStore, type Store } from './store.js';
+import { acquireLock, getStore, type SetOptions, type Store } from './store.js';
 import { helloassoConfigured, membershipItems } from './helloasso.js';
 import { decideRegistration, registrationRequests, type Decision } from './legacy.js';
+import { errorFields, log } from './log.js';
+
+export { acquireLock };
 
 export type AppRole = 'superadmin' | 'admin' | 'member';
 
@@ -95,7 +106,9 @@ const ffessmKey = (c: Caller, kind: string) => `club:${c.clubId}:ffessm${kind ==
 const linksKey = (c: Caller) => `club:${c.clubId}:member-links`;
 const brevetMapKey = (c: Caller) => `club:${c.clubId}:brevet-map`;
 const checksKey = (c: Caller) => `club:${c.clubId}:arbitrage-checks`;
-const writesKey = (c: Caller) => `club:${c.clubId}:member-writes`;
+/** Ancien journal : un tableau dans une seule clé (jusqu'à 18 Mo), repris dans la liste. */
+const oldWritesKey = (c: Caller) => `club:${c.clubId}:member-writes`;
+const writesKey = (c: Caller) => `club:${c.clubId}:member-writes-log`;
 export interface MemberWrite {
   uct: string;
   name: string;
@@ -156,18 +169,125 @@ export function parseBody(text: string): Record<string, unknown> | null {
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
 }
 
-const LOCK_TTL_MS = 3_000;
-const LOCK_WAIT_MS = 1_500;
-const LOCK_RETRY_MS = 100;
+const DAY_S = 86_400;
+const DAY_MS = DAY_S * 1000;
 
-/** Essaie de prendre le verrou pendant `waitMs` au plus (un essai toutes les `retryMs`). */
-export async function acquireLock(store: Store, key: string, waitMs = LOCK_WAIT_MS, retryMs = LOCK_RETRY_MS): Promise<boolean> {
-  const deadline = Date.now() + waitMs;
-  for (;;) {
-    if (await store.lock(key, LOCK_TTL_MS)) return true;
-    if (Date.now() >= deadline) return false;
-    await new Promise((r) => setTimeout(r, retryMs));
+/**
+ * Durées de conservation par clé, appliquées à chaque écriture qui n'en fixe
+ * pas elle-même (l'expiration repart de zéro à chaque enregistrement). Les
+ * rôles et la correspondance des brevets n'en ont pas.
+ */
+export const RETENTION: [RegExp, number][] = [
+  [/^club:[^:]+:outing:[^:]+$/, 730 * DAY_S], // fiches de sortie : 2 ans
+  [/^club:[^:]+:ffessm(-brevets)?$/, 395 * DAY_S], // exports FFESSM : remplacés à chaque saison, ~13 mois
+  [/^club:[^:]+:member-links$/, 395 * DAY_S], // rapprochements : refaits à chaque saison, ~13 mois
+];
+export const WRITES_MAX = 300;
+export const WRITES_TTL_S = 365 * DAY_S;
+/** Membres connus : retirés s'ils n'ont pas ouvert l'appli depuis 18 mois. */
+export const KNOWN_TTL_MS = 548 * DAY_MS;
+/** Taille maximale de la fiche d'avant gardée dans le journal des écritures. */
+export const MAX_BEFORE_BYTES = 8_192;
+
+/** Le stockage, avec la durée de conservation de RETENTION posée sur chaque écriture. */
+export function withRetention(store: Store): Store {
+  return {
+    ...store,
+    set: (key, value, options?: SetOptions) => {
+      const ex = options?.ex ?? RETENTION.find(([re]) => re.test(key))?.[1];
+      return store.set(key, value, ex ? { ex } : options);
+    },
+  };
+}
+
+const BUSY = 'Quelqu’un d’autre enregistre en même temps : réessayez dans un instant.';
+
+/**
+ * Lecture-modification-écriture d'un document partagé, sous verrou : deux
+ * admins qui enregistrent en même temps ne s'écrasent pas. `change` reçoit le
+ * document courant (null s'il n'existe pas) et rend le nouveau ; s'il lève une
+ * erreur, rien n'est écrit. Verrou introuvable : 409, jamais de perte silencieuse.
+ */
+export async function updateShared<T>(store: Store, key: string, change: (current: T | null) => T): Promise<T> {
+  const lockKey = `${key}:lock`;
+  if (!(await acquireLock(store, lockKey))) throw new HttpError(409, BUSY);
+  try {
+    const next = change(await store.get<T>(key));
+    await store.set(key, next);
+    return next;
+  } finally {
+    // Si le relâchement échoue, le verrou expire de lui-même.
+    await store.unlock(lockKey).catch((e) => log('warn', { action: 'unlock', message: errorFields(e).message }));
   }
+}
+
+/** Retire les membres connus qui n'ont pas ouvert l'appli depuis KNOWN_TTL_MS. */
+export function purgeKnown(known: KnownMap, now = Date.now()): KnownMap {
+  return Object.fromEntries(Object.entries(known).filter(([, k]) => !(now - Date.parse(k.lastSeen) > KNOWN_TTL_MS)));
+}
+
+/** Erreurs du navigateur journalisées par instance et par minute, au plus (contre les rafales). */
+const CLIENT_ERRORS_PER_MINUTE = 30;
+const clientErrors = { windowStart: 0, count: 0, dropped: 0 };
+
+/** Laisse passer une erreur du navigateur si le quota de la minute n'est pas atteint. */
+function clientErrorAllowed(now = Date.now()): boolean {
+  if (now - clientErrors.windowStart >= 60_000) {
+    if (clientErrors.dropped) log('warn', { action: 'client_error', message: 'Erreurs du navigateur non journalisées (quota)', dropped: clientErrors.dropped });
+    clientErrors.windowStart = now;
+    clientErrors.count = 0;
+    clientErrors.dropped = 0;
+  }
+  if (clientErrors.count >= CLIENT_ERRORS_PER_MINUTE) {
+    clientErrors.dropped++;
+    return false;
+  }
+  clientErrors.count++;
+  return true;
+}
+
+/** Remise à zéro du quota (tests). */
+export function resetClientErrorQuota(): void {
+  Object.assign(clientErrors, { windowStart: 0, count: 0, dropped: 0 });
+}
+
+/** Adresse de la page, sans paramètres ni fragment qui pourrait porter un jeton. */
+function safePageUrl(raw: unknown): string {
+  try {
+    const u = new URL(String(raw ?? ''));
+    const hash = u.hash.includes('=') ? '' : u.hash.split('?')[0]!;
+    return `${u.pathname}${hash}`.slice(0, 200);
+  } catch {
+    return '';
+  }
+}
+
+/** Le journal des écritures quitte l'ancienne clé (un gros tableau) pour la liste, une seule fois. */
+async function migrateWrites(store: Store, caller: Caller): Promise<void> {
+  const old = await store.get<MemberWrite[]>(oldWritesKey(caller));
+  if (old === null) return;
+  const lockKey = `${writesKey(caller)}:lock`;
+  if (!(await acquireLock(store, lockKey))) throw new HttpError(409, BUSY);
+  try {
+    const again = await store.get<MemberWrite[]>(oldWritesKey(caller));
+    if (again === null) return;
+    // Du plus ancien au plus récent : le plus récent finit en tête de liste.
+    for (const w of (Array.isArray(again) ? again : []).slice(-WRITES_MAX)) await store.listPush(writesKey(caller), w, { max: WRITES_MAX, ex: WRITES_TTL_S });
+    await store.del(oldWritesKey(caller));
+    log('info', { action: 'member_writes', message: 'Ancien journal des écritures repris dans la liste', count: Array.isArray(again) ? again.length : 0 });
+  } finally {
+    await store.unlock(lockKey).catch(() => {});
+  }
+}
+
+/** Retire de la fin de liste (les plus anciennes) les écritures de plus d'un an. */
+async function dropOldWrites(store: Store, caller: Caller): Promise<void> {
+  const tail = await store.listRange<MemberWrite>(writesKey(caller), -50, -1);
+  const cutoff = Date.now() - WRITES_TTL_S * 1000;
+  let old = 0;
+  for (let i = tail.length - 1; i >= 0 && Date.parse(tail[i]!.at) < cutoff; i--) old++;
+  // Indices depuis la fin : une écriture ajoutée en tête entre-temps n'est pas touchée.
+  if (old) await store.listTrim(writesKey(caller), 0, -(old + 1));
 }
 
 /**
@@ -214,9 +334,11 @@ export interface Deps {
 export const handle = (request: Request): Promise<Response> => handleWith(request, { identify, isDpOf, store: getStore });
 
 export async function handleWith(request: Request, deps: Deps): Promise<Response> {
+  const started = Date.now();
+  let action: string | null = null;
   try {
     const url = new URL(request.url);
-    const action = url.searchParams.get('action');
+    action = url.searchParams.get('action');
     const caller = await deps.identify(request);
 
     if (action === 'logout' && request.method === 'POST') {
@@ -224,15 +346,47 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
       return json({ ok: true });
     }
 
-    const store = deps.store();
+    // Erreur de l'appli dans le navigateur (ErrorBoundary) : journalisée, sans toucher au stockage.
+    if (action === 'client_error' && request.method === 'POST') {
+      const text = await request.text();
+      if (text.length > 20_000) throw new HttpError(413, 'Rapport d’erreur trop gros.');
+      const body = parseBody(text) as { message?: unknown; stack?: unknown; url?: unknown; where?: unknown } | null;
+      if (clientErrorAllowed()) {
+        log('error', {
+          action: 'client_error',
+          status: 0,
+          message: String(body?.message ?? '').slice(0, 500),
+          ...(body?.stack ? { stack: String(body.stack).slice(0, 4000) } : {}),
+          url: safePageUrl(body?.url),
+          where: String(body?.where ?? '').slice(0, 100),
+          club: caller.clubId,
+        });
+      }
+      return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+    }
+
+    const store = withRetention(deps.store());
     await purgeOldChat(store);
-    const { roles, known } = await loadRoles(store, caller);
+    const loaded = await loadRoles(store, caller);
+    const { roles } = loaded;
+    let { known } = loaded;
 
     // Chaque passage met à jour ce que l'appli sait de la personne (admin VPDive, e-mail).
     const me = known[caller.uct];
     if (!me || me.vpdiveAdmin !== caller.vpdiveAdmin || me.email !== caller.email || Date.now() - Date.parse(me.lastSeen) > 600_000) {
-      known[caller.uct] = { email: caller.email, name: caller.name, vpdiveAdmin: caller.vpdiveAdmin, lastSeen: new Date().toISOString() };
-      await store.set(knownKey(caller), known);
+      const entry: KnownMember = { email: caller.email, name: caller.name, vpdiveAdmin: caller.vpdiveAdmin, lastSeen: new Date().toISOString() };
+      // Sous verrou, relu juste avant d'écrire : deux connexions simultanées ne s'effacent pas.
+      // Verrou pris ailleurs : on n'écrit rien cette fois (ce sera fait au prochain passage).
+      const lockKey = `${knownKey(caller)}:lock`;
+      if (await acquireLock(store, lockKey, 500)) {
+        try {
+          const fresh = purgeKnown({ ...((await store.get<KnownMap>(knownKey(caller))) ?? known), [caller.uct]: entry });
+          await store.set(knownKey(caller), fresh);
+          known = fresh;
+        } finally {
+          await store.unlock(lockKey).catch(() => {});
+        }
+      } else known = { ...known, [caller.uct]: entry };
     }
     const role = roleOf(caller.uct, roles, known);
 
@@ -257,39 +411,46 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
       if (removing && lockedSuper(uct, known)) throw new HttpError(400, 'Super-admin défini dans les réglages Vercel (SUPER_ADMIN_EMAILS) : à retirer là-bas.');
       const add = (list: string[]) => [...new Set([...list, uct])];
       const drop = (list: string[]) => list.filter((x) => x !== uct);
-      if (body?.superAdmin === true) {
-        roles.superAdmins = add(roles.superAdmins);
-        roles.revoked = drop(roles.revoked);
-      }
-      if (body?.superAdmin === false) roles.superAdmins = drop(roles.superAdmins);
-      if (body?.admin === true) {
-        roles.admins = add(roles.admins);
-        roles.revoked = drop(roles.revoked);
-      }
-      if (body?.admin === false) {
-        // Plus admin du tout : ni nommé, ni super-admin, ni admin VPDive par défaut.
-        roles.admins = drop(roles.admins);
-        roles.superAdmins = drop(roles.superAdmins);
-        roles.revoked = add(roles.revoked);
-      }
-      // Les membres connus vivent désormais dans leur propre clé : on ne les réécrit plus ici.
-      delete roles.known;
-      await store.set(rolesKey(caller), roles);
-      return json({ roles: roleEntries(roles, known) });
+      // Relu sous verrou : deux super-admins qui changent des rôles en même temps ne s'écrasent pas.
+      const saved = await updateShared<RolesDoc | { version?: number }>(store, rolesKey(caller), (current) => {
+        const next: RolesDoc = current && current.version === 2 ? (current as RolesDoc) : emptyRoles();
+        if (body?.superAdmin === true) {
+          next.superAdmins = add(next.superAdmins);
+          next.revoked = drop(next.revoked);
+        }
+        if (body?.superAdmin === false) next.superAdmins = drop(next.superAdmins);
+        if (body?.admin === true) {
+          next.admins = add(next.admins);
+          next.revoked = drop(next.revoked);
+        }
+        if (body?.admin === false) {
+          // Plus admin du tout : ni nommé, ni super-admin, ni admin VPDive par défaut.
+          next.admins = drop(next.admins);
+          next.superAdmins = drop(next.superAdmins);
+          next.revoked = add(next.revoked);
+        }
+        // Les membres connus vivent désormais dans leur propre clé : on ne les réécrit plus ici.
+        delete next.known;
+        return next;
+      });
+      log('info', { action: 'role', status: 200, message: 'Rôle modifié', club: caller.clubId });
+      return json({ roles: roleEntries(saved as RolesDoc, known) });
     }
 
     // Suivi des documents : liste partagée des membres ignorés (admins seulement).
     if (action === 'docs_ignored') {
       if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
-      const ignored = (await store.get<IgnoredDoc>(docsIgnoredKey(caller))) ?? {};
-      if (request.method === 'GET') return json({ ignored });
+      if (request.method === 'GET') return json({ ignored: (await store.get<IgnoredDoc>(docsIgnoredKey(caller))) ?? {} });
       if (request.method === 'POST') {
         const body = parseBody(await request.text()) as { uct?: string; name?: string; ignore?: boolean } | null;
         const uct = body?.uct ?? '';
         if (!/^[\w-]{20,80}$/.test(uct)) throw new HttpError(400, 'Membre inconnu.');
-        if (body?.ignore) ignored[uct] = { name: String(body.name ?? '').slice(0, 120), by: caller.name || caller.email, at: new Date().toISOString() };
-        else delete ignored[uct];
-        await store.set(docsIgnoredKey(caller), ignored);
+        const ignored = await updateShared<IgnoredDoc>(store, docsIgnoredKey(caller), (current) => {
+          const next = current ?? {};
+          if (body?.ignore) next[uct] = { name: String(body.name ?? '').slice(0, 120), by: caller.name || caller.email, at: new Date().toISOString() };
+          else delete next[uct];
+          return next;
+        });
         return json({ ignored });
       }
     }
@@ -303,6 +464,7 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
       try {
         return json({ items: await membershipItems(store, season) });
       } catch (e) {
+        if (e instanceof HttpError) throw e;
         throw new HttpError(502, e instanceof Error ? e.message : 'HelloAsso ne répond pas.');
       }
     }
@@ -336,17 +498,19 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
 
     if (action === 'brevet_map') {
       if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
-      const map = (await store.get<Record<string, string[]>>(brevetMapKey(caller))) ?? {};
-      if (request.method === 'GET') return json({ map });
+      if (request.method === 'GET') return json({ map: (await store.get<Record<string, string[]>>(brevetMapKey(caller))) ?? {} });
       if (request.method === 'POST') {
         const body = parseBody(await request.text()) as { brevet?: unknown; levels?: unknown } | null;
         const brevet = String(body?.brevet ?? '').trim().slice(0, 160);
         const levels = Array.isArray(body?.levels) ? body.levels.map((l) => String(l).trim().slice(0, 200)).filter(Boolean).slice(0, 20) : null;
         if (!brevet || !levels) throw new HttpError(400, 'Correspondance illisible.');
-        if (levels.length) map[brevet] = levels;
-        else delete map[brevet];
-        if (Object.keys(map).length > 300) throw new HttpError(413, 'Trop de correspondances.');
-        await store.set(brevetMapKey(caller), map);
+        const map = await updateShared<Record<string, string[]>>(store, brevetMapKey(caller), (current) => {
+          const next = current ?? {};
+          if (levels.length) next[brevet] = levels;
+          else delete next[brevet];
+          if (Object.keys(next).length > 300) throw new HttpError(413, 'Trop de correspondances.');
+          return next;
+        });
         return json({ map });
       }
     }
@@ -354,63 +518,79 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
     // Arbitrage : un admin coche un cas vérifié à la main (qui, quand, commentaire), au lieu d'une liste d'ignorés.
     if (action === 'arbitrage_checks') {
       if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
-      const checks = (await store.get<ArbitrageChecks>(checksKey(caller))) ?? {};
-      if (request.method === 'GET') return json({ checks });
+      if (request.method === 'GET') return json({ checks: (await store.get<ArbitrageChecks>(checksKey(caller))) ?? {} });
       if (request.method === 'POST') {
         const body = parseBody(await request.text()) as { key?: unknown; checked?: unknown; comment?: unknown } | null;
         const key = String(body?.key ?? '');
         if (!/^(lic|ha):.{1,200}\|[a-z-]{2,20}$/.test(key)) throw new HttpError(400, 'Cas inconnu.');
         const comment = String(body?.comment ?? '').trim().slice(0, 500);
-        if (body?.checked === false) delete checks[key];
-        else if (checks[key] && body?.checked === undefined) checks[key] = { ...checks[key]!, comment };
-        else checks[key] = { by: caller.name || caller.email, at: new Date().toISOString(), comment };
-        if (Object.keys(checks).length > 2000) throw new HttpError(413, 'Trop de cas vérifiés.');
-        await store.set(checksKey(caller), checks);
+        const checks = await updateShared<ArbitrageChecks>(store, checksKey(caller), (current) => {
+          const next = current ?? {};
+          if (body?.checked === false) delete next[key];
+          else if (next[key] && body?.checked === undefined) next[key] = { ...next[key]!, comment };
+          else next[key] = { by: caller.name || caller.email, at: new Date().toISOString(), comment };
+          if (Object.keys(next).length > 2000) throw new HttpError(413, 'Trop de cas vérifiés.');
+          return next;
+        });
         return json({ checks });
       }
     }
 
     // Corrections rapides écrites dans VPDive : qui, quand, quoi, et la fiche d'avant.
+    // Une liste Redis (la plus récente en tête, 300 au plus, chaque entrée gardée un an).
     if (action === 'member_writes') {
       if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
-      const writes = (await store.get<MemberWrite[]>(writesKey(caller))) ?? [];
-      if (request.method === 'GET') return json({ writes });
+      await migrateWrites(store, caller);
+      if (request.method === 'GET') {
+        const cutoff = Date.now() - WRITES_TTL_S * 1000;
+        const recent = await store.listRange<MemberWrite>(writesKey(caller), 0, WRITES_MAX - 1);
+        // Même forme qu'avant : du plus ancien au plus récent.
+        return json({ writes: recent.filter((w) => !(Date.parse(w.at) < cutoff)).reverse() });
+      }
       if (request.method === 'POST') {
         const text = await request.text();
-        if (text.length > 60_000) throw new HttpError(413, 'Fiche trop grosse pour le journal.');
+        if (text.length > MAX_BEFORE_BYTES + 8_000) throw new HttpError(413, 'Écriture trop grosse pour le journal.');
         const body = parseBody(text) as Partial<Record<keyof MemberWrite, unknown>> | null;
         const uct = String(body?.uct ?? '');
         if (!/^[\w-]{20,80}$/.test(uct)) throw new HttpError(400, 'Membre inconnu.');
+        const before = body?.before ?? null;
+        if (Buffer.byteLength(JSON.stringify(before)) > MAX_BEFORE_BYTES) {
+          throw new HttpError(413, `Fiche d’avant trop grosse pour le journal (${Math.round(MAX_BEFORE_BYTES / 1024)} Ko au plus) : écriture non journalisée.`);
+        }
         const kinds = Array.isArray(body?.kinds) ? body.kinds.map(String).filter((k) => /^[a-z-]{2,20}$/.test(k)).slice(0, 10) : [];
-        writes.push({
+        const entry: MemberWrite = {
           uct,
           name: String(body?.name ?? '').slice(0, 120),
           kinds,
           ok: body?.ok === true,
           message: String(body?.message ?? '').slice(0, 500),
-          before: body?.before ?? null,
+          before,
           by: caller.name || caller.email,
           at: new Date().toISOString(),
-        });
-        await store.set(writesKey(caller), writes.slice(-300));
+        };
+        await store.listPush(writesKey(caller), entry, { max: WRITES_MAX, ex: WRITES_TTL_S });
+        await dropOldWrites(store, caller);
         return json({ ok: true });
       }
     }
 
     if (action === 'member_links') {
       if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
-      const links = (await store.get<MemberLinks>(linksKey(caller))) ?? {};
-      if (request.method === 'GET') return json({ links });
+      if (request.method === 'GET') return json({ links: (await store.get<MemberLinks>(linksKey(caller))) ?? {} });
       if (request.method === 'POST') {
         const body = parseBody(await request.text()) as { key?: string; uct?: string | null; relation?: unknown } | null;
         const key = String(body?.key ?? '');
         if (!/^(lic|ha):.{1,200}$/.test(key)) throw new HttpError(400, 'Personne inconnue.');
         const parent = body?.relation === 'parent';
-        if (body?.uct == null) delete links[key];
-        else if (body.uct === 'none' && !parent) links[key] = { uct: 'none', by: caller.name || caller.email, at: new Date().toISOString() };
-        else if (/^[\w-]{20,80}$/.test(body.uct)) links[key] = { uct: body.uct, by: caller.name || caller.email, at: new Date().toISOString(), ...(parent ? { relation: 'parent' as const } : {}) };
-        else throw new HttpError(400, 'Membre inconnu.');
-        await store.set(linksKey(caller), links);
+        const uct = body?.uct;
+        if (uct != null && !(uct === 'none' && !parent) && !/^[\w-]{20,80}$/.test(uct)) throw new HttpError(400, 'Membre inconnu.');
+        const links = await updateShared<MemberLinks>(store, linksKey(caller), (current) => {
+          const next = current ?? {};
+          if (uct == null) delete next[key];
+          else if (uct === 'none' && !parent) next[key] = { uct: 'none', by: caller.name || caller.email, at: new Date().toISOString() };
+          else next[key] = { uct, by: caller.name || caller.email, at: new Date().toISOString(), ...(parent ? { relation: 'parent' as const } : {}) };
+          return next;
+        });
         return json({ links });
       }
     }
@@ -460,9 +640,13 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
 
     throw new HttpError(404, 'Action inconnue.');
   } catch (e) {
-    if (e instanceof HttpError) return json({ error: e.message }, e.status);
+    if (e instanceof HttpError) {
+      // Pannes de VPDive / HelloAsso, pare-feu, conflits de verrou : notables pour la supervision.
+      if (e.status >= 500 || e.status === 429 || e.status === 409) log('warn', { action, status: e.status, message: e.message, ms: Date.now() - started });
+      return json({ error: e.message }, e.status);
+    }
     // Le détail reste dans les journaux ; le client n'en voit qu'un message générique.
-    console.error('[api/app]', e);
+    log('error', { action, status: 500, ...errorFields(e), ms: Date.now() - started });
     return json({ error: 'Erreur serveur.' }, 500);
   }
 }

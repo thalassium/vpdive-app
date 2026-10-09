@@ -10,10 +10,42 @@
  *   /f/user/refuse/{jeton}     refuser l'accès au site
  * VPDive vérifie lui-même les droits de l'admin (member_edit / club_assoc).
  */
-import { HttpError, type Caller } from './auth.js';
+import { HttpError, VPDIVE_FIREWALL_MESSAGE, isFirewallBlock, vpdiveFetch, type Caller } from './auth.js';
 
 const ORIGIN = (process.env.VPDIVE_API_BASE ?? 'https://septentrion-env.vpdive.com/api').replace(/\/api\/?$/, '');
 const UA = 'Mozilla/5.0 (vpdive-app)';
+
+/** Pause entre deux appels enchaînés à l'interface historique : le pare-feu de VPDive coupe les rafales. */
+export const legacyTiming = { gapMs: 400 };
+
+/** Un enchaînement d'appels (session, liste, décision), espacés de `legacyTiming.gapMs`. */
+function pacedFetch() {
+  let last = 0;
+  return async (url: string, init: RequestInit): Promise<Response> => {
+    const wait = last + legacyTiming.gapMs - Date.now();
+    if (last && wait > 0) await new Promise((r) => setTimeout(r, wait));
+    try {
+      const res = await vpdiveFetch(url, init);
+      if (isFirewallBlock(res, false)) throw new HttpError(429, VPDIVE_FIREWALL_MESSAGE);
+      return res;
+    } finally {
+      last = Date.now();
+    }
+  };
+}
+type Fetcher = ReturnType<typeof pacedFetch>;
+
+/** Adresse renvoyée par VPDive (lien de connexion, redirection) : suivie seulement si elle reste chez VPDive. */
+function vpdiveUrl(next: string): string {
+  let url: URL;
+  try {
+    url = new URL(next, `${ORIGIN}/`);
+  } catch {
+    throw new HttpError(502, 'VPDive a renvoyé une adresse illisible.');
+  }
+  if (url.origin !== new URL(ORIGIN).origin) throw new HttpError(502, 'VPDive a renvoyé vers un autre site : session non ouverte.');
+  return url.href;
+}
 
 export interface RegistrationRequest {
   /** Jeton de la demande (celui des liens accepter / refuser). */
@@ -40,24 +72,21 @@ const text = (html: string) =>
     .trim();
 
 /** Ouvre une session de l'interface historique au nom de l'appelant ; renvoie ses cookies. */
-async function legacySession(caller: Caller): Promise<string> {
-  let res: Response;
-  try {
-    res = await fetch(`${ORIGIN}/api/jwt-to-connect-token`, {
-      method: 'POST',
-      headers: { ...caller.headers, Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': UA },
-      body: JSON.stringify({ target_url: '/f/user/index/3' }),
-    });
-  } catch {
-    throw new HttpError(502, 'VPDive injoignable.');
-  }
+async function legacySession(caller: Caller, call: Fetcher): Promise<string> {
+  const res = await call(`${ORIGIN}/api/jwt-to-connect-token`, {
+    method: 'POST',
+    headers: { ...caller.headers, Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': UA },
+    body: JSON.stringify({ target_url: '/f/user/index/3' }),
+  });
+  // Ici on attend du JSON : une page HTML vient du pare-feu.
+  if (isFirewallBlock(res)) throw new HttpError(429, VPDIVE_FIREWALL_MESSAGE);
   if (res.status === 401) throw new HttpError(401, 'Session VPDive expirée.');
   const body = (await res.json().catch(() => null)) as { connect_url?: string; data?: { connect_url?: string } } | null;
   let next = body?.connect_url ?? body?.data?.connect_url ?? '';
   if (!next) throw new HttpError(502, 'VPDive n’a pas ouvert de session pour les demandes d’inscription.');
   const cookies = new Map<string, string>();
   for (let i = 0; i < 6 && next; i++) {
-    const r = await fetch(next.startsWith('http') ? next : `${ORIGIN}${next}`, { headers: { 'User-Agent': UA, Cookie: cookieHeader(cookies) }, redirect: 'manual' });
+    const r = await call(vpdiveUrl(next), { headers: { 'User-Agent': UA, Cookie: cookieHeader(cookies) }, redirect: 'manual' });
     for (const c of r.headers.getSetCookie?.() ?? []) {
       const [pair] = c.split(';');
       const eq = pair!.indexOf('=');
@@ -71,9 +100,9 @@ async function legacySession(caller: Caller): Promise<string> {
 const cookieHeader = (cookies: Map<string, string>) => [...cookies].map(([k, v]) => `${k}=${v}`).join('; ');
 
 /** Lit le tableau des demandes d'inscription (statut 3 de la liste des membres). */
-async function readRequests(cookie: string): Promise<RegistrationRequest[]> {
+async function readRequests(cookie: string, call: Fetcher): Promise<RegistrationRequest[]> {
   const q = new URLSearchParams({ draw: '1', start: '0', length: '200', enabled: '3', name: '' });
-  const r = await fetch(`${ORIGIN}/f/user/datatable?${q}`, {
+  const r = await call(`${ORIGIN}/f/user/datatable?${q}`, {
     headers: { 'User-Agent': UA, Cookie: cookie, Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     redirect: 'manual',
   });
@@ -97,19 +126,21 @@ async function readRequests(cookie: string): Promise<RegistrationRequest[]> {
 }
 
 export async function registrationRequests(caller: Caller): Promise<RegistrationRequest[]> {
-  return readRequests(await legacySession(caller));
+  const call = pacedFetch();
+  return readRequests(await legacySession(caller, call), call);
 }
 
 /** Accepte (membre ou invité) ou refuse une demande, puis relit la liste pour s'en assurer. */
 export async function decideRegistration(caller: Caller, token: string, decision: Decision): Promise<RegistrationRequest[]> {
   if (!/^[\w-]{20,80}$/.test(token)) throw new HttpError(400, 'Demande inconnue.');
-  const cookie = await legacySession(caller);
-  const before = await readRequests(cookie);
+  const call = pacedFetch();
+  const cookie = await legacySession(caller, call);
+  const before = await readRequests(cookie, call);
   if (!before.some((x) => x.token === token)) throw new HttpError(409, 'Cette demande n’est plus en attente : rechargez la liste.');
   const path = decision === 'refuse' ? `/f/user/refuse/${token}` : `/f/user/accept/${token}/${decision === 'member' ? 1 : 0}`;
-  const r = await fetch(`${ORIGIN}${path}`, { headers: { 'User-Agent': UA, Cookie: cookie }, redirect: 'manual' });
+  const r = await call(`${ORIGIN}${path}`, { headers: { 'User-Agent': UA, Cookie: cookie }, redirect: 'manual' });
   if (r.status >= 400) throw new HttpError(502, `VPDive a refusé l’opération (HTTP ${r.status}).`);
-  const after = await readRequests(cookie);
+  const after = await readRequests(cookie, call);
   if (after.some((x) => x.token === token)) throw new HttpError(502, 'VPDive n’a pas pris en compte la décision : la demande est toujours en attente.');
   return after;
 }

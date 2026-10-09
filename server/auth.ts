@@ -6,6 +6,9 @@
 
 const VPDIVE_API = process.env.VPDIVE_API_BASE ?? 'https://septentrion-env.vpdive.com/api';
 
+/** Au-delà, on abandonne l'appel à VPDive (la fonction Vercel a 30 s en tout). */
+export const VPDIVE_TIMEOUT_MS = 8_000;
+
 export interface Caller {
   id: number;
   /**
@@ -32,16 +35,37 @@ export class HttpError extends Error {
   }
 }
 
+export const VPDIVE_TIMEOUT_MESSAGE = 'VPDive ne répond pas : réessayez dans un instant.';
+export const VPDIVE_FIREWALL_MESSAGE = 'Le pare-feu de VPDive bloque temporairement les appels de l’appli : réessayez dans quelques minutes.';
+
+/** Appel à VPDive avec délai maximal : délai dépassé → 504, réseau coupé → 502. */
+export async function vpdiveFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(VPDIVE_TIMEOUT_MS) });
+  } catch (e) {
+    const name = (e as { name?: string } | null)?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') throw new HttpError(504, VPDIVE_TIMEOUT_MESSAGE);
+    throw new HttpError(502, 'VPDive injoignable.');
+  }
+}
+
+/**
+ * Réponse du pare-feu de VPDive plutôt que de l'appli : 429, ou une page HTML
+ * (403 ou autre) là où l'on attend du JSON. Un 403 en JSON est une vraie
+ * réponse de l'API (droits insuffisants) et n'en est pas un.
+ */
+export function isFirewallBlock(res: Response, expectJson = true): boolean {
+  if (res.status === 429) return true;
+  const html = /text\/html/i.test(res.headers.get('content-type') ?? '');
+  return html && (expectJson || res.status === 403);
+}
+
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Json) : null);
 
 export async function vpdiveGet(path: string, headers: Record<string, string>): Promise<Json> {
-  let res: Response;
-  try {
-    res = await fetch(`${VPDIVE_API}${path}`, { headers: { Accept: 'application/json', ...headers } });
-  } catch {
-    throw new HttpError(502, 'VPDive injoignable.');
-  }
+  const res = await vpdiveFetch(`${VPDIVE_API}${path}`, { headers: { Accept: 'application/json', ...headers } });
+  if (isFirewallBlock(res)) throw new HttpError(429, VPDIVE_FIREWALL_MESSAGE);
   const body = obj(await res.json().catch(() => null));
   const code = typeof body?.code === 'number' ? body.code : null;
   if (res.status === 401 || code === 401) throw new HttpError(401, 'Session VPDive expirée.');

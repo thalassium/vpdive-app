@@ -19,8 +19,8 @@ loadEnv(join(ROOT, '.env.local'));
 const EMAIL = process.env.VPDIVE_EMAIL ?? '';
 const PASSWORD = process.env.VPDIVE_PASSWORD ?? '';
 const API = process.env.VPDIVE_API_BASE ?? 'https://septentrion-env.vpdive.com/api';
-const FALLBACK_CAL_TOKEN =
-  process.env.VPDIVE_CALENDAR_TOKEN ?? 'mwLfoKcBUFeaQ0MJ1kVPHInyjbl346hrCWitv2X5qN8';
+// Jeton de calendrier de secours, seulement depuis .env.local (jamais en dur dans le dépôt).
+const FALLBACK_CAL_TOKEN = process.env.VPDIVE_CALENDAR_TOKEN ?? '';
 
 if (!EMAIL || !PASSWORD) {
   console.error('❌ Set VPDIVE_EMAIL and VPDIVE_PASSWORD in .env.local (see .env.example).');
@@ -114,13 +114,17 @@ const firstCal = Array.isArray(listBody?.calendars) ? asObj(listBody.calendars[0
 // default_token is identical to the apps-script fallback, so a value check
 // reports "fallback" for a token that actually came from the API.
 let calToken = FALLBACK_CAL_TOKEN;
-let calTokenFrom = 'fallback from apps-script';
+let calTokenFrom = 'VPDIVE_CALENDAR_TOKEN (.env.local)';
 if (typeof listBody?.default_token === 'string' && listBody.default_token) {
   calToken = listBody.default_token;
   calTokenFrom = '/calendar/list default_token';
 } else if (typeof firstCal?.token === 'string' && firstCal.token) {
   calToken = firstCal.token;
   calTokenFrom = '/calendar/list calendars[0].token';
+}
+if (!calToken) {
+  console.error('❌ No calendar token: /calendar/list gave none and VPDIVE_CALENDAR_TOKEN is not set in .env.local.');
+  process.exit(1);
 }
 console.log(`   calendar token used: ${calTokenFrom}`);
 
