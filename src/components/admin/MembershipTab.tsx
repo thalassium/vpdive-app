@@ -11,6 +11,7 @@ import {
   brevetTarget,
   checkFor,
   linkFor,
+  attachedView,
   familyCandidates,
   lackingBrevets,
   arbitrageCases,
@@ -100,7 +101,10 @@ const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
   season: { title: `Saison d’adhésion à ajouter`, help: 'Adhésion payée sur HelloAsso (geste d’août compris), saison absente de la fiche VPDive.' },
   licence: { title: 'Licence FFESSM : date de fin à mettre à jour', help: 'Même numéro, date ancienne. VPDive relit la FFESSM si la licence est vérifiée, sinon la date est saisie.' },
   'licence-add': { title: 'Licence FFESSM à ajouter', help: 'Licence prise par le club (export Mon Club), absente de la fiche VPDive.' },
-  insurance: { title: 'Assurance à reporter', help: 'Assurance FFESSM (export Mon Club) écrite dans la liste VPDive, avec la saison. Une autre assurance (DAN…) n’est pas remplacée.' },
+  insurance: {
+    title: 'Assurance à reporter',
+    help: 'Assurance prise à la FFESSM (export Mon Club), sinon payée sur HelloAsso, écrite dans la liste VPDive avec la saison. Une autre assurance (DAN…) n’est pas remplacée.',
+  },
   brevets: { title: 'Brevets à ajouter', help: 'Brevets délivrés par la FFESSM (export des brevets), absents des niveaux de la fiche VPDive.' },
 };
 const CASE_TITLE: Record<CaseKind, string> = {
@@ -113,8 +117,9 @@ const CASE_TITLE: Record<CaseKind, string> = {
   unpaid: 'Licence prise sans paiement HelloAsso',
   'season-unpaid': 'Saison sans adhésion HelloAsso',
   'no-licence': 'Ni licence ni Pass payés au club',
+  'insurance-missing': 'Assurance payée sur HelloAsso, absente de VPDive',
 };
-const CASE_ORDER: CaseKind[] = ['homonym', 'family', 'absent', 'guest', 'licence-other', 'not-taken', 'unpaid', 'season-unpaid', 'no-licence'];
+const CASE_ORDER: CaseKind[] = ['homonym', 'family', 'absent', 'guest', 'licence-other', 'not-taken', 'unpaid', 'insurance-missing', 'season-unpaid', 'no-licence'];
 
 /**
  * Étapes 2 à 4 de la gestion des adhésions, sur les mêmes données (lues une
@@ -262,10 +267,12 @@ export function MembershipTab({
       const match = matchPerson(p, directory, records, link);
       const record = match.member ? (records[match.member.id] ?? null) : null;
       const cands = link && !match.obsolete ? [] : candidatesFor(p, directory);
-      const view = viewOf(p, record, season, brevets, brevetMap);
+      // Mineur rattaché au compte d'un parent : pas de fiche à lire, ce n'est pas un écart.
+      const base = viewOf(p, record, season, brevets, brevetMap);
+      const view = match.parent ? attachedView(base, match.parent.name) : base;
       const fixes = quickFixes(p, match, record, season, lackingBrevets(p, record, brevets, brevetMap));
       const family = match.status === 'missing' && !match.why ? familyCandidates(p, directory) : [];
-      return { p, match, record, view, fixes, family, cases: arbitrageCases(p, match, record, view, family), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
+      return { p, match, record, view, fixes, family, cases: arbitrageCases(p, match, record, view, season, family), pending: cands.some((m) => !records[m.id]) || (!!match.member && !record) };
     });
   }, [people, directory, links, records, season, brevets, brevetMap]);
 
@@ -277,7 +284,7 @@ export function MembershipTab({
     if (rows.length) onCounts?.({ fixes: fixCount, cases: caseCount });
   }, [rows.length, fixCount, caseCount, onCounts]);
 
-  const hasGap = (r: Row) => needsVpdiveFix(r.view) || federationIssue(r.view) || r.match.status !== 'sure';
+  const hasGap = (r: Row) => needsVpdiveFix(r.view) || federationIssue(r.view) || (r.match.status !== 'sure' && !r.match.parent);
   const q = normalizeName(query);
   const matches = (r: Row) => !q || normalizeName(`${r.p.name} ${r.match.member?.name ?? ''} ${r.p.ffessm?.licence ?? ''}`).includes(q);
 
@@ -823,7 +830,12 @@ function PersonRow({ row, season }: { row: Row; season: number }) {
       </Block>
       <Block title="Licence FFESSM">
         <Item view={view.licence} pending={pending} />
-        {p.ffessm && p.ffessm.insurance !== 'Aucune' && <p className="mt-0.5 text-sm text-muted">Assurance {p.ffessm.insurance}</p>}
+        {[view.insurance.helloasso, view.insurance.ffessm, view.insurance.vpdive].some((c) => c.text !== '—') && (
+          <>
+            <span className="mt-1.5 mb-0.5 block text-xs font-medium text-muted">Assurance</span>
+            <Item view={view.insurance} pending={pending} />
+          </>
+        )}
       </Block>
       <Block title={`Adhésion ${seasonLabel(season)}`}>
         <Item view={view.adhesion} pending={pending} />

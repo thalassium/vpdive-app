@@ -72,10 +72,10 @@ export function tierKind(tier: string, type: string): TierKind {
 /** Payé : traité ou saisi à la main ; annulé, remboursé ou en attente ne compte pas. */
 export const isPaid = (it: Pick<HaItem, 'state'>) => it.state === 'Processed' || it.state === 'Registered';
 
-/** « Assurance … Formule 2 » → « Loisir 2 » (même nom qu'à la FFESSM). */
+/** « Assurance … Formule 2 » → « Loisir 2 » (même nom qu'à la FFESSM) ; « … Formule 3 Top » → « Loisir 3 Top ». */
 export const haInsurance = (tier: string): string | null => {
-  const m = /formule\s*(\d)/i.exec(tier);
-  return m ? `Loisir ${m[1]}` : null;
+  const m = /formule\s*(\d)(\s*top)?/i.exec(tier);
+  return m ? `Loisir ${m[1]}${m[2] ? ' Top' : ''}` : null;
 };
 
 /** « 31/12/2008 » ou « 2008-12-31… » → « 2008-12-31 » ; '' si illisible. */
@@ -711,21 +711,70 @@ export function brevetsView(p: Person, r: VpRecord | null, brevets: Record<strin
   return { helloasso, ffessm, vpdive };
 }
 
+/** Assurance de la liste FFESSM dans VPDive (« Assurance Loisir 2 », « … Piscine ») ; une autre (DAN…) n'est jamais remplacée. */
+export const isFfessmInsurance = (label: string) => /loisir|piscine/i.test(label);
+
+/**
+ * Le libellé VPDive de l'assurance à porter sur la fiche : celle prise à la
+ * FFESSM s'il y a une ligne dans l'export (« Aucune » : rien), sinon celle
+ * payée sur HelloAsso quand la formule se lit sûrement (« Formule 2 » →
+ * « Assurance Loisir 2 »). Null si rien de sûr.
+ */
+export function insuranceWanted(p: Pick<Person, 'ffessm' | 'ha'>): string | null {
+  if (p.ffessm) return vpdiveInsurance(p.ffessm.insurance);
+  const paid = p.ha?.insurance;
+  const loisir = paid ? haInsurance(paid.tier) : null;
+  return loisir ? vpdiveInsurance(loisir) : null;
+}
+
+/**
+ * Assurance. Fait foi : HelloAsso (assurance payée), puis la FFESSM (assurance
+ * prise) ; VPDive doit l'avoir, pour la saison (année de début, voir
+ * insuranceYearFor).
+ */
+export function insuranceView(p: Person, r: VpRecord | null, season: number): ItemView {
+  const paid = p.ha?.insurance;
+  const helloasso: Cell = paid ? { mark: 'ok', text: haInsurance(paid.tier) ?? paid.tier } : NA;
+  const fed = p.ffessm && p.ffessm.insurance !== 'Aucune' ? p.ffessm.insurance : null;
+  const ffessm: Cell = fed ? { mark: 'ok', text: fed } : paid && p.ffessm ? { mark: 'diff', text: 'aucune prise' } : NA;
+  if (!paid && !fed) return { helloasso, ffessm, vpdive: NA };
+  if (!r) return { helloasso, ffessm, vpdive: { mark: 'na', text: 'fiche à trouver' } };
+  const year = insuranceYearFor(season);
+  const wanted = insuranceWanted(p);
+  let vpdive: Cell;
+  if (!r.insurance) vpdive = { mark: 'missing', text: 'absente' };
+  else if (!isFfessmInsurance(r.insurance)) vpdive = { mark: 'diff', text: `${r.insurance} (autre assurance)` };
+  else if (r.insuranceYear !== year) vpdive = { mark: 'diff', text: `${r.insurance} (${r.insuranceYear ? insuranceSeason(r.insuranceYear) : 'sans année'})` };
+  else vpdive = { mark: wanted && r.insurance !== wanted ? 'diff' : 'ok', text: `${r.insurance} (${insuranceSeason(year)})` };
+  return { helloasso, ffessm, vpdive };
+}
+
 export interface PersonView {
   licence: ItemView;
   adhesion: ItemView;
   brevets: ItemView;
+  insurance: ItemView;
 }
 export const viewOf = (p: Person, r: VpRecord | null, season: number, brevets: Record<string, string[]> | null, map: BrevetMap = {}): PersonView => ({
   licence: licenceView(p, r, season),
   adhesion: adhesionView(p, r, season),
   brevets: brevetsView(p, r, brevets, map),
+  insurance: insuranceView(p, r, season),
 });
 
+/**
+ * Mineur sans fiche rattaché au compte d'un parent : rien à lire côté VPDive,
+ * ce n'est pas un écart (« rattaché au compte de X » au lieu de « fiche à trouver »).
+ */
+export function attachedView(v: PersonView, parent: string): PersonView {
+  const attach = (i: ItemView): ItemView => (i.vpdive.text === 'fiche à trouver' ? { ...i, vpdive: { mark: 'na', text: `rattaché au compte de ${parent}` } } : i);
+  return { licence: attach(v.licence), adhesion: attach(v.adhesion), brevets: attach(v.brevets), insurance: attach(v.insurance) };
+}
+
 /** À corriger dans VPDive : un élément ❌ ou ⚠️ côté VPDive. */
-export const needsVpdiveFix = (v: PersonView) => [v.licence, v.adhesion, v.brevets].some((i) => i.vpdive.mark === 'missing' || i.vpdive.mark === 'diff');
-/** Oubli probable : payé sur HelloAsso mais pas pris à la FFESSM (ou l'inverse). */
-export const federationIssue = (v: PersonView) => v.licence.ffessm.mark === 'missing' || v.licence.ffessm.mark === 'diff';
+export const needsVpdiveFix = (v: PersonView) => [v.licence, v.adhesion, v.brevets, v.insurance].some((i) => i.vpdive.mark === 'missing' || i.vpdive.mark === 'diff');
+/** Oubli probable : payé sur HelloAsso mais pas pris à la FFESSM (ou l'inverse), licence ou assurance. */
+export const federationIssue = (v: PersonView) => v.licence.ffessm.mark === 'missing' || v.licence.ffessm.mark === 'diff' || v.insurance.ffessm.mark === 'diff';
 
 // ── Corrections rapides (étape 3) et arbitrage (étape 4) ──────────
 
@@ -787,9 +836,10 @@ export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: 
     }
     if (!ffessmOnes.length) out.push({ kind: 'licence-add', before: 'aucune licence FFESSM', after: `${p.ffessm.licence}, jusqu’au 31/12/${season}` });
   }
-  const wanted = p.ffessm ? vpdiveInsurance(p.ffessm.insurance) : null;
+  // Prise à la FFESSM, sinon payée sur HelloAsso (formule lue sûrement).
+  const wanted = insuranceWanted(p);
   // Une autre assurance (DAN…) notée dans VPDive (« Autre ») reste : on ne remplace que vide ou FFESSM.
-  const replaceable = !r.insurance || /loisir|piscine/i.test(r.insurance);
+  const replaceable = !r.insurance || isFfessmInsurance(r.insurance);
   const year = insuranceYearFor(season);
   if (wanted && replaceable && (r.insurance !== wanted || r.insuranceYear !== year)) {
     out.push({ kind: 'insurance', before: r.insurance ? `${r.insurance}${r.insuranceYear ? ` (${insuranceSeason(r.insuranceYear)})` : ''}` : 'aucune', after: `${wanted} (${insuranceSeason(year)})`, insurance: wanted, insuranceYear: year });
@@ -799,13 +849,13 @@ export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: 
 }
 
 /** Ce qui se décide au cas par cas, à la main (dans l'appli, sur VPDive ou sur Mon Club). */
-export type CaseKind = 'homonym' | 'family' | 'absent' | 'guest' | 'licence-other' | 'not-taken' | 'unpaid' | 'season-unpaid' | 'no-licence';
+export type CaseKind = 'homonym' | 'family' | 'absent' | 'guest' | 'licence-other' | 'not-taken' | 'unpaid' | 'season-unpaid' | 'no-licence' | 'insurance-missing';
 export interface Case {
   kind: CaseKind;
   text: string;
 }
 
-export function arbitrageCases(p: Person, match: Match, r: VpRecord | null, v: PersonView, family: VpMember[] = []): Case[] {
+export function arbitrageCases(p: Person, match: Match, r: VpRecord | null, v: PersonView, season: number, family: VpMember[] = []): Case[] {
   const out: Case[] = [];
   if (match.status === 'confirm') out.push({ kind: 'homonym', text: 'Plusieurs membres VPDive possibles : choisir le bon.' });
   if (match.status === 'missing' && !match.why) {
@@ -822,6 +872,16 @@ export function arbitrageCases(p: Person, match: Match, r: VpRecord | null, v: P
     out.push({ kind: 'licence-other', text: `La fiche VPDive porte une autre licence FFESSM (${v.licence.vpdive.text.replace('autre n° ', '')}) que celle de la FFESSM (${p.ffessm?.licence ?? '?'}).` });
   }
   if (v.adhesion.vpdive.mark === 'diff' && r.member) out.push({ kind: 'season-unpaid', text: 'Saison présente dans VPDive sans adhésion HelloAsso.' });
+  // Assurance payée sur HelloAsso : VPDive doit en avoir une FFESSM pour la saison. Sinon, correction rapide si
+  // elle est sûre (libellé connu, fiche sans autre assurance) ; à défaut, ici.
+  const year = insuranceYearFor(season);
+  const covered = isFfessmInsurance(r.insurance) && r.insuranceYear === year;
+  const fixable = match.status === 'sure' && !!insuranceWanted(p) && (!r.insurance || isFfessmInsurance(r.insurance));
+  if (p.ha?.insurance && !covered && !fixable) {
+    const why = !r.insurance ? 'aucune assurance sur la fiche' : !isFfessmInsurance(r.insurance) ? `la fiche a ${r.insurance}, que l’appli ne remplace pas` : `la fiche a ${r.insurance} d’une autre saison`;
+    const fed = p.ffessm && p.ffessm.insurance === 'Aucune' ? ' Pas prise à la FFESSM non plus : à prendre sur Mon Club.' : '';
+    out.push({ kind: 'insurance-missing', text: `Assurance payée sur HelloAsso (${p.ha.insurance.tier.trim()}), absente de VPDive : ${why}.${fed}` });
+  }
   return out;
 }
 

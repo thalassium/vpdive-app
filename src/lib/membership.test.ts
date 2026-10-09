@@ -30,6 +30,10 @@ import {
   seasonsCovered,
   tierKind,
   vpdiveInsurance,
+  insuranceView,
+  attachedView,
+  haInsurance,
+  type Match,
   type HaItem,
   type VpMember,
   type VpRecord,
@@ -150,7 +154,7 @@ test('licence : HelloAsso fait foi ; FFESSM non prise ❌ ; VPDive absente ❌, 
   const [forgot] = buildPeople([item({ tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [], 2027);
   const v = licenceView(forgot!, null, 2027);
   assert.equal(v.ffessm.mark, 'missing');
-  assert.ok(federationIssue({ licence: v, adhesion: v, brevets: v }));
+  assert.ok(federationIssue({ licence: v, adhesion: v, brevets: v, insurance: v }));
 });
 
 test('adhésion : saison absente ❌, statut Invité ⚠️, à jour ✅ ; brevets FFESSM comparés aux niveaux VPDive', () => {
@@ -261,17 +265,17 @@ test('arbitrage : homonymes, parents, absent, invité, licence non prise, autre 
   const rec: VpRecord = { email: '', birthday: '', seasons: ['2027'], licences: [], insurance: '', insuranceYear: null, member: false, levels: [] };
   const v = viewOf(lea!, rec, 2027, null);
   const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
-  assert.deepEqual(arbitrageCases(lea!, sure, rec, v).map((c) => c.kind), ['not-taken', 'guest']);
+  assert.deepEqual(arbitrageCases(lea!, sure, rec, v, 2027).map((c) => c.kind), ['not-taken', 'guest']);
   const nobody = { status: 'missing' as const, member: null, why: '', candidates: [] };
-  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null)).map((c) => c.kind), ['absent', 'not-taken']);
+  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null), 2027).map((c) => c.kind), ['absent', 'not-taken']);
   const parent = { id: 'p1', name: 'MARTIN Paul', picture: '' };
-  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null), [parent]).map((c) => c.kind), ['family', 'not-taken']);
+  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null), 2027, [parent]).map((c) => c.kind), ['family', 'not-taken']);
   const decided = { status: 'missing' as const, member: null, why: 'pas dans VPDive, selon Lucas', candidates: [] };
-  assert.ok(!arbitrageCases(lea!, decided, null, viewOf(lea!, null, 2027, null)).some((c) => c.kind === 'absent'), 'déjà tranché');
+  assert.ok(!arbitrageCases(lea!, decided, null, viewOf(lea!, null, 2027, null), 2027).some((c) => c.kind === 'absent'), 'déjà tranché');
   const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
   const [withLic] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [row], 2027);
   const other = { ...rec, member: true, licences: [{ number: 'A-99-000001', organization: 'F.F.E.S.S.M.', expires: '2027-12-31' }] };
-  assert.deepEqual(arbitrageCases(withLic!, sure, other, viewOf(withLic!, other, 2027, null)).map((c) => c.kind), ['licence-other']);
+  assert.deepEqual(arbitrageCases(withLic!, sure, other, viewOf(withLic!, other, 2027, null), 2027).map((c) => c.kind), ['licence-other']);
 });
 
 test('rapprochement : une naissance différente sur la fiche interdit « sûr » (Jean/Jeanne, Léa/Léa-Marie, père/fils)', () => {
@@ -331,7 +335,7 @@ test('licence VPDive sans ligne FFESSM : la plus récente, « expirée le … »
   assert.deepEqual([v.vpdive.mark, v.vpdive.text], ['diff', 'expirée le 31/12/2025']);
   assert.equal(licenceView(lea!, rec({ licences: [{ number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2026-12-31' }] }), 2027).vpdive.text, 'jusqu’au 31/12/2026');
   const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
-  assert.ok(!arbitrageCases(lea!, sure, old, viewOf(lea!, old, 2027, null)).some((c) => c.kind === 'licence-other'));
+  assert.ok(!arbitrageCases(lea!, sure, old, viewOf(lea!, old, 2027, null), 2027).some((c) => c.kind === 'licence-other'));
 });
 
 test('même numéro de licence deux fois sur la fiche : celle qui finit le plus tard', () => {
@@ -381,8 +385,49 @@ test('validations par saison : la clé passe le contrôle du serveur (server/han
   const re = new RegExp(m[1]!);
   const [lea] = buildPeople([item({})], [], 2027);
   assert.ok(re.test(caseKey({ key: 'lic:A-16-733717' }, 'unpaid', 2027)));
-  assert.ok(re.test(caseKey(lea!, 'season-unpaid', 2027)), lea!.key);
+  assert.ok(re.test(caseKey(lea!, 'insurance-missing', 2027)), lea!.key);
   assert.ok(re.test(caseKey({ key: 'lic:A-16-1' }, 'licence-other', 2027)));
+});
+
+test('assurance payée sur HelloAsso ⇒ dans VPDive : correction rapide si sûre, sinon arbitrage ; DAN jamais remplacée', () => {
+  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: ['2027'], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
+  const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
+  const paid = item({ id: 3, tier: 'Assurance Individuelle Accidents et Assistance Formule 2' });
+  const [lea] = buildPeople([item({}), paid], [], 2027);
+  const kinds = (r: VpRecord, m: Match = sure) => arbitrageCases(lea!, m, r, viewOf(lea!, r, 2027, null), 2027).map((c) => c.kind);
+  // Pas d'assurance sur la fiche : diagnostic ❌, correction rapide (année = début de saison), pas d'arbitrage.
+  const none = rec({});
+  assert.deepEqual([insuranceView(lea!, none, 2027).helloasso.text, insuranceView(lea!, none, 2027).vpdive.mark], ['Loisir 2', 'missing']);
+  assert.ok(needsVpdiveFix(viewOf(lea!, none, 2027, null)));
+  const fix = quickFixes(lea!, sure, none, 2027).find((f) => f.kind === 'insurance');
+  assert.deepEqual([fix?.insurance, fix?.insuranceYear], ['Assurance Loisir 2', 2026]);
+  assert.ok(!kinds(none).includes('insurance-missing'));
+  // DAN : signalée, jamais remplacée, à arbitrer.
+  const dan = rec({ insurance: 'DAN SILVER', insuranceYear: 2026 });
+  assert.equal(insuranceView(lea!, dan, 2027).vpdive.mark, 'diff');
+  assert.ok(!quickFixes(lea!, sure, dan, 2027).some((f) => f.kind === 'insurance'));
+  assert.ok(kinds(dan).includes('insurance-missing'));
+  // Une autre assurance FFESSM de la saison : présente.
+  assert.ok(!kinds(rec({ insurance: 'Assurance Loisir 1', insuranceYear: 2026 })).includes('insurance-missing'));
+  assert.equal(insuranceView(lea!, rec({ insurance: 'Assurance Loisir 2', insuranceYear: 2026 }), 2027).vpdive.mark, 'ok');
+  // Formule illisible : pas de correction rapide, arbitrage.
+  const [odd] = buildPeople([item({}), item({ id: 3, tier: 'Assurance complémentaire' })], [], 2027);
+  assert.ok(!quickFixes(odd!, sure, none, 2027).some((f) => f.kind === 'insurance'));
+  assert.deepEqual(arbitrageCases(odd!, sure, none, viewOf(odd!, none, 2027, null), 2027).map((c) => c.kind), ['no-licence', 'insurance-missing']);
+  // Ligne FFESSM « Aucune » : la FFESSM fait foi, pas d'écriture ; arbitrage (à prendre sur Mon Club).
+  const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
+  const [taken] = buildPeople([item({}), paid], [row], 2027);
+  assert.equal(insuranceView(taken!, none, 2027).ffessm.mark, 'diff');
+  assert.ok(!quickFixes(taken!, sure, none, 2027).some((f) => f.kind === 'insurance'));
+  assert.match(arbitrageCases(taken!, sure, none, viewOf(taken!, none, 2027, null), 2027).find((c) => c.kind === 'insurance-missing')?.text ?? '', /Mon Club/);
+  assert.equal(haInsurance('Assurance Formule 3 Top'), 'Loisir 3 Top');
+});
+
+test('mineur rattaché au compte d’un parent : « rattaché au compte de … », pas un écart côté VPDive', () => {
+  const [tom] = buildPeople([item({ firstName: 'Tom', lastName: 'Petit', birthDate: '2012-05-05' })], [], 2027);
+  const v = attachedView(viewOf(tom!, null, 2027, null), 'PETIT Marc');
+  assert.equal(v.adhesion.vpdive.text, 'rattaché au compte de PETIT Marc');
+  assert.equal(needsVpdiveFix(v), false);
 });
 
 test('parents : même nom de famille ou payeur HelloAsso ; un seul compte au même nom (accents près) est sûr', () => {
