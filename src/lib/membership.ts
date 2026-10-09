@@ -9,6 +9,7 @@
  * membership.test.ts.
  */
 import { nameScore, normalizeName } from './fuzzy';
+import { frDate } from './dates';
 
 // ── Saisons ──────────────────────────────────────────────────────
 
@@ -505,7 +506,7 @@ const sameEmail = (a: string, b: string) => !!a && !!b && a.trim().toLowerCase()
  */
 export function contradiction(p: Pick<Person, 'birthDate'>, r: VpRecord | undefined): string | null {
   if (!r || !p.birthDate || !r.birthday || r.birthday === p.birthDate) return null;
-  return `né le ${r.birthday.split('-').reverse().join('/')} selon VPDive`;
+  return `né le ${frDate(r.birthday)} selon VPDive`;
 }
 
 /** E-mail propre différent sur la fiche (ni celui de l'adhérent, ni celui du payeur) : un doute pour un rapprochement par le nom seul. */
@@ -638,7 +639,6 @@ export function vpdiveInsurance(ffessm: string): string | null {
 /** Fin de validité d'une licence FFESSM de la saison : 31 décembre de l'année de fin. */
 export const licenceEnd = (season: number) => `${season}-12-31`;
 const NA: Cell = { mark: 'na', text: '—' };
-const frDate = (ymd: string) => ymd.split('-').reverse().join('/');
 /** « Licence FFESSM ADULTE (+ de 16ans) » → « Adulte ». */
 const licenceTier = (tier: string) => {
   const m = /licence\s+ffessm\s+(\S+)/i.exec(tier);

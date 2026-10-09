@@ -1,10 +1,11 @@
 import { useId, useState, type FormEvent } from 'react';
 import { AlertCircle, ArrowRight } from 'lucide-react';
-import { vpdive, type Session } from '../services/vpdiveApi';
+import { vpdive, type Session } from '../services/vpdive';
 import { Logo } from './Brand';
 import { Gabian } from './Gabian';
 import { ThemeToggle } from './ThemeToggle';
 import { SeaBackdrop } from './SeaBackdrop';
+import { message } from '../lib/errors';
 
 interface LoginPageProps {
   onLoginSuccess: (session: Session) => void;
@@ -76,7 +77,7 @@ export function LoginForm({ onLoginSuccess, notice, initialEmail = '' }: LoginFo
     try {
       onLoginSuccess(await vpdive.login(email.trim(), password));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Connexion impossible.');
+      setError(message(err, 'Connexion impossible.'));
     } finally {
       setIsLoading(false);
     }

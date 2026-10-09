@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Award, ChevronDown, ExternalLink, FileText, FolderOpen, IdCard, ImageIcon, LogOut } from 'lucide-react';
-import { vpdive, ymd, type EmergencyContact, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { vpdive, type EmergencyContact, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdive';
+import { ymd, frDate } from '../../lib/dates';
 import type { Me } from '../../services/appApi';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
+import { message } from '../../lib/errors';
+import { Failure } from '../Feedback';
 
 /** Ma page profil sur VPDive : informations, documents, niveaux. */
 const VPDIVE_URL = 'https://septentrion-env.vpdive.com/app/profile';
@@ -15,10 +18,6 @@ interface Quals {
   training: string[];
   medical: { until: string | null; valid: boolean } | null;
 }
-
-const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
-/** « 2027-03-12 » → « 12/03/2027 ». */
-const frDate = (d: string) => d.split('-').reverse().join('/');
 
 const hasAny = (q: Quals | null): q is Quals => !!q && (q.groups.some((g) => g.items.length > 0) || q.training.length > 0 || !!q.medical);
 
@@ -43,6 +42,99 @@ function fromRoster(r: RosterEntry): Quals {
     training: r.training,
     medical: r.medical.until || r.medical.valid ? r.medical : null,
   };
+}
+
+/** Ma fiche telle que l'écran la montre. */
+interface FileState {
+  /** undefined : en cours ; null : rien trouvé. */
+  quals: Quals | null | undefined;
+  qualsError: string | null;
+  /** undefined : en cours ; null : fiche VPDive inaccessible. */
+  documents: MemberDocument[] | null | undefined;
+  /** undefined : en cours ; null : fiche VPDive inaccessible. */
+  info: MemberInfo | null | undefined;
+}
+const LOADING: FileState = { quals: undefined, qualsError: null, documents: undefined, info: undefined };
+
+/**
+ * Ma fiche VPDive (« Mon profil ») : niveaux et documents déposés. À défaut, la fiche
+ * membre (admins), puis la liste des inscrits d'une sortie pour les niveaux. `show`
+ * montre ce qui est déjà su (documents, informations) avant la fin des recours.
+ * null : session perdue (déjà signalée), ou écran fermé entre-temps.
+ */
+async function readMyFile(
+  meUct: string | null,
+  userId: number | null,
+  onSessionLost: (e: unknown) => boolean,
+  live: () => boolean,
+  show: (patch: Partial<FileState>) => void,
+): Promise<FileState | null> {
+  let documents: FileState['documents'] = null;
+  let info: FileState['info'] = null;
+  let found: Quals | null = null;
+  if (meUct) {
+    try {
+      const file = await vpdive.myFile(meUct);
+      found = fromProfile(file.profile);
+      documents = file.documents;
+      info = file.info;
+      show({ documents, info });
+    } catch (e) {
+      if (!live() || onSessionLost(e)) return null;
+      show({ documents: null, info: null });
+      try {
+        found = fromProfile(await vpdive.memberProfile(meUct));
+      } catch (e2) {
+        // Refusée aux simples membres (403) : on passe à la liste des inscrits.
+        if (!live() || onSessionLost(e2)) return null;
+      }
+    }
+  } else {
+    show({ documents: null, info: null });
+  }
+  // Dernier recours pour les niveaux : la liste des inscrits de ma prochaine sortie.
+  if (!hasAny(found) && userId !== null) {
+    try {
+      const to = new Date();
+      to.setDate(to.getDate() + 90);
+      const first = (await vpdive.fetchEvents(ymd(new Date()), ymd(to))).find((ev) => ev.registered);
+      if (first) {
+        const entry = (await vpdive.fetchRoster(first.token)).find((r) => r.id === String(userId));
+        if (entry) found = fromRoster(entry);
+      }
+    } catch (e) {
+      if (!live() || onSessionLost(e)) return null;
+      return { quals: undefined, qualsError: message(e), documents, info };
+    }
+  }
+  return { quals: hasAny(found) ? found : null, qualsError: null, documents, info };
+}
+
+/**
+ * Ma fiche, lue à l'ouverture du profil et relue sur demande (« Réessayer »). Autre
+ * membre ou relecture : l'écran repasse « en cours » pendant le rendu, la lecture part
+ * dans l'effet et n'écrit plus rien une fois le profil fermé.
+ */
+function useMyFile(meUct: string | null, userId: number | null, onSessionLost: (e: unknown) => boolean) {
+  const [state, setState] = useState<FileState>(LOADING);
+  const [attempt, setAttempt] = useState(0);
+  const key = `${meUct}|${userId}|${attempt}`;
+  const [readKey, setReadKey] = useState(key);
+  if (readKey !== key) {
+    setReadKey(key);
+    setState(LOADING);
+  }
+  useEffect(() => {
+    let live = true;
+    void readMyFile(meUct, userId, onSessionLost, () => live, (patch) => live && setState((s) => ({ ...s, ...patch }))).then((done) => {
+      if (live && done) setState(done);
+    });
+    return () => {
+      live = false;
+    };
+  }, [meUct, userId, onSessionLost, attempt]);
+  const reload = useCallback(() => setAttempt((n) => n + 1), []);
+  return { ...state, reload };
 }
 
 export function ProfileView({
@@ -81,81 +173,7 @@ export function ProfileView({
       live = false;
     };
   }, [onSessionLost]);
-  /** undefined : en cours ; null : rien trouvé. */
-  const [quals, setQuals] = useState<Quals | null | undefined>(undefined);
-  const [qualsError, setQualsError] = useState<string | null>(null);
-  /** undefined : en cours ; null : fiche VPDive inaccessible. */
-  const [documents, setDocuments] = useState<MemberDocument[] | null | undefined>(undefined);
-  /** undefined : en cours ; null : fiche VPDive inaccessible. */
-  const [info, setInfo] = useState<MemberInfo | null | undefined>(undefined);
-  const request = useRef(0);
-
-  const meUct = me?.uct ?? null;
-  const userId = session.userId;
-
-  const load = useCallback(async () => {
-    const id = ++request.current;
-    const stale = () => id !== request.current;
-    setQuals(undefined);
-    setQualsError(null);
-    setDocuments(undefined);
-    setInfo(undefined);
-
-    // Ma fiche VPDive (« Mon profil ») : niveaux et documents déposés. À défaut, la fiche
-    //    membre (admins), puis la liste des inscrits d'une sortie pour les niveaux.
-    let found: Quals | null = null;
-    if (meUct) {
-      try {
-        const file = await vpdive.myFile(meUct);
-        if (stale()) return;
-        found = fromProfile(file.profile);
-        setDocuments(file.documents);
-        setInfo(file.info);
-      } catch (e) {
-        if (stale() || onSessionLost(e)) return;
-        setDocuments(null);
-        setInfo(null);
-        try {
-          found = fromProfile(await vpdive.memberProfile(meUct));
-        } catch (e2) {
-          // Refusée aux simples membres (403) : on passe à la liste des inscrits.
-          if (stale() || onSessionLost(e2)) return;
-        }
-      }
-    } else {
-      setDocuments(null);
-      setInfo(null);
-    }
-    // Dernier recours pour les niveaux : la liste des inscrits de ma prochaine sortie.
-    if (!hasAny(found) && userId !== null) {
-      try {
-        const to = new Date();
-        to.setDate(to.getDate() + 90);
-        const first = (await vpdive.fetchEvents(ymd(new Date()), ymd(to))).find((ev) => ev.registered);
-        if (first) {
-          const entry = (await vpdive.fetchRoster(first.token)).find((r) => r.id === String(userId));
-          if (entry) found = fromRoster(entry);
-        }
-      } catch (e) {
-        if (stale() || onSessionLost(e)) return;
-        setQualsError(errorText(e));
-        return;
-      }
-    }
-    if (stale()) return;
-    setQuals(hasAny(found) ? found : null);
-  }, [meUct, userId, onSessionLost]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-  // Fermeture du profil : la lecture en cours n'écrit plus rien (une nouvelle lecture, elle, invalide la précédente d'elle-même).
-  useEffect(
-    () => () => {
-      request.current++;
-    },
-    [],
-  );
+  const { quals, qualsError, documents, info, reload } = useMyFile(me?.uct ?? null, session.userId, onSessionLost);
 
   const name = `${session.firstName} ${session.lastName}`.trim() || me?.name || session.email;
   const roleLabel = me?.role === 'superadmin' ? 'Super-admin' : me?.role === 'admin' ? 'Admin' : null;
@@ -202,7 +220,7 @@ export function ProfileView({
         <Box icon={<Award className="w-5 h-5" />} title="Mes niveaux">
           <div className="p-4">
             {qualsError ? (
-              <ErrorLine text={qualsError} onRetry={load} />
+              <Failure look="line" text={qualsError} onRetry={reload} />
             ) : quals === undefined ? (
               <div aria-hidden className="h-14 rounded-lg animate-pulse bg-raised" />
             ) : quals === null ? (
@@ -300,9 +318,6 @@ export function ProfileView({
   );
 }
 
-/** « 1985-04-12 » → « 12/04/1985 ». */
-const jjmmaaaa = (iso: string) => (iso ? iso.split('-').reverse().join('/') : '');
-
 /**
  * Mes infos, groupées comme sur une fiche d'adhésion : contact, identité,
  * adhésion, licences. Une ligne vide n'est pas affichée ; le contact d'urgence
@@ -310,7 +325,7 @@ const jjmmaaaa = (iso: string) => (iso ? iso.split('-').reverse().join('/') : ''
  */
 function InfoList({ info }: { info: MemberInfo }) {
   const adresse = [info.address, [info.zipCode, info.city].filter(Boolean).join(' '), info.country].filter(Boolean).join(', ');
-  const naissance = [info.birthday && `le ${jjmmaaaa(info.birthday)}`, info.birthPlace && `à ${info.birthPlace}`].filter(Boolean).join(' ');
+  const naissance = [info.birthday && `le ${frDate(info.birthday)}`, info.birthPlace && `à ${info.birthPlace}`].filter(Boolean).join(' ');
   const groupes: { titre: string; lignes: [string, ReactNode][] }[] = [
     {
       titre: 'Contact',
@@ -331,10 +346,10 @@ function InfoList({ info }: { info: MemberInfo }) {
     {
       titre: 'Adhésion',
       lignes: [
-        ['Membre depuis', jjmmaaaa(info.memberSince)],
+        ['Membre depuis', frDate(info.memberSince)],
         ['Saisons', info.seasons.join(', ')],
         ['Assurance', [info.insurance, info.insuranceYear && `(${info.insuranceYear})`].filter(Boolean).join(' ')],
-        ['Honorabilité', info.honorabilityAt && `contrôle validé le ${jjmmaaaa(info.honorabilityAt)}`],
+        ['Honorabilité', info.honorabilityAt && `contrôle validé le ${frDate(info.honorabilityAt)}`],
         ['Visible des membres', [info.shows.phone && 'téléphone', info.shows.birthday && 'date de naissance'].filter(Boolean).join(', ') || 'ni téléphone ni date de naissance'],
       ],
     },
@@ -347,7 +362,7 @@ function InfoList({ info }: { info: MemberInfo }) {
           {l.expired ? (
             <span className="text-danger"> · expirée</span>
           ) : l.expires ? (
-            <span className="text-muted"> · jusqu’au {jjmmaaaa(l.expires)}</span>
+            <span className="text-muted"> · jusqu’au {frDate(l.expires)}</span>
           ) : l.validated ? (
             <span className="text-ok"> · validée</span>
           ) : (
@@ -432,7 +447,7 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
       setDraft(null);
       setSaved(true);
     } catch (e) {
-      if (!onSessionLost(e)) setError(errorText(e));
+      if (!onSessionLost(e)) setError(message(e));
     } finally {
       setSaving(false);
     }
@@ -564,17 +579,6 @@ function Box({ icon, title, count, defaultOpen, children }: { icon: ReactNode; t
       </summary>
       <div className="border-t border-line">{children}</div>
     </details>
-  );
-}
-
-function ErrorLine({ text, onRetry }: { text: string; onRetry: () => void }) {
-  return (
-    <div role="alert" className="flex flex-wrap items-center gap-3">
-      <p className="text-danger flex-1 min-w-0">{text}</p>
-      <button type="button" onClick={onRetry} className="btn btn-quiet">
-        Réessayer
-      </button>
-    </div>
   );
 }
 

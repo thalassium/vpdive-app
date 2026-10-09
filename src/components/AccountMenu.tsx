@@ -1,11 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Eye, LogOut, UserRound } from 'lucide-react';
 import { Avatar } from './Avatar';
-import { vpdive, type MemberMatch } from '../services/vpdiveApi';
+import { vpdive, type MemberMatch } from '../services/vpdive';
 import { appApi, type AppRole } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
 import { ROLE_LABEL } from '../lib/roleLabels';
 import { MENU_ITEM_CLS, menuKeys } from './menuKeys';
+import { message } from '../lib/errors';
+import { usePopover } from '../hooks/usePopover';
 
 /** Un membre choisi dans « Voir en tant que », avec son rôle dans l'appli. */
 export interface ViewAsPick {
@@ -44,27 +46,16 @@ export function AccountMenu({ name, email, picture, role, onProfile, onViewAs, o
   const list = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
-  useEffect(() => {
-    if (!open) return;
-    const outside = (e: PointerEvent) => {
-      if (box.current?.contains(e.target as Node)) return;
+  // Clic ailleurs ou Échap (focus rendu au bouton) : le menu se referme ; Tab, plus bas (onBlur).
+  usePopover({
+    open,
+    onClose: () => {
       setOpen(false);
       setView('main');
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      setOpen(false);
-      setView('main');
-      button.current?.focus();
-    };
-    document.addEventListener('pointerdown', outside, true);
-    document.addEventListener('keydown', key, true);
-    return () => {
-      document.removeEventListener('pointerdown', outside, true);
-      document.removeEventListener('keydown', key, true);
-    };
-  }, [open]);
+    },
+    inside: [box],
+    button,
+  });
 
   // Menu principal affiché (ouverture, retour de « Voir en tant que ») : focus sur son premier élément.
   useEffect(() => {
@@ -189,7 +180,7 @@ function ViewAsPicker({ onBack, onPick, onSessionLost }: { onBack: () => void; o
         setRoles(new Map(entries.map((e) => [e.uct, e.role])));
         setMembers(list);
       },
-      (e) => !cancelled && !onSessionLost(e) && setError(e instanceof Error ? e.message : String(e)),
+      (e) => !cancelled && !onSessionLost(e) && setError(message(e)),
     );
     return () => {
       cancelled = true;

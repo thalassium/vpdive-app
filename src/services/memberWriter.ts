@@ -1,18 +1,19 @@
 /**
  * Corrections rapides de la gestion des adhésions, écrites dans VPDive pour
- * un membre : relecture de la fiche, envois espacés (un bloc à la fois),
+ * un membre : relecture de la fiche, envois espacés (un bloc à la fois, la file
+ * du transport tenant une pause plus longue qu'entre deux lectures),
  * relecture et contrôle, puis journal sur le serveur (avec la fiche d'avant).
  * Les formulaires et les contrôles sont dans lib/memberWrite.
  */
-import { SessionExpiredError, vpdive } from './vpdiveApi';
+import { SessionExpiredError, vpdive, type CallPace } from './vpdive';
 import { appApi } from './appApi';
 import { capacityEntries, checkWrite, generalEntries, insuranceEntries, licenceEntries, rawHasLicence, snapshot, type Entry, type Expect, type RawMember } from '../lib/memberWrite';
 import { licenceEnd, type Fix, type VpRecord } from '../lib/membership';
+import { message } from '../lib/errors';
 
 // Plus lent que les lectures : ce sont des écritures, et le pare-feu de VPDive veille.
-const GAP_MS = 800;
-const wait = () => new Promise<void>((r) => setTimeout(r, GAP_MS));
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+// Chaque appel de l'écriture d'une fiche attend 800 ms après le précédent (au lieu de 400).
+const PACE: CallPace = { gap: 800 };
 
 export interface WriteJob {
   uct: string;
@@ -47,9 +48,9 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
   let after: VpRecord | undefined;
   let result: WriteResult;
   try {
-    const record = await vpdive.memberRecord(uct);
-    await wait();
-    let raw: RawMember = await vpdive.memberForm(uct);
+    // Relue sans le cache : on écrit d'après la fiche telle qu'elle est maintenant.
+    const record = await vpdive.memberRecord(uct, { ...PACE, fresh: true });
+    let raw: RawMember = await vpdive.memberForm(uct, PACE);
     before = snapshot(raw);
     /** La licence a été relue à la FFESSM par VPDive : pas de date à saisir. */
     let refreshed = false;
@@ -94,33 +95,28 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
 
     // Licence vérifiée FFESSM : VPDive sait la relire lui-même ; la date n'est saisie que s'il n'y arrive pas.
     if (licenceFix?.refresh && licenceFix.licenceId) {
-      await wait();
-      const applied = await vpdive.refreshFfessmLicence(uct, licenceFix.licenceId).catch((e) => {
+      const applied = await vpdive.refreshFfessmLicence(uct, licenceFix.licenceId, PACE).catch((e) => {
         if (e instanceof SessionExpiredError) throw e;
         return false;
       });
       if (applied) {
         wrote = true;
-        await wait();
-        const r = await vpdive.memberRecord(uct);
+        const r = await vpdive.memberRecord(uct, { ...PACE, fresh: true });
         refreshed = r.licences.some((l) => l.id === licenceFix.licenceId && l.expires >= licenceEnd(season));
         if (refreshed) done.push('licence relue à la FFESSM');
-        await wait();
-        raw = await vpdive.memberForm(uct);
+        raw = await vpdive.memberForm(uct, PACE);
       }
     }
 
     for (const b of blocks) {
       if (b.kind === 'licence' && refreshed) continue;
       const entries = b.entries();
-      await wait();
-      await vpdive.updateMember(uct, entries);
+      await vpdive.updateMember(uct, entries, PACE);
       wrote = true;
       done.push(KIND_LABEL[b.kind] ?? b.kind);
     }
 
-    await wait();
-    after = await vpdive.memberRecord(uct);
+    after = await vpdive.memberRecord(uct, { ...PACE, fresh: true });
     const check = checkWrite(record, after, want, season);
     result = check.error
       ? { ok: false, message: `Écrit (${done.join(', ')}) mais à vérifier : ${check.error}`, after }

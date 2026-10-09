@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addedMemberId, adoptRegistrations, companionByComment, divingIds, mustBePlaced, parseDepth, pruneOrphans, sameContent, setGuideNote, toggleCompanion, dayParticipants, defaultRoles, guestEntry, memberEntry, headerFromRoles, newGuest, normalizeOuting, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
 import { aptitudesFromLabels, type Diver } from './palanquees';
-import type { RosterEntry } from '../services/vpdiveApi';
+import type { RosterEntry } from '../services/vpdive';
 
 const person = (id: string, roles: string[] = [], waitingList = false): RosterEntry => ({
   id, name: id, firstname: id, lastname: id, levels: [], display: [], training: [], roles, age: 30, waitingList, comment: '', medical: { until: null, valid: true },

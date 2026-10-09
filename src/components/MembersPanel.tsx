@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Avatar } from './Avatar';
-import { AlertTriangle, ChevronDown, ExternalLink, Lock, RefreshCw, Search, ShieldCheck, Users, X } from 'lucide-react';
-import { vpdive, type MemberMatch, type MemberProfile } from '../services/vpdiveApi';
+import { AlertTriangle, ChevronDown, ExternalLink, Lock, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
+import { vpdive, isUnavailable, type MemberMatch, type MemberProfile } from '../services/vpdive';
 import { appApi, type AppRole, type Me, type RoleEntry } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
 import { findDuplicates, type DuplicateGroup } from '../lib/duplicates';
-import { useDialog } from '../hooks/useDialog';
 import { GabianLoader } from './Gabian';
+import { message } from '../lib/errors';
+import { frDate } from '../lib/dates';
+import { sessionCache } from '../lib/cache';
+import { Dialog, DialogHeader } from './Dialog';
 
 interface Props {
   me: Me;
@@ -38,23 +41,23 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const canEdit = me.role === 'superadmin';
 
-  /** Annuaire et rôles ; l'état « chargement » est posé par l'appelant (null au départ). */
-  const fetchAll = useCallback(async () => {
+  /** Annuaire et rôles ; l'état « chargement » est posé par l'appelant (null au départ). `fresh` : sans le cache court de l'annuaire. */
+  const fetchAll = useCallback(async (fresh = false) => {
     try {
-      const [list, { roles: entries, seen: lastSeen }] = await Promise.all([vpdive.fetchMemberDirectory(), appApi.rolesAndSeen()]);
+      const [list, { roles: entries, seen: lastSeen }] = await Promise.all([vpdive.fetchMemberDirectory('assignment', { fresh }), appApi.rolesAndSeen()]);
       setRoles(new Map(entries.map((e) => [e.uct, e])));
       setSeen(lastSeen);
       setMembers(list);
     } catch (e) {
       if (onSessionLost(e)) return;
-      setError(e instanceof Error ? e.message : String(e));
+      setError(message(e));
     }
   }, [onSessionLost]);
   /** Relire (bouton) : on repart de l'état de chargement. */
   const load = () => {
     setError(null);
     setMembers(null);
-    void fetchAll();
+    void fetchAll(true);
   };
 
   useEffect(() => {
@@ -62,8 +65,6 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchAll();
   }, [fetchAll]);
-
-  const { ref: dialogRef } = useDialog({ onClose, label: 'members' });
 
   const roleOf = useCallback((m: MemberMatch): AppRole => roles.get(m.id)?.role ?? 'member', [roles]);
 
@@ -75,7 +76,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
       setRoles(new Map(entries.map((e) => [e.uct, e])));
     } catch (e) {
       if (onSessionLost(e)) return;
-      setRoleError(`${m.name} : ${e instanceof Error ? e.message : String(e)}`);
+      setRoleError(`${m.name} : ${message(e)}`);
     } finally {
       setBusy(null);
     }
@@ -107,7 +108,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
   }, [shown, query, roleOf]);
 
   // Doublons : homonymes de l'annuaire, puis seulement les comptes au statut « Membre ».
-  // Le statut se lit fiche par fiche : seuls les homonymes sont lus, espacés, gardés 6 h.
+  // Le statut se lit fiche par fiche : seuls les homonymes sont lus (la file du transport les espace), gardés 6 h.
   const candidates = useMemo(() => (members ? findDuplicates(members) : []), [members]);
   /** true : membre ; false : en attente, désinscrit… ; null : fiche illisible (gardé). */
   const [memberOk, setMemberOk] = useState<Record<string, boolean | null>>({});
@@ -120,20 +121,21 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
       setChecking(true);
       for (const id of ids) {
         if (!live) return;
-        const cached = readMemberCache(id);
+        const cached = memberCache.read(id);
         if (cached !== null) {
           setMemberOk((p) => ({ ...p, [id]: cached }));
           continue;
         }
         try {
-          const ok = await vpdive.isClubMember(id);
-          writeMemberCache(id, ok);
+          const ok = await vpdive.isClubMember(id, { priority: 'low' });
+          memberCache.write(id, ok);
           if (live) setMemberOk((p) => ({ ...p, [id]: ok }));
         } catch (e) {
           if (onSessionLost(e)) return;
           if (live) setMemberOk((p) => ({ ...p, [id]: null }));
+          // VPDive ne répond plus (pare-feu, réseau) : les fiches suivantes restent non vérifiées (gardées).
+          if (isUnavailable(e)) break;
         }
-        await new Promise((r) => setTimeout(r, 450));
       }
       if (live) setChecking(false);
     })();
@@ -149,94 +151,87 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
   const adminCount = members?.filter((m) => roleOf(m) !== 'member').length ?? 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="members-title" className="relative bg-surface w-full sm:max-w-3xl h-dvh sm:h-[90vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop">
-        <header className="relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <span className="label block mb-0.5">Admin</span>
-              <h2 id="members-title" className="text-xl font-semibold text-brand leading-snug flex items-center gap-2">
-                <Users className="w-6 h-6 text-brand" /> Membres du club
-              </h2>
-              {members && (
-                <p className="mt-1 text-sm text-muted">
-                  {members.length} membres sur VPDive · {adminCount} admin{adminCount > 1 ? 's' : ''} de l’appli
-                </p>
-              )}
-            </div>
-            <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
-              <button onClick={onClose} aria-label="Fermer" className="icon-btn">
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-          </div>
-          <div className="relative mt-4">
-            <Search className="w-4 h-4 text-muted absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Rechercher un membre…"
-              aria-label="Rechercher un membre"
-              // Sur téléphone, le clavier ouvert d'office masquerait presque toute la liste.
-              autoFocus={!window.matchMedia?.('(pointer: coarse)').matches}
-              className="field w-full pl-11 pr-4 text-base"
-            />
-          </div>
-          {canEdit && <p className="hidden sm:block mt-3 text-sm text-muted leading-relaxed">{ROLES_HELP}</p>}
-        </header>
+    <Dialog label="members" onClose={onClose} titleId="members-title" className="sm:max-w-3xl h-dvh sm:h-[90vh]">
+      <DialogHeader
+        titleId="members-title"
+        kicker="Admin"
+        icon={<Users className="w-6 h-6 text-brand" />}
+        title="Membres du club"
+        onClose={onClose}
+        subtitle={
+          members && (
+            <p className="mt-1 text-sm text-muted">
+              {members.length} membres sur VPDive · {adminCount} admin{adminCount > 1 ? 's' : ''} de l’appli
+            </p>
+          )
+        }
+      >
+        <div className="relative mt-4">
+          <Search className="w-4 h-4 text-muted absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Rechercher un membre…"
+            aria-label="Rechercher un membre"
+            // Sur téléphone, le clavier ouvert d'office masquerait presque toute la liste.
+            autoFocus={!window.matchMedia?.('(pointer: coarse)').matches}
+            className="field w-full pl-11 pr-4 text-base"
+          />
+        </div>
+        {canEdit && <p className="hidden sm:block mt-3 text-sm text-muted leading-relaxed">{ROLES_HELP}</p>}
+      </DialogHeader>
 
-        {roleError && (
-          <div role="alert" className="mx-4 mt-3 p-3 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {roleError}
+      {roleError && (
+        <div role="alert" className="mx-4 mt-3 p-3 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {roleError}
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-4 py-3">
+        {!members && !error && <GabianLoader label="Chargement des membres depuis VPDive…" />}
+        {error && (
+          <div role="alert" className="m-2 p-4 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2.5">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <div className="flex-1">
+              <span className="font-semibold block">Liste des membres indisponible</span>
+              {error}
+            </div>
+            <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
+              <RefreshCw className="w-4 h-4" /> Réessayer
+            </button>
           </div>
         )}
-
-        <div className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-4 py-3">
-          {!members && !error && <GabianLoader label="Chargement des membres depuis VPDive…" />}
-          {error && (
-            <div role="alert" className="m-2 p-4 rounded-xl bg-danger-soft text-danger text-base flex items-start gap-2.5">
-              <AlertTriangle className="w-5 h-5 shrink-0" />
-              <div className="flex-1">
-                <span className="font-semibold block">Liste des membres indisponible</span>
-                {error}
-              </div>
-              <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
-                <RefreshCw className="w-4 h-4" /> Réessayer
-              </button>
-            </div>
-          )}
-          {/* Sur téléphone, l'aide sur les rôles défile avec la liste au lieu d'alourdir l'en-tête. */}
-          {canEdit && <p className="sm:hidden px-1 pb-3 text-sm text-muted leading-relaxed">{ROLES_HELP}</p>}
-          {members && !query.trim() && <Duplicates groups={duplicates} checking={checking} />}
-          {members && shown.length === 0 && <p className="py-10 text-center text-muted">Aucun membre ne correspond.</p>}
-          {groups.map(({ label, list }) =>
-            list.length === 0 && label ? null : (
-              <section key={label || 'results'}>
-                {label && <h3 className="label sticky -top-3 z-10 bg-surface px-3 pt-3 pb-1">{label}</h3>}
-                <ul>
-                  {list.map((m) => (
-                    <MemberRow
-                      key={m.id}
-                      member={m}
-                      entry={roles.get(m.id)}
-                      lastSeen={seen[m.id]}
-                      isMe={m.id === me.uct}
-                      canEdit={canEdit}
-                      busy={busy === m.id}
-                      open={openId === m.id}
-                      onToggle={() => setOpenId(openId === m.id ? null : m.id)}
-                      onRole={(patch) => change(m, patch)}
-                      onSessionLost={onSessionLost}
-                    />
-                  ))}
-                </ul>
-              </section>
-            ),
-          )}
-        </div>
+        {/* Sur téléphone, l'aide sur les rôles défile avec la liste au lieu d'alourdir l'en-tête. */}
+        {canEdit && <p className="sm:hidden px-1 pb-3 text-sm text-muted leading-relaxed">{ROLES_HELP}</p>}
+        {members && !query.trim() && <Duplicates groups={duplicates} checking={checking} />}
+        {members && shown.length === 0 && <p className="py-10 text-center text-muted">Aucun membre ne correspond.</p>}
+        {groups.map(({ label, list }) =>
+          list.length === 0 && label ? null : (
+            <section key={label || 'results'}>
+              {label && <h3 className="label sticky -top-3 z-10 bg-surface px-3 pt-3 pb-1">{label}</h3>}
+              <ul>
+                {list.map((m) => (
+                  <MemberRow
+                    key={m.id}
+                    member={m}
+                    entry={roles.get(m.id)}
+                    lastSeen={seen[m.id]}
+                    isMe={m.id === me.uct}
+                    canEdit={canEdit}
+                    busy={busy === m.id}
+                    open={openId === m.id}
+                    onToggle={() => setOpenId(openId === m.id ? null : m.id)}
+                    onRole={(patch) => change(m, patch)}
+                    onSessionLost={onSessionLost}
+                  />
+                ))}
+              </ul>
+            </section>
+          ),
+        )}
       </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -295,24 +290,8 @@ function seenLabel(iso: string): string {
   return `le ${d.toLocaleDateString('fr-FR', opts)} à ${time}`;
 }
 
-const MEMBER_CACHE_MS = 6 * 3600_000;
-function readMemberCache(uct: string): boolean | null {
-  try {
-    const raw = sessionStorage.getItem(`club-member-v2:${uct}`);
-    if (!raw) return null;
-    const { at, ok } = JSON.parse(raw) as { at: number; ok: boolean };
-    return Date.now() - at < MEMBER_CACHE_MS && typeof ok === 'boolean' ? ok : null;
-  } catch {
-    return null;
-  }
-}
-function writeMemberCache(uct: string, ok: boolean) {
-  try {
-    sessionStorage.setItem(`club-member-v2:${uct}`, JSON.stringify({ at: Date.now(), ok }));
-  } catch {
-    // Stockage indisponible : la fiche sera relue la prochaine fois.
-  }
-}
+/** Statut « Membre » d'un compte (fiche par fiche), gardé 6 h dans l'onglet. */
+const memberCache = sessionCache('club-member-v2:', 6 * 3600_000, (v): v is boolean => typeof v === 'boolean', { field: 'ok' });
 
 /** Un membre, ses rôles à droite ; ouvert, ses niveaux et qualifications lus dans son profil VPDive. */
 function MemberRow({
@@ -347,7 +326,7 @@ function MemberRow({
   useEffect(() => {
     if (!open || profile) return;
     vpdive.memberProfile(member.id).then(setProfile, (e) => {
-      if (!onSessionLost(e)) setError(e instanceof Error ? e.message : String(e));
+      if (!onSessionLost(e)) setError(message(e));
     });
   }, [open, profile, member.id, onSessionLost]);
 
@@ -400,7 +379,7 @@ function MemberRow({
               <Line label="Qualifications" values={profile.qualifications} />
               {profile.medicalUntil && (
                 <p className="text-muted">
-                  Certificat médical jusqu’au <span className="text-ink">{profile.medicalUntil.slice(0, 10).split('-').reverse().join('/')}</span>
+                  Certificat médical jusqu’au <span className="text-ink">{frDate(profile.medicalUntil)}</span>
                 </p>
               )}
             </>

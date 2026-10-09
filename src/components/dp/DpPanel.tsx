@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
-import { vpdive, ymd, DP_ROLE, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { vpdive, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdive';
+import { ymd, MONTHS, MONTHS_SHORT, weekdayShort } from '../../lib/dates';
+import { DP_SCAN_FAILED, dpWindow, findDpEvents } from '../../services/dpEvents';
 import { appApi, AppApiError, type AppRole, type OutingLock } from '../../services/appApi';
 import {
   addedMemberId,
@@ -23,13 +25,15 @@ import {
   type OutingDoc,
 } from '../../lib/outing';
 import { setDepth } from '../../lib/palanqueeEdit';
-import { PalanqueesEditor } from './PalanqueesEditor';
+import { PalanqueesEditor } from './palanquees/PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
 import { useConfirm } from '../../hooks/useConfirm';
 import { Tab, TabList, TabPanel } from '../Tabs';
-import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
+import { message } from '../../lib/errors';
+import { isRecord, sessionCache } from '../../lib/cache';
+import { Dialog, DialogHeader } from '../Dialog';
 
 interface Props {
   session: Session;
@@ -61,30 +65,25 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
   /** Lit les sorties du DP ; la liste est posée par les rappels de la promesse. */
   const fetchList = useCallback(() => {
     const read = async () => {
-      const today = new Date();
-      const from = new Date(today);
-      from.setDate(from.getDate() - 14);
-      const to = new Date(today);
-      to.setDate(to.getDate() + 60);
-      let list = await vpdive.fetchEvents(ymd(from), ymd(to));
+      const [from, to] = dpWindow();
+      let list = await vpdive.fetchEvents(from, to);
       if (role === 'member' && dpEvents) {
         list = list.filter((e) => dpEvents.includes(e.token));
       } else if (role === 'member') {
-        // Pas admin : seulement les sorties où l'on est inscrit comme DP, listes lues une à une avec une pause (le pare-feu VPDive bloque les rafales).
-        const mine = list.filter((e) => e.registered);
-        const dp: CalendarEvent[] = [];
-        for (const e of mine) {
-          const roster = await vpdive.fetchRoster(e.token).catch(() => [] as RosterEntry[]);
-          if (roster.some((r) => r.id === String(session.userId) && r.roles.some((x) => DP_ROLE.test(x)))) dp.push(e);
-          await new Promise((r) => setTimeout(r, 400));
-        }
-        list = dp;
+        // Pas admin : seulement les sorties où l'on est inscrit comme DP (listes lues une à une, services/dpEvents.ts).
+        const scan = await findDpEvents(
+          list.filter((e) => e.registered),
+          (r) => r.id === String(session.userId),
+        );
+        // Une liste illisible : on ne sait pas, on le dit (« Réessayer ») plutôt que de cacher une sortie.
+        if (!scan?.complete) throw new Error(`${DP_SCAN_FAILED}.`);
+        list = list.filter((e) => scan.tokens.includes(e.token));
       }
       return list;
     };
     return read().then(setEvents, (e: unknown) => {
       if (onSessionLost(e)) return;
-      setListError(e instanceof Error ? e.message : String(e));
+      setListError(message(e));
     });
   }, [role, dpEvents, session.userId, onSessionLost]);
   /** « Réessayer » : l'erreur s'efface, la liste est relue. */
@@ -129,9 +128,6 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
     [leave, selected],
   );
 
-  // Échap, bouton Retour, focus et verrou de défilement : hooks/useDialog.
-  const { ref: dialogRef } = useDialog({ onClose: () => void close(), label: 'dp' });
-
   // Aujourd'hui et à venir d'abord (la plus proche en tête), puis les passées, la plus récente d'abord.
   const { upcoming, past } = useMemo(() => {
     const today = ymd(new Date());
@@ -143,30 +139,35 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
   }, [events]);
 
   return (
-    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade print:static print:bg-white print:p-0">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dp-title"
-        className="relative bg-surface w-full sm:max-w-6xl h-dvh sm:h-[94vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop print:h-auto print:shadow-none print:overflow-visible"
+    <>
+      <Dialog
+        label="dp"
+        onClose={() => void close()}
+        onBackdrop={null}
+        titleId="dp-title"
+        className="sm:max-w-6xl h-dvh sm:h-[94vh] print:h-auto print:shadow-none print:overflow-visible"
+        backdropClassName="print:static print:bg-white print:p-0"
       >
-        <div className="border-t-[3px] border-pink border-b border-line px-5 sm:px-6 py-3.5 shrink-0 flex items-center gap-3 print:hidden">
-          {selected && (
-            <button onClick={() => void leave(() => setSelected(null))} aria-label="Toutes les sorties" className="icon-btn lg:hidden -ml-2">
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-          )}
-          <ClipboardList className="w-6 h-6 text-brand shrink-0" />
-          <h2 id="dp-title" className="text-xl font-semibold text-brand flex-1 min-w-0">
-            {/* Sur téléphone, le libellé du menu : le titre complet passerait sur deux lignes. */}
-            <span className="sm:hidden">DP</span>
-            <span className="hidden sm:inline">Directeur de plongée</span>
-          </h2>
-          <button onClick={() => void close()} aria-label="Fermer" className="icon-btn -mr-2">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
+        <DialogHeader
+          titleId="dp-title"
+          className="print:hidden"
+          before={
+            selected && (
+              <button onClick={() => void leave(() => setSelected(null))} aria-label="Toutes les sorties" className="icon-btn lg:hidden -ml-2">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )
+          }
+          icon={<ClipboardList className="w-6 h-6 text-brand shrink-0" />}
+          title={
+            <>
+              {/* Sur téléphone, le libellé du menu : le titre complet passerait sur deux lignes. */}
+              <span className="sm:hidden">DP</span>
+              <span className="hidden sm:inline">Directeur de plongée</span>
+            </>
+          }
+          onClose={() => void close()}
+        />
 
         <div className="flex-1 min-h-0 flex">
           {/* Sorties */}
@@ -199,17 +200,14 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
             )}
           </main>
         </div>
-      </div>
+      </Dialog>
       {confirmDialog}
-    </div>
+    </>
   );
 }
 
-const JOURS = ['Dim.', 'Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.'];
-const MOIS_COURTS = ['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
-const MOIS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 /** « Sam. 14 Oct » */
-const shortDate = (d: Date) => `${JOURS[d.getDay()]} ${d.getDate()} ${MOIS_COURTS[d.getMonth()]}`;
+const shortDate = (d: Date) => `${weekdayShort(d)} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
 
 /** Sorties d'une section (à venir / passées), avec un séparateur par mois. */
 function ListGroup({ label, events, selected, onSelect }: { label: string; events: CalendarEvent[]; selected: CalendarEvent | null; onSelect: (e: CalendarEvent) => void }) {
@@ -218,7 +216,7 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
   for (const e of events) {
     const d = new Date(e.start);
     const key = `${d.getFullYear()}-${d.getMonth()}`;
-    if (months.at(-1)?.key !== key) months.push({ key, title: `${MOIS[d.getMonth()]} ${d.getFullYear()}`, list: [] });
+    if (months.at(-1)?.key !== key) months.push({ key, title: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`, list: [] });
     months.at(-1)!.list.push(e);
   }
   return (
@@ -285,29 +283,16 @@ interface Draft {
   at: string;
   by: string;
 }
-const DRAFT_PREFIX = 'outing-draft:v1:';
-function readDraft(token: string): Draft | null {
-  try {
-    const raw = localStorage.getItem(DRAFT_PREFIX + token);
-    return raw ? (JSON.parse(raw) as Draft) : null;
-  } catch {
-    return null;
-  }
-}
-function writeDraft(token: string, draft: Draft) {
-  try {
-    localStorage.setItem(DRAFT_PREFIX + token, JSON.stringify(draft));
-  } catch {
-    // Stockage plein ou interdit : rien de plus à faire, l'enregistrement reste la vraie sauvegarde.
-  }
-}
-function clearDraft(token: string) {
-  try {
-    localStorage.removeItem(DRAFT_PREFIX + token);
-  } catch {
-    // Rien à faire.
-  }
-}
+/** Brouillons sur l'appareil (localStorage), sans limite de durée ; une forme inattendue est ignorée. */
+const drafts = sessionCache(
+  'outing-draft:v1:',
+  Infinity,
+  (v): v is Draft => isRecord(v) && isRecord(v.doc) && Array.isArray(v.doc.dives) && typeof v.baseRev === 'number' && typeof v.by === 'string',
+  { field: '', storage: () => localStorage },
+);
+const readDraft = (token: string) => drafts.read(token);
+const writeDraft = (token: string, draft: Draft) => drafts.write(token, draft);
+const clearDraft = (token: string) => drafts.forget(token);
 
 /** Cet onglet, pour le bail d'édition : le même après un rechargement de la page (sessionStorage). */
 function editorClient(): string {
@@ -431,7 +416,7 @@ function OutingWorkspace({
       .then(show)
       .catch((e: unknown) => {
         if (onSessionLost(e)) return;
-        setLoadError(e instanceof Error ? e.message : String(e));
+        setLoadError(message(e));
       });
   }, [token, client, derive, me, onSessionLost]);
   /** Relire la sortie (« Réessayer », version de l'autre chargée) : l'erreur s'efface d'abord. */

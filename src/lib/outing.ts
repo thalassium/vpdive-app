@@ -6,7 +6,8 @@
  */
 import type { Diver, Plan } from './palanquees';
 import type { DiverSettings } from './palanqueeEdit';
-import { DP_ROLE, SURFACE_ROLES, type CalendarEvent, type RosterEntry } from '../services/vpdiveApi';
+import { type CalendarEvent, type RosterEntry } from '../services/vpdive';
+import { DP_ROLE, SURFACE_ROLES } from './outingRoles';
 
 export interface DiveParams {
   /** Durée en minutes, profondeur en mètres, heure de mise à l'eau (HH:MM). */

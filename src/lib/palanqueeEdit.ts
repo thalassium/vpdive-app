@@ -5,7 +5,7 @@
  */
 import { aptitudesFromLabels, canGuideExploration, canTeach, extraLabel, guideLabel, isInstructor, kindLabel, memberLabel, prerogativeLabel, settleKind, studentsOf, toTeaching, type Aptitudes, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
-import type { RosterEntry } from '../services/vpdiveApi';
+import type { RosterEntry } from '../services/vpdive';
 
 /**
  * Prérogative retenue à la main par le DP. Indispensable pour un brevet d'une

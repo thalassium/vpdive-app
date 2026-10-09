@@ -1,4 +1,5 @@
 import { preferModels, toSlots, type Slot } from '../lib/marine';
+import { sessionCache } from '../lib/cache';
 
 /**
  * Météo marine, sans clé ni compte :
@@ -27,29 +28,19 @@ export interface Spot {
 const TTL = 30 * 60 * 1000;
 const memoire = new Map<string, { at: number; slots: Slot[] }>();
 
+/** Prévisions gardées dans l'onglet 30 min, par point (« meteo:43.243,5.362 »). */
+const stockage = sessionCache('meteo:', TTL, (v): v is Slot[] => Array.isArray(v), { field: 'slots' });
+
 const lire = (cle: string): Slot[] | null => {
   const m = memoire.get(cle);
   if (m && Date.now() - m.at < TTL) return m.slots;
-  try {
-    const raw = sessionStorage.getItem(cle);
-    if (!raw) return null;
-    const v = JSON.parse(raw) as { at: number; slots: Slot[] };
-    if (Date.now() - v.at >= TTL) return null;
-    memoire.set(cle, v);
-    return v.slots;
-  } catch {
-    return null;
-  }
+  return stockage.read(cle);
 };
 
 const garder = (cle: string, slots: Slot[]) => {
-  const v = { at: Date.now(), slots };
-  memoire.set(cle, v);
-  try {
-    sessionStorage.setItem(cle, JSON.stringify(v));
-  } catch {
-    // Stockage plein ou interdit : la mémoire suffit pour la session.
-  }
+  memoire.set(cle, { at: Date.now(), slots });
+  // Stockage plein ou interdit : la mémoire suffit pour la session.
+  stockage.write(cle, slots);
 };
 
 async function json(url: string): Promise<Record<string, unknown[]>> {
@@ -64,7 +55,7 @@ async function json(url: string): Promise<Record<string, unknown[]>> {
  * l'API marine échoue, le vent reste affiché.
  */
 export async function forecastAt(lat: number, lon: number): Promise<Slot[]> {
-  const cle = `meteo:${lat.toFixed(3)},${lon.toFixed(3)}`;
+  const cle = `${lat.toFixed(3)},${lon.toFixed(3)}`;
   const deja = lire(cle);
   if (deja) return deja;
 

@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BarChart3, FileDown, RefreshCw, X } from 'lucide-react';
-import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdiveApi';
+import { BarChart3, FileDown, RefreshCw } from 'lucide-react';
+import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdive';
 import { appApi } from '../../services/appApi';
 import { computeStats, dateFr, isDiveActivity, monthSeries, monthShort, presetRange, seasonPresetLabel, type PresetId, type StatEvent, type StatPerson, type StatStaff, type Stats } from '../../lib/stats';
 import { Avatar } from '../Avatar';
 import { Spinner } from '../Spinner';
-import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
+import { message } from '../../lib/errors';
+import { WEEKDAYS } from '../../lib/dates';
+import { isRecord, sessionCache } from '../../lib/cache';
+import { Dialog, DialogHeader } from '../Dialog';
 
 /**
  * Statistiques de la saison (super-admin) : sorties, plongeurs, niveaux,
@@ -14,17 +17,14 @@ import { GabianLoader } from '../Gabian';
  * le 1er septembre). Une personne inscrite sous plusieurs comptes VPDive
  * (même nom) compte une fois.
  * VPDive ne donne pas ses statistiques aux clubs : on relit l'agenda puis la
- * liste des inscrits de chaque sortie, une à une et espacées (pare-feu). Une
+ * liste des inscrits de chaque sortie, une à une (la file du transport les espace). Une
  * sortie terminée ne change plus : sa liste est gardée sur l'appareil.
  */
 
 type Preset = PresetId | 'custom';
 
-const GAP_MS = 400;
 // v2 : la liste garde aussi l'équipe non inscrite (pilote, DP désignés dans VPDive).
 const CACHE_PREFIX = 'stats-roster:v2:';
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const nf = new Intl.NumberFormat('fr-FR');
 const n = (x: number) => nf.format(x);
 const plural = (x: number, one: string, many: string) => `${n(x)} ${x > 1 ? many : one}`;
@@ -34,24 +34,13 @@ function toPerson(r: RosterEntry): StatPerson {
 }
 const finished = (e: CalendarEvent) => Date.parse(e.end || e.start) < Date.now() - 24 * 3600_000;
 type Cached = { rows: StatPerson[]; staff: StatStaff[] };
-function readCache(token: string): Cached | null {
-  try {
-    const raw = localStorage.getItem(CACHE_PREFIX + token);
-    return raw ? (JSON.parse(raw) as Cached) : null;
-  } catch {
-    return null;
-  }
-}
-function writeCache(token: string, value: Cached) {
-  try {
-    localStorage.setItem(CACHE_PREFIX + token, JSON.stringify(value));
-  } catch {
-    // Stockage plein ou interdit : la liste sera relue la prochaine fois.
-  }
-}
+/** Liste d'une sortie terminée, gardée sur l'appareil (elle ne change plus), sans limite de durée. */
+const rosterCache = sessionCache(CACHE_PREFIX, Infinity, (v): v is Cached => isRecord(v) && Array.isArray(v.rows) && Array.isArray(v.staff), {
+  field: '',
+  storage: () => localStorage,
+});
 
 export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; onSessionLost: (e: unknown) => boolean }) {
-  const { ref: dialogRef } = useDialog({ onClose, label: 'stats' });
   const lastYear = new Date().getFullYear() - 1;
   const [preset, setPreset] = useState<Preset>('season');
   const [custom, setCustom] = useState(() => presetRange('season', new Date()));
@@ -74,28 +63,25 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     async (list: CalendarEvent[], id: number) => {
       const todo = list.filter((e) => isDiveActivity(e.activity?.name ?? e.type?.name ?? '') && e.registeredCount > 0);
       let done = 0;
-      let fetched = false;
       setStopped(false);
       setProgress({ done, total: todo.length });
       for (const e of todo) {
         if (id !== run.current) return;
-        const cached = finished(e) ? readCache(e.token) : null;
+        const cached = finished(e) ? rosterCache.read(e.token) : null;
         if (cached) {
           setRosters((r) => ({ ...r, [e.token]: cached.rows }));
           setStaff((r) => ({ ...r, [e.token]: cached.staff }));
         } else {
-          if (fetched) await wait(GAP_MS);
-          if (id !== run.current) return;
           try {
-            const read = await vpdive.fetchRosterAndStaff(e.token);
+            const read = await vpdive.fetchRosterAndStaff(e.token, { priority: 'low' });
+            if (id !== run.current) return;
             const rows = read.roster.map(toPerson);
             const crew: StatStaff[] = read.staff.map((x) => ({ id: x.id, name: x.name, ...(x.picture ? { picture: x.picture } : {}), roles: x.roles }));
-            fetched = true;
-            if (finished(e)) writeCache(e.token, { rows, staff: crew });
+            if (finished(e)) rosterCache.write(e.token, { rows, staff: crew });
             setRosters((r) => ({ ...r, [e.token]: rows }));
             setStaff((r) => ({ ...r, [e.token]: crew }));
           } catch (err) {
-            if (onSessionLost(err)) return;
+            if (onSessionLost(err) || id !== run.current) return;
             setError(`Lecture interrompue : ${message(err)}`);
             setStopped(true);
             return;
@@ -220,150 +206,143 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="stats-title"
-        className="relative bg-surface w-full sm:max-w-5xl h-dvh sm:h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop"
-      >
-        <header className="border-t-[3px] border-pink border-b border-line px-5 sm:px-6 py-3.5 shrink-0 flex items-center gap-3">
-          <BarChart3 className="w-6 h-6 text-brand shrink-0" />
-          <h2 id="stats-title" className="text-xl font-semibold text-brand flex-1">
-            Statistiques
-          </h2>
-          {pdfState === 'error' && <span className="hidden sm:inline text-sm text-danger">PDF indisponible, réessayez</span>}
-          <button
-            type="button"
-            onClick={() => void downloadPdf()}
-            disabled={!stats || stats.outings === 0 || pdfState === 'busy'}
-            aria-busy={pdfState === 'busy'}
-            title={pdfState === 'error' ? 'PDF indisponible, réessayez' : 'Télécharger les statistiques en PDF'}
-            className="btn btn-quiet sm:h-9 text-sm"
-          >
-            {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
-          </button>
-          <button onClick={onClose} aria-label="Fermer" className="icon-btn -mr-2">
-            <X className="w-6 h-6" />
-          </button>
-        </header>
+    <Dialog label="stats" onClose={onClose} titleId="stats-title" className="sm:max-w-5xl h-dvh sm:h-[92vh]">
+      <DialogHeader
+        titleId="stats-title"
+        icon={<BarChart3 className="w-6 h-6 text-brand shrink-0" />}
+        title="Statistiques"
+        onClose={onClose}
+        actions={
+          <>
+            {pdfState === 'error' && <span className="hidden sm:inline text-sm text-danger">PDF indisponible, réessayez</span>}
+            <button
+              type="button"
+              onClick={() => void downloadPdf()}
+              disabled={!stats || stats.outings === 0 || pdfState === 'busy'}
+              aria-busy={pdfState === 'busy'}
+              title={pdfState === 'error' ? 'PDF indisponible, réessayez' : 'Télécharger les statistiques en PDF'}
+              className="btn btn-quiet sm:h-9 text-sm"
+            >
+              {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
+            </button>
+          </>
+        }
+      />
 
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-canvas">
-          <div className="px-4 sm:px-6 py-5 space-y-5">
-            {/* Période */}
-            <div className="flex flex-wrap items-center gap-3">
-              <div role="radiogroup" aria-label="Période" className="inline-flex flex-wrap rounded-lg border border-field-border bg-surface p-1">
-                {presets.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={preset === p.id}
-                    onClick={() => {
-                      if (p.id === 'custom') setCustom(range);
-                      setPreset(p.id);
-                    }}
-                    className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${preset === p.id ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-              {preset === 'custom' && (
-                <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
-                  <label className="inline-flex items-center gap-2">
-                    du
-                    <input
-                      type="date"
-                      aria-label="Date de début"
-                      value={custom.from}
-                      max={custom.to}
-                      onChange={(e) => e.target.value && setCustom((c) => ({ ...c, from: e.target.value }))}
-                      className="field sm:h-9 py-0"
-                    />
-                  </label>
-                  <label className="inline-flex items-center gap-2">
-                    au
-                    <input
-                      type="date"
-                      aria-label="Date de fin"
-                      value={custom.to}
-                      min={custom.from}
-                      onChange={(e) => e.target.value && setCustom((c) => ({ ...c, to: e.target.value }))}
-                      className="field sm:h-9 py-0"
-                    />
-                  </label>
-                </div>
-              )}
-            </div>
-
-            {error && (
-              <div role="alert" className="flex flex-wrap items-center gap-3 text-danger">
-                <span className="flex-1 min-w-0">{error}</span>
-                <button type="button" onClick={stopped ? resume : () => void load()} className="btn btn-quiet sm:h-9 text-sm">
-                  <RefreshCw className="w-4 h-4" /> Réessayer
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-canvas">
+        <div className="px-4 sm:px-6 py-5 space-y-5">
+          {/* Période */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div role="radiogroup" aria-label="Période" className="inline-flex flex-wrap rounded-lg border border-field-border bg-surface p-1">
+              {presets.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={preset === p.id}
+                  onClick={() => {
+                    if (p.id === 'custom') setCustom(range);
+                    setPreset(p.id);
+                  }}
+                  className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${preset === p.id ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+                >
+                  {p.label}
                 </button>
+              ))}
+            </div>
+            {preset === 'custom' && (
+              <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                <label className="inline-flex items-center gap-2">
+                  du
+                  <input
+                    type="date"
+                    aria-label="Date de début"
+                    value={custom.from}
+                    max={custom.to}
+                    onChange={(e) => e.target.value && setCustom((c) => ({ ...c, from: e.target.value }))}
+                    className="field sm:h-9 py-0"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  au
+                  <input
+                    type="date"
+                    aria-label="Date de fin"
+                    value={custom.to}
+                    min={custom.from}
+                    onChange={(e) => e.target.value && setCustom((c) => ({ ...c, to: e.target.value }))}
+                    className="field sm:h-9 py-0"
+                  />
+                </label>
               </div>
-            )}
-
-            {!stats ? (
-              !error && <GabianLoader label="Lecture de l’agenda…" className="py-16" />
-            ) : stats.outings === 0 ? (
-              <p className="py-16 text-center text-muted">Aucune sortie sur cette période.</p>
-            ) : (
-              <>
-                <Hero stats={stats} from={range.from} to={range.to} />
-
-                {(progress || stopped) && !error && (
-                  <div className="flex flex-wrap items-center gap-3 text-sm text-muted" aria-live="polite">
-                    {progress && !stopped ? (
-                      <>
-                        <span className="tabular-nums">
-                          Lecture des inscrits… {progress.done}/{progress.total}
-                        </span>
-                        <span aria-hidden className="h-1 w-32 rounded-full bg-line overflow-hidden">
-                          <span className="block h-full bg-fill transition-[width]" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
-                        </span>
-                        <button type="button" onClick={stop} className="btn btn-quiet sm:h-8 text-sm">
-                          Arrêter
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <span>Lecture arrêtée : chiffres partiels.</span>
-                        <button type="button" onClick={resume} className="btn btn-quiet sm:h-8 text-sm">
-                          <RefreshCw className="w-4 h-4" /> Reprendre
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-start">
-                  <LevelsSection stats={stats} />
-                  <div className="space-y-5">
-                    <SeasonSection stats={stats} from={range.from} to={range.to} />
-                    <AgesSection stats={stats} />
-                  </div>
-                </div>
-
-                <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-                  <Ranking title="Directeurs de plongée" rows={stats.directors} unit="sortie" note={`DP connu pour ${plural(stats.dpKnown.known, 'sortie', 'sorties')} sur ${n(stats.dpKnown.of)}.`} />
-                  <Ranking title="Encadrants" rows={stats.instructors} unit="sortie" />
-                  <Ranking title="Les plus assidus" rows={stats.regulars} unit="sortie" className="md:col-span-2 lg:col-span-1" />
-                </div>
-
-                <div className="grid gap-5 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-                  <ActivitiesSection stats={stats} />
-                  <WeekdaysSection stats={stats} />
-                </div>
-              </>
             )}
           </div>
+
+          {error && (
+            <div role="alert" className="flex flex-wrap items-center gap-3 text-danger">
+              <span className="flex-1 min-w-0">{error}</span>
+              <button type="button" onClick={stopped ? resume : () => void load()} className="btn btn-quiet sm:h-9 text-sm">
+                <RefreshCw className="w-4 h-4" /> Réessayer
+              </button>
+            </div>
+          )}
+
+          {!stats ? (
+            !error && <GabianLoader label="Lecture de l’agenda…" className="py-16" />
+          ) : stats.outings === 0 ? (
+            <p className="py-16 text-center text-muted">Aucune sortie sur cette période.</p>
+          ) : (
+            <>
+              <Hero stats={stats} from={range.from} to={range.to} />
+
+              {(progress || stopped) && !error && (
+                <div className="flex flex-wrap items-center gap-3 text-sm text-muted" aria-live="polite">
+                  {progress && !stopped ? (
+                    <>
+                      <span className="tabular-nums">
+                        Lecture des inscrits… {progress.done}/{progress.total}
+                      </span>
+                      <span aria-hidden className="h-1 w-32 rounded-full bg-line overflow-hidden">
+                        <span className="block h-full bg-fill transition-[width]" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
+                      </span>
+                      <button type="button" onClick={stop} className="btn btn-quiet sm:h-8 text-sm">
+                        Arrêter
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span>Lecture arrêtée : chiffres partiels.</span>
+                      <button type="button" onClick={resume} className="btn btn-quiet sm:h-8 text-sm">
+                        <RefreshCw className="w-4 h-4" /> Reprendre
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-start">
+                <LevelsSection stats={stats} />
+                <div className="space-y-5">
+                  <SeasonSection stats={stats} from={range.from} to={range.to} />
+                  <AgesSection stats={stats} />
+                </div>
+              </div>
+
+              <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+                <Ranking title="Directeurs de plongée" rows={stats.directors} unit="sortie" note={`DP connu pour ${plural(stats.dpKnown.known, 'sortie', 'sorties')} sur ${n(stats.dpKnown.of)}.`} />
+                <Ranking title="Encadrants" rows={stats.instructors} unit="sortie" />
+                <Ranking title="Les plus assidus" rows={stats.regulars} unit="sortie" className="md:col-span-2 lg:col-span-1" />
+              </div>
+
+              <div className="grid gap-5 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                <ActivitiesSection stats={stats} />
+                <WeekdaysSection stats={stats} />
+              </div>
+            </>
+          )}
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -602,8 +581,6 @@ function ActivitiesSection({ stats }: { stats: Stats }) {
     </Section>
   );
 }
-
-const WEEKDAYS = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
 
 function WeekdaysSection({ stats }: { stats: Stats }) {
   const max = Math.max(1, ...stats.weekdays);

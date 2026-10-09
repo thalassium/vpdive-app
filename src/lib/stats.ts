@@ -11,7 +11,8 @@
 import { aptitudesFromLabels, isInstructor, type Aptitudes } from './palanquees';
 import { normalizeName } from './fuzzy';
 import { seasonLabel, seasonOf } from './membership';
-import { DP_ROLE, SURFACE_ROLES } from '../services/vpdiveApi';
+import { DP_ROLE, SURFACE_ROLES } from './outingRoles';
+import { ymd } from './dates';
 
 export interface StatEvent {
   token: string;
@@ -374,8 +375,6 @@ export type PresetId = 'season' | 'last-season' | 'year' | '12m' | 'last-year';
  * janvier, 12 derniers mois, année précédente.
  */
 export function presetRange(preset: PresetId, today: Date): { from: string; to: string } {
-  const p = (n: number) => String(n).padStart(2, '0');
-  const ymd = (d: Date) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   const y = today.getFullYear();
   // Saison désignée par son année de fin (lib/membership.ts) : 2027 va du 1er septembre 2026 au 31 août 2027.
   const season = seasonOf(ymd(today));
@@ -393,7 +392,6 @@ export function presetRange(preset: PresetId, today: Date): { from: string; to: 
 
 /** « Saison 2026/2027 » pour le préréglage, d'après la date du jour. */
 export const seasonPresetLabel = (preset: 'season' | 'last-season', today: Date): string => {
-  const p = (n: number) => String(n).padStart(2, '0');
-  const season = seasonOf(`${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}`);
+  const season = seasonOf(ymd(today));
   return `Saison ${seasonLabel(preset === 'season' ? season : season - 1)}`;
 };

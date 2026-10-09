@@ -3,7 +3,7 @@
  * and the dives and safety sheets of each outing. Every call carries the VPDive
  * session; the server checks it with VPDive before answering.
  */
-import { vpdive, SessionExpiredError } from './vpdiveApi';
+import { vpdive, SessionExpiredError } from './vpdive';
 import type { OutingDoc } from '../lib/outing';
 import type { CaseCheck, FfessmBrevet, FfessmRow, HaItem, LinkChoice } from '../lib/membership';
 

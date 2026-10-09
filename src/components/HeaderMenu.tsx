@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { MENU_ITEM_CLS, menuKeys } from './menuKeys';
+import { usePopover } from '../hooks/usePopover';
 
 export interface HeaderMenuItem {
   icon: ReactNode;
@@ -25,25 +26,10 @@ export function HeaderMenu({ icon, label, items }: { icon: ReactNode; label: str
   const list = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
+  // Clic ailleurs, Échap (focus rendu au bouton) ou Tab : le menu se referme.
+  usePopover({ open, onClose: () => setOpen(false), inside: [box], button, tab: 'close' });
   useEffect(() => {
-    if (!open) return;
-    list.current?.querySelector<HTMLElement>('[role=menuitem]')?.focus({ preventScroll: true });
-    const outside = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' && e.key !== 'Tab') return;
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        e.preventDefault();
-        button.current?.focus();
-      }
-      setOpen(false);
-    };
-    document.addEventListener('pointerdown', outside, true);
-    document.addEventListener('keydown', key, true);
-    return () => {
-      document.removeEventListener('pointerdown', outside, true);
-      document.removeEventListener('keydown', key, true);
-    };
+    if (open) list.current?.querySelector<HTMLElement>('[role=menuitem]')?.focus({ preventScroll: true });
   }, [open]);
 
   return (

@@ -1,3 +1,4 @@
+import { ymd } from './dates';
 /**
  * Agenda : petites règles sur les sorties telles que VPDive les renvoie,
  * sans dépendance à l'interface (testées dans agenda.test.ts).
@@ -30,8 +31,7 @@ export function isoDateTime(s: string): string {
 export function dayBefore(day: string): string {
   const d = new Date(`${day}T12:00:00`);
   d.setDate(d.getDate() - 1);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return ymd(d);
 }
 
 /** Grille visible d'un mois, lundi en premier : [premier jour montré, dernier jour montré]. */

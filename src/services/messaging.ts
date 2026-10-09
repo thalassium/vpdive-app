@@ -1,4 +1,5 @@
-import { pictureUrl, vpdive } from './vpdiveApi';
+import { pictureUrl, vpdive } from './vpdive';
+import { wait } from '../lib/wait';
 import {
   mergeConversations,
   nextStart,
@@ -42,7 +43,6 @@ const sessionToken = () => vpdive.getSession()?.token ?? '';
 /** La liste connue, si elle appartient à la session en cours. */
 const ownList = () => (listSession === sessionToken() ? lastList : []);
 const meMember = (me: Me): ChatMember => ({ uct: me.uct, name: me.name, picture: me.picture });
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * Pages de la liste, depuis la plus récente, jusqu'à la première conversation

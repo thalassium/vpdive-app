@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { dayWeather, metres, type DayWeather, type Slot } from '../lib/marine';
 import { gridRange, listDaysOf } from '../lib/agenda';
 import { ChevronLeft, ChevronRight, Wind, RefreshCw, AlertCircle, Check } from 'lucide-react';
-import { ymd, type CalendarEvent } from '../services/vpdiveApi';
+import { type CalendarEvent } from '../services/vpdive';
+import { ymd, MONTHS, WEEKDAYS, longDay } from '../lib/dates';
 import { SPOTS, forecastAt } from '../services/marineWeather';
 
-const MOIS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
 interface Props {
   month: Date; // first day of the displayed month
@@ -20,8 +20,6 @@ interface Props {
 const eventDay = (ev: CalendarEvent) => ymd(new Date(ev.start));
 const timeOf = (ev: CalendarEvent) =>
   ev.allDay ? 'Journée' : new Date(ev.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-const dayLabel = (date: string) =>
-  new Date(`${date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? 's' : ''}`;
 
 /**
@@ -160,7 +158,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
             <ChevronLeft className="w-5 h-5" />
           </IconButton>
           <h1 aria-live="polite" className="w-48 sm:w-56 text-center text-2xl font-semibold text-brand tracking-normal">
-            {MOIS_FR[m]} <span className="font-normal text-muted">{year}</span>
+            {MONTHS[m]} <span className="font-normal text-muted">{year}</span>
           </h1>
           <IconButton label="Mois suivant" onClick={nextMonth}>
             <ChevronRight className="w-5 h-5" />
@@ -230,7 +228,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
         <>
           <div className="mt-6 card overflow-hidden">
             <div className="grid grid-cols-7 border-b border-line text-center label py-3">
-              {['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map((d) => (
+              {WEEKDAYS.map((d) => (
                 <div key={d}>
                   <span className="sm:hidden">{d.slice(0, 1).toUpperCase()}</span>
                   <span className="hidden sm:inline">{d}</span>
@@ -256,7 +254,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
                     <button
                       className="sm:hidden absolute inset-0"
                       onClick={() => setSelectedDay(day.date)}
-                      aria-label={`${dayLabel(day.date)} : ${dayEvents.length} sortie${dayEvents.length > 1 ? 's' : ''}`}
+                      aria-label={`${longDay(day.date)} : ${dayEvents.length} sortie${dayEvents.length > 1 ? 's' : ''}`}
                       aria-pressed={isSelected}
                     />
 
@@ -378,7 +376,7 @@ export function AgendaList({
         return (
           <section
             key={date}
-            aria-label={dayLabel(date)}
+            aria-label={longDay(date)}
             className="grid grid-cols-[3.25rem_1fr] sm:grid-cols-[10.25rem_1fr]"
           >
             {/* Gouttière du jour : la date, et le vent de la journée à côté (en dessous sur téléphone, faute de place). */}
@@ -438,7 +436,7 @@ function DayHeading({ date, wind, today }: { date: string; wind: DayWeather | nu
   return (
     <div className="flex items-center justify-between gap-2 mb-2 px-1">
       <h2 className="text-lg font-semibold text-brand first-letter:uppercase flex items-center gap-2">
-        {dayLabel(date)}
+        {longDay(date)}
         {today && <span className="alpha bg-pink text-on-pink text-sm font-semibold pl-2 py-0.5">Aujourd’hui</span>}
       </h2>
       {wind && (

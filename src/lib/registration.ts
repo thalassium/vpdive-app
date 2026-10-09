@@ -17,7 +17,8 @@
  */
 
 import { aptitudesFromLabels, isInstructor } from './palanquees';
-import { DP_ROLE, type RoleOption } from '../services/vpdiveApi';
+import { type RoleOption } from '../services/vpdive';
+import { DP_ROLE } from './outingRoles';
 
 export type Entry = 'diver' | 'instructor' | 'volunteer';
 export type InstructorMode = 'supervise' | 'dive';
