@@ -1,5 +1,5 @@
 import { useContext, useState, type ReactNode } from 'react';
-import { AlertTriangle, Check, ChevronDown, RotateCcw, Trash2, UserMinus } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronUp, RotateCcw, Trash2, UserMinus } from 'lucide-react';
 import type { RosterEntry } from '../../../services/vpdive';
 import { aptitudesFromLabels, isInstructor, prerogativeCode, type Diver } from '../../../lib/palanquees';
 import { PREROGATIVE_OPTIONS, TRAINING_MENU, NO_TRAINING, setDiverChoice, trainingMenuFor } from '../../../lib/palanqueeEdit';
@@ -31,8 +31,8 @@ interface Props {
   onMembers: (members: AddedMember[]) => void;
   onUnregister?: (person: { id: string; name: string; instructor: boolean }) => Promise<void>;
   onPromote?: (person: { id: string; name: string }) => Promise<void>;
-  /** « Valider les plongeurs » : la liste est arrêtée, on passe aux palanquées. */
-  onConfirm: () => void;
+  /** « Masquer » : replie la liste pour faire de la place (les palanquées la suivent de toute façon). */
+  onHide: () => void;
   /** Commentaires sur les encadrants de la plongée (par encadrant), et de quoi les écrire (absent : lecture seule). */
   notes?: Record<string, GuideNote>;
   onNote?: (guideId: string, text: string) => void;
@@ -42,7 +42,7 @@ interface Props {
  * 1. Qui plonge : encadrants du plus haut au plus bas, puis plongeurs, puis la
  * liste d'attente ; validé par le DP avant les palanquées.
  */
-export function RosterSection({ roster, doc, divers, diving, excluded, readOnly, onSettings, onGuests, onMembers, onUnregister, onPromote, onConfirm, notes, onNote }: Props) {
+export function RosterSection({ roster, doc, divers, diving, excluded, readOnly, onSettings, onGuests, onMembers, onUnregister, onPromote, onHide, notes, onNote }: Props) {
   const [promoting, setPromoting] = useState<Record<string, string>>({});
   const { confirm, confirmDialog } = useConfirm();
   const settings = doc.settings;
@@ -239,23 +239,29 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
 
   return (
     <>
-      <fieldset disabled={readOnly} className="min-w-0">
       <section>
+        {/* Le titre hors du fieldset : « Masquer » reste utilisable en lecture seule. */}
         <SectionTitle
           bleed
           className="mb-4"
           n={1}
           hint={`${diving.length} à l’eau sur ${roster.length}`}
           actions={
-            hasChoices && (
-              <ActionButton onClick={reset} icon={<RotateCcw className="w-4 h-4" />} title="Aptitudes et formations reviennent à celles de VPDive">
-                Réinitialiser
+            <>
+              {hasChoices && !readOnly && (
+                <ActionButton onClick={reset} icon={<RotateCcw className="w-4 h-4" />} title="Aptitudes et formations reviennent à celles de VPDive">
+                  Réinitialiser
+                </ActionButton>
+              )}
+              <ActionButton onClick={onHide} icon={<ChevronUp className="w-4 h-4" />} title="Replier la liste des plongeurs">
+                Masquer
               </ActionButton>
-            )
+            </>
           }
         >
           Qui plonge ?
         </SectionTitle>
+        <fieldset disabled={readOnly} className="min-w-0">
         {roster.length === 0 && gone.length === 0 ? (
           <p className="text-muted">Personne n’est encore inscrit à cette sortie.</p>
         ) : (
@@ -276,24 +282,14 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
           </div>
         )}
         <GuestForm onAdd={(g) => onGuests([...(doc.guests ?? []), g])} />
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={diving.length === 0 || unknownLevels.length > 0}
-            className="btn btn-primary h-11"
-          >
-            <Check className="w-4 h-4" /> Valider les plongeurs
-          </button>
-          {unknownLevels.length > 0 && (
-            <span className="text-sm text-warn inline-flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              Prérogative à choisir : {unknownLevels.map((d) => d.name).join(', ')}
-            </span>
-          )}
-        </div>
+        {unknownLevels.length > 0 && (
+          <p className="mt-4 text-sm text-warn inline-flex items-center gap-1.5">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            Prérogative à choisir : {unknownLevels.map((d) => d.name).join(', ')}
+          </p>
+        )}
+        </fieldset>
       </section>
-      </fieldset>
       {confirmDialog}
     </>
   );

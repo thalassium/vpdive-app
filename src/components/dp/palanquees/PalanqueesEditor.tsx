@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Lock, Pencil, Plus, Share2, ShieldCheck, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, Lock, Pencil, Plus, Share2, ShieldCheck, Sparkles } from 'lucide-react';
 import type { MemberMatch, RosterEntry } from '../../../services/vpdive';
 import { acceptsExtra, isInstructor, proposePalanquees, studentsOf, validate, type Diver, type Plan } from '../../../lib/palanquees';
 import { addPalanquee, assignGuide, deletePalanquee, buddyPairs, moveDiver, planToText, refreshDivers, rosterToDivers, setExtra, removeGuide, setType } from '../../../lib/palanqueeEdit';
@@ -91,9 +91,11 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
   const issues = useMemo(() => (plan ? plan.palanquees.flatMap((p) => validate(p)) : []), [plan]);
   // Cochés « plonge » mais dans aucune palanquée : à placer avant de valider (sauf rôle de la sortie ou accompagnant).
   const toPlace = useMemo(() => mustBePlaced(free.map((u) => u.diver), roles, settings), [free, roles, settings]);
-  // Les sorties enregistrées avant cette étape, avec une composition : la liste est tenue pour validée.
-  const rosterOk = settings.confirmed ?? !!dive.plan;
-  const setConfirmed = (confirmed: boolean) => onSettings({ ...settings, confirmed });
+  // « Qui plonge ? » dépliée tant qu'il n'y a pas de palanquées, repliée ensuite ; Masquer / Afficher à volonté.
+  // Simple confort d'affichage, propre à cet écran : les palanquées suivent la liste de toute façon.
+  const [rosterOpen, setRosterOpen] = useState(!dive.plan);
+  // Plongeurs sans prérogative connue (brevet étranger…) : à choisir avant de générer les palanquées.
+  const unknownLevels = diving.filter((d) => !d.pe && !d.beginner && !isInstructor(d) && !d.training);
 
   /**
    * Partager la composition en texte, dans l'appli que la personne choisit
@@ -156,8 +158,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
         <RolesSection roster={roster} roles={roles} excluded={excluded} onRoles={onRoles} onAddMember={onAddMember} />
       </fieldset>
 
-      {/* 1. Qui plonge : encadrants du plus haut au plus bas, puis plongeurs ; validé par le DP avant les palanquées */}
-      {!locked && !rosterOk && (
+      {/* 1. Qui plonge : encadrants du plus haut au plus bas, puis plongeurs ; repliable */}
+      {!locked && rosterOpen && (
         <RosterSection
           roster={roster}
           doc={doc}
@@ -170,13 +172,13 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
           onMembers={onMembers}
           onUnregister={onUnregister}
           onPromote={onPromote}
-          onConfirm={() => setConfirmed(true)}
+          onHide={() => setRosterOpen(false)}
           notes={dive.notes}
           onNote={readOnly ? undefined : onNote}
         />
       )}
 
-      {!locked && rosterOk && (
+      {!locked && !rosterOpen && (
         <section>
           <SectionTitle
             bleed
@@ -184,11 +186,9 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             n={1}
             hint={`${diving.filter((d) => isInstructor(d) && !d.training).length} encadrant${diving.filter((d) => isInstructor(d) && !d.training).length > 1 ? 's' : ''} · ${diving.filter((d) => d.training).length} en formation`}
             actions={
-              !readOnly && (
-                <ActionButton onClick={() => setConfirmed(false)} icon={<Pencil className="w-4 h-4" />}>
-                  Modifier les plongeurs
-                </ActionButton>
-              )
+              <ActionButton onClick={() => setRosterOpen(true)} icon={<ChevronDown className="w-4 h-4" />} title="Déplier la liste des plongeurs">
+                Afficher
+              </ActionButton>
             }
           >
             {diving.length} à l’eau
@@ -197,7 +197,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
       )}
 
       {/* 2. Palanquées : générées ou composées, puis validées */}
-      {!frozen && rosterOk && !plan && (
+      {!frozen && !plan && (
         <section>
           <SectionTitle bleed className="mb-4" n={2}>
             Palanquées
@@ -206,6 +206,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             <button
               type="button"
               onClick={generate}
+              disabled={readOnly || diving.length === 0 || unknownLevels.length > 0}
               className="btn btn-primary h-11"
             >
               <Sparkles className="w-4 h-4" /> Générer les palanquées
@@ -217,6 +218,12 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             >
               <Plus className="w-4 h-4" /> Composer à la main
             </button>
+            {unknownLevels.length > 0 && (
+              <span className="text-sm text-warn inline-flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                Prérogative à choisir dans « Qui plonge ? » : {unknownLevels.map((d) => d.name).join(', ')}
+              </span>
+            )}
           </div>
         </section>
       )}
