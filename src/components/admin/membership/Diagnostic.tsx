@@ -191,7 +191,7 @@ function VpdiveStatus({ match, pending }: { match: Match; pending: boolean }) {
   if (match.status === 'sure' && match.member) {
     return (
       <div className="flex items-start gap-2 min-w-0">
-        <Avatar name={match.member.name} picture={match.member.picture} size="sm" initials={false} className="shrink-0" />
+        <Avatar name={match.member.name} picture={match.member.picture} size="sm" className="shrink-0" />
         <div className="min-w-0 flex-1 text-sm">
           <p className="font-medium text-ink truncate">{match.member.name}</p>
           <p className="text-muted">{match.why}</p>

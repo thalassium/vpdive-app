@@ -342,7 +342,7 @@ function PeopleList({ people }: { people: MaterialPerson[] }) {
       {people.map((p, i) => (
         <li key={`${p.name}-${i}`} className="py-2 flex items-start gap-3">
           <span className="w-7 shrink-0">
-            <Avatar name={p.name} picture={p.picture} size="sm" initials={false} />
+            <Avatar name={p.name} picture={p.picture} size="sm" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1 text-base text-ink">

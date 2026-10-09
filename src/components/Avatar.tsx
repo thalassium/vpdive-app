@@ -45,7 +45,7 @@ export function Avatar({
       .join('')
       .toUpperCase() || '?';
   return (
-    <span aria-hidden className={`${box} text-brand font-semibold inline-flex items-center justify-center`}>
+    <span aria-hidden className={`${box} border border-line text-brand font-semibold inline-flex items-center justify-center`}>
       {initials}
     </span>
   );

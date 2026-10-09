@@ -541,7 +541,7 @@ function Ranking({ title, rows, unit, note, className = '' }: { title: string; r
         <ol className="space-y-2.5">
           {rows.map((r) => (
             <li key={r.id} className="flex items-center gap-2.5">
-              <Avatar name={r.name} picture={r.picture} size="sm" initials={false} />
+              <Avatar name={r.name} picture={r.picture} size="sm" />
               <span className="flex-1 min-w-0">
                 <span className="flex items-baseline justify-between gap-2">
                   <span className="min-w-0 inline-flex items-center gap-1">

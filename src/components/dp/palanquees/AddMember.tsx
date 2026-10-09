@@ -53,7 +53,7 @@ export function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: Di
       <p className="font-semibold text-brand">Membre non inscrit</p>
       {picked ? (
         <div className="flex items-center gap-2.5">
-          <Avatar name={picked.name} picture={picked.picture} size="sm" initials={false} />
+          <Avatar name={picked.name} picture={picked.picture} size="sm" />
           <span className="flex-1 min-w-0 truncate font-medium text-ink">{picked.name}</span>
           {/* Pas encore à la sortie : sa fiche complète, pour un admin seulement. */}
           <MemberSheetButton member={{ uct: picked.id, name: picked.name, picture: picked.picture }} />

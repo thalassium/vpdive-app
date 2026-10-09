@@ -134,7 +134,7 @@ export function RelanceTab({ relance }: { relance: Relance }) {
           <ul className="space-y-2">
             {relance.ignoredList.map((i) => (
               <li key={i.uct} className="card px-3 py-2.5 flex items-center gap-3">
-                <Avatar name={i.name} picture={i.row?.picture ?? ''} size="sm" initials={false} />
+                <Avatar name={i.name} picture={i.row?.picture ?? ''} size="sm" />
                 <span className="min-w-0 flex-1">
                   <span className="block font-medium text-ink leading-snug break-words">{i.name}</span>
                   <span className="block text-sm text-muted">
@@ -194,7 +194,7 @@ function MemberCard({ row, checked, onToggle, onRemind, onIgnore }: { row: Row; 
     <li className={`card border-l-4 ${row.level === 'red' ? 'border-l-danger' : 'border-l-warn'} px-3 py-2.5 flex items-start gap-3`}>
       <label className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer">
         <input type="checkbox" checked={checked} onChange={onToggle} aria-label={`Sélectionner ${row.name}`} className="w-5 h-5 mt-0.5 accent-[var(--fill)] shrink-0" />
-        <Avatar name={row.name} picture={row.picture} size="sm" initials={false} />
+        <Avatar name={row.name} picture={row.picture} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="block font-medium text-ink leading-snug break-words">{row.name}</span>
           <span className="mt-1 flex flex-wrap gap-1.5">

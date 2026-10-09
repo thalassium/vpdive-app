@@ -76,7 +76,7 @@ export function MemberSearch({ onPick, exclude = [] }: { onPick: (m: MemberMatch
                     onClick={() => onPick(m)}
                     className="w-full flex items-center gap-2.5 px-2 py-2 sm:py-1.5 rounded-lg text-left hover:bg-tint disabled:opacity-50 disabled:hover:bg-transparent"
                   >
-                    <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
+                    <Avatar name={m.name} picture={m.picture} size="sm" />
                     <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
                     {already && <span className="text-sm text-muted">déjà sur la sortie</span>}
                   </button>

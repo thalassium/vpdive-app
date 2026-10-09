@@ -57,13 +57,70 @@ export function OutingMemberButton({ id, size, className }: { id: string; size?:
   return <MemberSheetButton member={member} size={size} className={className} />;
 }
 
-/** Photo, nom et icône « fiche », là où le nom est un simple texte (classements, listes). */
+/**
+ * La photo (ou les initiales) d'un membre, avec l'icône « fiche » posée en
+ * pastille en bas à droite quand sa fiche est accessible : elle ne prend aucune
+ * place dans la ligne et ne pousse ni le nom ni les boutons. Sans accès, la
+ * photo seule.
+ *
+ * `mobile` : là où la photo est cachée sur téléphone faute de place, 'icon' y
+ * laisse l'icône seule (28 px, zone de toucher étendue à 44 px) et 'none' n'y met
+ * rien (l'écran pose l'icône ailleurs, sous le nom).
+ */
+export function MemberAvatar({
+  name,
+  picture,
+  member,
+  size = 'sm',
+  mobile,
+}: {
+  name: string;
+  picture?: string;
+  member: MemberRef | null | undefined;
+  size?: 'sm' | 'md';
+  mobile?: 'icon' | 'none';
+}) {
+  const mobileHidden = !!mobile;
+  const { openMember, canOpenMember } = useMemberSheet();
+  const open = !!member && sheetAccess({ uct: member.uct, full: canOpenMember || !!member.full, roster: !!member.roster }) !== 'none';
+  if (!open) return <Avatar name={name} picture={picture} size={size} className={mobileHidden ? 'max-sm:hidden' : ''} />;
+  const label = `Fiche de ${name}`;
+  const badge = mobileHidden
+    ? 'relative w-7 h-7 border-line before:-inset-2 sm:absolute sm:-bottom-1.5 sm:-right-2 sm:w-4 sm:h-4 sm:border-field-border sm:before:-inset-2'
+    : 'absolute -bottom-1.5 -right-2 w-4 h-4 border-field-border before:-inset-2 max-sm:before:-inset-3.5';
+  return (
+    <span className={`relative inline-flex shrink-0 sm:mr-1.5 ${mobile ? '' : 'mr-1.5'} ${mobile === 'none' ? 'max-sm:hidden' : ''}`}>
+      <Avatar name={name} picture={picture} size={size} className={mobileHidden ? 'max-sm:hidden' : ''} />
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          openMember(member);
+        }}
+        aria-label={label}
+        aria-haspopup="dialog"
+        title={label}
+        className={`${badge} rounded-full border bg-surface text-brand inline-flex items-center justify-center shadow-sm hover:bg-tint before:absolute before:content-[''] focus-visible:outline-2 focus-visible:outline-brand`}
+      >
+        <IdCard aria-hidden className={mobileHidden ? 'w-4 h-4 sm:w-2.5 sm:h-2.5' : 'w-2.5 h-2.5'} />
+      </button>
+    </span>
+  );
+}
+
+/** La photo d'un inscrit de la sortie ouverte dans l'écran DP, avec son icône « fiche » (voir MemberAvatar). */
+export function OutingMemberAvatar({ id, name, picture, size, mobile }: { id: string; name: string; picture?: string; size?: 'sm' | 'md'; mobile?: 'icon' | 'none' }) {
+  const member = useOutingMember(id);
+  return <MemberAvatar name={name} picture={picture} member={member} size={size} mobile={mobile} />;
+}
+
+/** Photo (avec l'icône « fiche ») et nom, là où le nom est un simple texte (classements, listes). */
 export function MemberName({ member, className = '' }: { member: MemberRef; className?: string }) {
   return (
     <span className={`inline-flex items-center gap-2 min-w-0 ${className}`}>
-      <Avatar name={member.name} picture={member.picture} size="sm" initials={false} />
+      <MemberAvatar name={member.name} picture={member.picture} member={member} />
       <span className="truncate text-ink">{member.name}</span>
-      <MemberSheetButton member={member} className="-my-1" />
     </span>
   );
 }

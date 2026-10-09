@@ -6,7 +6,6 @@ import { PREROGATIVE_OPTIONS, TRAINING_MENU, NO_TRAINING, setDiverChoice, traini
 import { stillUnregistered, toggleCompanion, toggleDiving, type AddedMember, type Guest, type OutingDoc, type Unregistered } from '../../../lib/outing';
 import { message } from '../../../lib/errors';
 import { useConfirm } from '../../../hooks/useConfirm';
-import { Avatar } from '../../Avatar';
 import { Menu } from '../../Menu';
 import { Spinner } from '../../Spinner';
 import { GuestForm } from './GuestForm';
@@ -14,7 +13,7 @@ import { RoleBadges } from './RoleBadges';
 import { ActionButton } from './ActionButton';
 import { SectionTitle } from '../../SectionTitle';
 import { APT_COL, FN_COL, RolesContext, byName, byRank, hasRows } from './format';
-import { OutingMemberButton } from '../../member/MemberLink';
+import { OutingMemberAvatar, OutingMemberButton } from '../../member/MemberLink';
 
 interface Props {
   roster: RosterEntry[];
@@ -79,34 +78,37 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
     const hasRoles = (roleMap.get(d.id)?.length ?? 0) > 0;
     return (
       <li key={d.id} className="flex flex-wrap items-center gap-x-1.5 px-3 sm:px-3.5 py-2">
-        {/* Téléphone : une grille, l'icône « fiche » passe sous le nom (la place manque à côté des menus). */}
-        <div className={`grid ${instructor ? 'grid-cols-[minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto_auto]'} sm:flex items-center gap-x-1.5 w-full ${out ? 'opacity-50' : ''}`}>
-        <label className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer max-sm:col-start-1 max-sm:row-start-1">
+        {/* La case « plonge » est hors de l'étiquette : la photo, entre les deux, porte l'icône « fiche » (un bouton ne va pas dans un label). */}
+        <div className={`flex items-center gap-x-1.5 w-full ${out ? 'opacity-50' : ''}`}>
           <input
+            id={`plonge-${d.id}`}
             type="checkbox"
             checked={!out}
             disabled={r.waitingList && (!onPromote || promoting[d.id] === 'busy')}
             title={r.waitingList ? (onPromote ? 'Cocher l’inscrit sur VPDive' : 'Seul un admin peut inscrire depuis la liste d’attente') : undefined}
             onChange={() => (r.waitingList ? void promote(d) : onSettings(toggleDiving(settings, d.id, out)))}
-            className="w-5 h-5 accent-[var(--fill)] shrink-0 disabled:cursor-not-allowed"
+            className="w-5 h-5 mr-1 accent-[var(--fill)] shrink-0 disabled:cursor-not-allowed"
           />
-          <Avatar name={d.name} picture={d.picture} size="sm" initials={false} className="hidden sm:block" />
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium text-ink leading-snug break-words line-clamp-2 sm:line-clamp-none sm:truncate">{d.name}</span>
-            {(hasRoles || below) && (
-              <span className="flex items-start gap-1.5 mt-0.5">
-                <RoleBadges id={d.id} />
-                {below && <span className="min-w-0 text-sm text-muted leading-snug line-clamp-2 sm:truncate">{below}</span>}
-              </span>
-            )}
-          </span>
-        </label>
-        {/* Sa fiche : à côté de l'étiquette (qui coche « plonge »), jamais dedans. Pas pour un plongeur hors VPDive. */}
-        <OutingMemberButton id={d.id} className="max-sm:col-start-1 max-sm:row-start-2 max-sm:justify-self-start max-sm:ml-6" />
+          <OutingMemberAvatar id={d.id} name={d.name} picture={d.picture} size="md" mobile="none" />
+          <div className="min-w-0 flex-1 ml-1">
+            <label htmlFor={`plonge-${d.id}`} className="block font-medium text-ink leading-snug break-words line-clamp-2 sm:line-clamp-none sm:truncate cursor-pointer">
+              {d.name}
+            </label>
+            {/* Sous le nom : rôles, niveau ; sur téléphone, l'icône « fiche » au bout (la photo y est cachée). */}
+            <span className="flex items-start gap-1.5 mt-0.5 empty:hidden">
+              {hasRoles && <RoleBadges id={d.id} />}
+              {below && (
+                <label htmlFor={`plonge-${d.id}`} className="min-w-0 text-sm text-muted leading-snug line-clamp-2 sm:truncate cursor-pointer">
+                  {below}
+                </label>
+              )}
+              <OutingMemberButton id={d.id} size="sm" className="sm:hidden -my-1 shrink-0" />
+            </span>
+          </div>
         {/* Apt. : la prérogative VPDive, ou celle retenue par le DP (brevet étranger, N1 porté à PE40…). */}
         <Menu
           ariaLabel={`Aptitude de ${d.name}`}
-          triggerClassName={`btn sm:h-9 max-sm:row-span-2 px-1.5 gap-0.5 text-sm ${APT_COL} ${
+          triggerClassName={`btn sm:h-9 px-1.5 gap-0.5 text-sm ${APT_COL} ${
             !prerogative ? (out ? 'btn-quiet text-muted' : 'border border-warn bg-warn-soft text-warn') : forced ? 'border border-brand bg-tint text-brand' : 'btn-quiet'
           }`}
           trigger={
@@ -130,7 +132,7 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
         {!instructor && (
         <Menu
           ariaLabel={`Formation de ${d.name}`}
-          triggerClassName={`btn sm:h-9 max-sm:row-span-2 px-1.5 gap-0.5 text-sm ${FN_COL} ${current ? 'border border-brand bg-tint text-brand' : 'btn-quiet text-muted'}`}
+          triggerClassName={`btn sm:h-9 px-1.5 gap-0.5 text-sm ${FN_COL} ${current ? 'border border-brand bg-tint text-brand' : 'btn-quiet text-muted'}`}
           trigger={
             <>
               <span className={`truncate ${current ? 'font-bold tabular-nums' : ''}`}>{current || '—'}</span>

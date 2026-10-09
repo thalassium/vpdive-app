@@ -257,7 +257,7 @@ function Duplicates({ groups, checking }: { groups: DuplicateGroup<MemberMatch>[
               <ul className="flex-1 min-w-0 space-y-1.5">
                 {g.members.map((m) => (
                   <li key={m.id} className="flex items-center gap-2 min-w-0 text-base text-ink">
-                    <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
+                    <Avatar name={m.name} picture={m.picture} size="sm" />
                     <span className="truncate">{m.name}</span>
                     <MemberSheetButton member={{ uct: m.id, name: m.name, picture: m.picture }} className="-my-1" />
                   </li>

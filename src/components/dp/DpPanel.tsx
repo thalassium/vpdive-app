@@ -62,6 +62,8 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
   const [selected, setSelected] = useState<CalendarEvent | null>(initialEvent ?? null);
   /** Enregistre ce qui reste et dit si tout est bien enregistré. */
   const closeRef = useRef<() => Promise<boolean>>(async () => true);
+  /** La prochaine sortie a déjà été ouverte d'office (pas à chaque relecture de la liste). */
+  const autoOpened = useRef(false);
 
   /** Lit les sorties du DP ; la liste est posée par les rappels de la promesse. */
   const fetchList = useCallback(() => {
@@ -82,10 +84,21 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
       }
       return list;
     };
-    return read().then(setEvents, (e: unknown) => {
-      if (onSessionLost(e)) return;
-      setListError(message(e));
-    });
+    return read().then(
+      (list) => {
+        setEvents(list);
+        // À l'ouverture, la prochaine sortie (aujourd'hui compris) s'ouvre d'office ; une seule fois.
+        if (autoOpened.current) return;
+        autoOpened.current = true;
+        const today = ymd(new Date());
+        const next = list.filter((e) => ymd(new Date(e.start)) >= today).sort((x, y) => x.start.localeCompare(y.start))[0];
+        if (next) setSelected((current) => current ?? next);
+      },
+      (e: unknown) => {
+        if (onSessionLost(e)) return;
+        setListError(message(e));
+      },
+    );
   }, [role, dpEvents, session.userId, onSessionLost]);
   /** « Réessayer » : l'erreur s'efface, la liste est relue. */
   const loadList = () => {

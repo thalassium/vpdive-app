@@ -72,7 +72,7 @@ export function RegistrationRequestsTab({
       <ul className="space-y-2">
         {requests.map((r) => (
           <li key={r.token} className="item-card flex flex-wrap items-center gap-x-4 gap-y-3">
-            <Avatar name={r.name} picture={r.picture} size="md" initials={false} />
+            <Avatar name={r.name} picture={r.picture} size="md" />
             <div className="flex-1 min-w-[12rem]">
               <p className="font-semibold text-ink">{r.name || 'Sans nom'}</p>
               {r.contact && <p className="text-sm text-muted break-words">{r.contact}</p>}
@@ -181,7 +181,7 @@ export function PendingDocumentsTab({
         return (
           <article key={first.member} className="card overflow-hidden">
             <header className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-raised border-b border-line">
-              <Avatar name={first.memberName} picture={first.picture} size="sm" initials={false} />
+              <Avatar name={first.memberName} picture={first.picture} size="sm" />
               <span className="min-w-0 font-semibold text-ink truncate">{first.memberName}</span>
               <MemberSheetButton member={{ uct: first.member, name: first.memberName, picture: first.picture }} className="-my-1 -ml-2" />
               <span className="flex-1" />

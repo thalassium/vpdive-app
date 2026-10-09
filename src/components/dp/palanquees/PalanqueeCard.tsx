@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, MessageSquare, Pencil, Star, Trash2 } from 'lucide-react';
-import { Avatar } from '../../Avatar';
 import { Menu } from '../../Menu';
 import {
   TYPE_LABEL,
@@ -23,7 +22,7 @@ import {
 import type { GuideNote } from '../../../lib/outing';
 import { MoveSelect } from './MoveSelect';
 import { TYPES, describe, diplomas, ownPrerogative, type Target } from './format';
-import { OutingMemberButton } from '../../member/MemberLink';
+import { OutingMemberAvatar } from '../../member/MemberLink';
 
 /** Une palanquée : type, encadrant, plongeurs avec leur prérogative, points à corriger. */
 export function PalanqueeCard({
@@ -174,7 +173,7 @@ function GuideRow({
         <Star className={`w-3 h-3 text-pink ${g ? 'fill-current' : ''}`} />
         {g ? guideLabel(g, p) : role}
       </span>
-      {g && <Avatar name={g.name} picture={g.picture} size="sm" initials={false} className="hidden sm:block" />}
+      {g && <OutingMemberAvatar id={g.id} name={g.name} picture={g.picture} size="md" mobile="icon" />}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
         {editable ? (
@@ -201,8 +200,6 @@ function GuideRow({
         ) : (
           <span className={`break-words line-clamp-2 sm:line-clamp-none sm:truncate ${g ? 'font-semibold text-ink' : ''}`}>{g ? g.name : teaching ? 'Aucun enseignant disponible' : 'Sans encadrant'}</span>
         )}
-        {/* Sa fiche, à côté du menu des encadrants (qui garde le nom). */}
-        {g && <OutingMemberButton id={g.id} className="-my-1.5" />}
         </div>
         <span className="block text-sm text-muted truncate">
           {g ? role : teaching ? 'Enseignant à choisir' : 'Plongeurs autonomes'}
@@ -319,11 +316,10 @@ function DiverRow({
       <span className={chipCls} title={limiting ? 'Fixe la prérogative de la palanquée' : undefined}>
         {own}
       </span>
-      <Avatar name={d.name} picture={d.picture} size="sm" initials={false} className="hidden sm:block" />
+      <OutingMemberAvatar id={d.id} name={d.name} picture={d.picture} size="md" mobile="icon" />
       <span className="flex-1 min-w-0">
         <span className="flex items-center gap-1.5 min-w-0">
           <span className="break-words line-clamp-2 sm:line-clamp-none sm:truncate text-ink">{d.name}</span>
-          <OutingMemberButton id={d.id} className="-my-1.5" />
         </span>
         <span className="block text-sm text-muted truncate">
           {d.training ? `en formation ${trainingLabel(d)} · ${describe(d)}` : describe(d)}

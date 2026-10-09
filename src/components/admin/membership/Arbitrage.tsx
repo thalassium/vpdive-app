@@ -122,7 +122,7 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
         // La fiche du candidat à côté du bouton « Associer », pas dedans.
         <div key={m.id} className="flex items-center gap-1">
           <button type="button" onClick={() => onPick(m.id)} className="flex-1 min-w-0 flex items-center gap-2 px-2 py-2 sm:py-1 rounded-lg border border-field-border hover:bg-tint text-left">
-            <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
+            <Avatar name={m.name} picture={m.picture} size="sm" />
             <span className="flex-1 min-w-0 leading-tight">
               <span className="block text-ink break-words">{m.name}</span>
               {payer && sameName(payer, m.name) && <span className="block text-xs text-muted">a payé l’adhésion</span>}
@@ -196,7 +196,7 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
     const fromChoice = match.why.startsWith('choisi');
     return (
       <div className="flex items-start gap-2 min-w-0">
-        <Avatar name={m.name} picture={m.picture} size="sm" initials={false} className="shrink-0" />
+        <Avatar name={m.name} picture={m.picture} size="sm" className="shrink-0" />
         <div className="min-w-0 flex-1 text-sm">
           <p className="font-medium text-ink truncate">{m.name}</p>
           <p className="text-muted">
@@ -221,7 +221,7 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
           // La fiche du candidat, pour trancher entre homonymes : à côté de « C'est lui », pas dedans.
           <div key={m.id} className="flex items-center gap-1">
             <button type="button" onClick={() => onChoose(m.id)} className="flex-1 min-w-0 flex items-center gap-2 px-2 py-2 sm:py-1 rounded-lg border border-field-border hover:bg-tint text-left">
-              <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
+              <Avatar name={m.name} picture={m.picture} size="sm" />
               <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
               <span className="text-brand font-medium shrink-0">C’est lui</span>
             </button>
