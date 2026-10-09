@@ -44,7 +44,7 @@ function appApi(): Plugin {
  * server adds its own inline scripts for hot reload). Scripts: ours and the
  * theme script of index.html, by its hash. Everything else lists the hosts
  * the app really talks to: VPDive (photos; the API goes through /api/vpdive),
- * Open-Meteo, map tiles, Google Fonts.
+ * Open-Meteo, map tiles. The font is self-hosted (public/fonts).
  */
 function csp(): Plugin {
   return {
@@ -53,13 +53,13 @@ function csp(): Plugin {
     transformIndexHtml: {
       order: 'post',
       handler(html) {
-        const inline = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]!).filter((code) => code.trim());
+        const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]!).filter((code) => code.trim());
         const hashes = inline.map((code) => `'sha256-${createHash('sha256').update(code, 'utf8').digest('base64')}'`);
         const policy = [
           "default-src 'self'",
           `script-src 'self' ${hashes.join(' ')}`.trim(),
-          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-          "font-src 'self' data: https://fonts.gstatic.com",
+          "style-src 'self' 'unsafe-inline'",
+          "font-src 'self' data:",
           "img-src 'self' data: blob: https://*.vpdive.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tiles.openseamap.org",
           "connect-src 'self' https://api.open-meteo.com https://marine-api.open-meteo.com",
           "object-src 'none'",
