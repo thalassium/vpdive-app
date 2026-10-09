@@ -79,7 +79,7 @@ export function ReminderSheet({
 
   return (
     <div className="absolute inset-0 z-20 flex items-end sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && !sending && onClose()}>
-      <div role="dialog" aria-modal="true" aria-labelledby="reminder-title" className="panel w-full sm:max-w-xl max-h-full overflow-y-auto rounded-b-none sm:rounded-xl p-5 flex flex-col gap-3 animate-sheet sm:animate-pop">
+      <div role="dialog" aria-modal="true" aria-labelledby="reminder-title" className="panel border-t-[3px] border-t-accent w-full sm:max-w-xl max-h-full overflow-y-auto rounded-b-none sm:rounded-xl p-5 flex flex-col gap-3 animate-sheet sm:animate-pop">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 id="reminder-title" className="text-lg font-semibold text-brand">

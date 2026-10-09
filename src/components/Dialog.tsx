@@ -65,7 +65,7 @@ interface HeaderProps {
   /** Boutons avant la croix. */
   actions?: ReactNode;
   /**
-   * En-tête large : surtitre (« Admin ») au-dessus du titre, sous-titre et contenu
+   * En-tête large : surtitre (« Admin », pastille rose) au-dessus du titre, sous-titre et contenu
    * dessous (recherche, onglets). Sans lui, en-tête d'une ligne.
    */
   kicker?: ReactNode;
@@ -96,7 +96,8 @@ export function DialogHeader({ titleId, title, icon, onClose, closeDisabled, act
     <header className={`relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0 ${className}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          {kicker && <span className="label block mb-0.5">{kicker}</span>}
+          {/* Le surtitre dit où l'on est (« Admin », « Gestion de sortie ») : une pastille rose, comme le bouton du menu. */}
+          {kicker && <span className="inline-block mb-1.5 px-2 py-0.5 rounded-md bg-accent text-on-accent text-sm font-bold leading-snug">{kicker}</span>}
           <h2 id={titleId} className={`text-xl font-semibold text-brand leading-snug ${icon ? 'flex items-center gap-2' : ''}`}>
             {icon}
             {title}

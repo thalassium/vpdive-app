@@ -7,7 +7,9 @@ import type { KeyboardEvent, ReactNode } from 'react';
  * vont au premier et au dernier. Chaque onglet dit le panneau qu'il montre
  * (aria-controls) et le panneau dit son onglet (aria-labelledby).
  *
- * Sans style : chaque écran garde l'allure de ses onglets (className).
+ * Même allure partout : chaque onglet porte l'utilitaire `tab-pill` (discret,
+ * pilule rose pleine quand il est choisi, d'après aria-selected) ; `className`
+ * s'y ajoute (marges, taille), `pill={false}` l'enlève.
  *
  *   const id = useId();
  *   <TabList label="Fiche" activation="auto">
@@ -53,7 +55,8 @@ export function Tab({
   onSelect,
   disabled,
   title,
-  className,
+  pill = true,
+  className = '',
   children,
 }: {
   id: string;
@@ -62,6 +65,8 @@ export function Tab({
   onSelect: () => void;
   disabled?: boolean;
   title?: string;
+  /** false : sans `tab-pill`, l'allure vient entièrement de `className`. */
+  pill?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -76,7 +81,7 @@ export function Tab({
       disabled={disabled}
       title={title}
       onClick={onSelect}
-      className={className}
+      className={`${pill ? 'tab-pill' : ''} ${className}`.trim()}
     >
       {children}
     </button>

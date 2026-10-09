@@ -567,15 +567,17 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
 /**
  * Boîte dépliable du profil : un titre qui ouvre ou ferme son contenu
  * (élément <details>, accessible au clavier et au lecteur d'écran sans code).
+ * Le titre est le bandeau rose des sections (section-title), texte et icônes en
+ * marine ; l'anneau de focus passe en marine, à l'intérieur (la carte rogne ce qui dépasse).
  */
 function Box({ icon, title, count, defaultOpen, children }: { icon: ReactNode; title: string; count?: number; defaultOpen?: boolean; children: ReactNode }) {
   return (
-    <details open={defaultOpen} className="group card border-l-4 border-l-brand overflow-hidden">
-      <summary className="flex items-center gap-3 px-4 py-3.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-raised">
-        <span className="text-brand shrink-0">{icon}</span>
-        <span className="flex-1 text-lg font-semibold text-ink">{title}</span>
-        {count !== undefined && count > 0 && <span className="text-sm text-muted tabular-nums">{count}</span>}
-        <ChevronDown aria-hidden className="w-5 h-5 text-muted shrink-0 transition-transform group-open:rotate-180" />
+    <details open={defaultOpen} className="group card overflow-hidden">
+      <summary className="section-title flex-nowrap gap-3 px-4 py-3 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden transition-[filter] hover:brightness-95 focus-visible:outline-on-accent focus-visible:-outline-offset-4">
+        <span className="shrink-0">{icon}</span>
+        <span className="flex-1 text-lg">{title}</span>
+        {count !== undefined && count > 0 && <span className="text-sm font-normal tabular-nums">{count}</span>}
+        <ChevronDown aria-hidden className="w-5 h-5 shrink-0 transition-transform group-open:rotate-180" />
       </summary>
       <div className="border-t border-line">{children}</div>
     </details>

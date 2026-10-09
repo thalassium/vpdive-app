@@ -1,5 +1,6 @@
 import { AlertTriangle, Check, ExternalLink, ScrollText, X } from 'lucide-react';
 import { GabianLoader } from '../../Gabian';
+import { SectionTitle } from '../../SectionTitle';
 import { Spinner } from '../../Spinner';
 import type { WriteJob } from '../../../services/memberWriter';
 import type { Fix, FixKind } from '../../../lib/membership';
@@ -53,17 +54,24 @@ export function QuickFixes(props: StepProps) {
       {progressBar}
       {results.length > 0 && (
         <section ref={resultsRef} className="card overflow-hidden scroll-mt-4" aria-live="polite">
-          <header className="flex items-center gap-2 px-4 py-2.5 bg-raised border-b border-line">
-            <h3 className="font-semibold text-brand">Écrit dans VPDive</h3>
-            <span className="text-sm text-muted tabular-nums">
-              · {results.filter((x) => x.ok).length} fiche{results.filter((x) => x.ok).length > 1 ? 's' : ''}
-              {results.some((x) => !x.ok) && ' · arrêté au premier problème'}
-            </span>
-            <button type="button" onClick={() => setResults([])} className="icon-btn ml-auto" aria-label="Fermer le compte rendu">
-              <X className="w-4 h-4" />
-            </button>
-          </header>
-          <ul className="divide-y divide-line">
+          <SectionTitle
+            flush
+            count={
+              <>
+                {results.filter((x) => x.ok).length} fiche{results.filter((x) => x.ok).length > 1 ? 's' : ''}
+                {results.some((x) => !x.ok) && ' · arrêté au premier problème'}
+              </>
+            }
+            actions={
+              // Croix en marine : le gris des icônes n'a que 2,7:1 sur le rose.
+              <button type="button" onClick={() => setResults([])} className="icon-btn ml-auto -my-1 text-on-accent hover:text-on-accent hover:bg-surface/60" aria-label="Fermer le compte rendu">
+                <X className="w-4 h-4" />
+              </button>
+            }
+          >
+            Écrit dans VPDive
+          </SectionTitle>
+          <ul className="zebra divide-y divide-line">
             {results.map((x) => (
               <li key={x.uct} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-4 py-2.5 text-sm">
                 {x.ok ? <Check className="w-4 h-4 mt-0.5 text-ok shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 text-danger shrink-0" />}
@@ -90,30 +98,30 @@ export function QuickFixes(props: StepProps) {
           const all = open.length > 0 && open.every(({ r, f }) => picked.has(keyOf(r, f)));
           return (
             <section key={kind} className="card overflow-hidden">
-              <header className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 bg-raised border-b border-line">
-                {/* Le titre du groupe porte la case « tout cocher » : un titre pour la navigation au clavier, une case pour le geste. */}
-                <h3>
+              {/* Le titre du groupe porte la case « tout cocher » : un titre pour la navigation au clavier, une case pour le geste. */}
+              <SectionTitle flush hint={FIX_TITLE[kind].help}>
                 <label className="inline-flex items-center gap-2.5 max-sm:min-h-11 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={all}
                     disabled={!open.length || !!writing}
                     onChange={() => setPicked((s) => new Set(all ? [...s].filter((k) => !open.some(({ r, f }) => keyOf(r, f) === k)) : [...s, ...open.map(({ r, f }) => keyOf(r, f))]))}
-                    className="w-5 h-5 accent-[var(--fill)] disabled:opacity-40"
+                    className="w-5 h-5 shrink-0 accent-[var(--fill)] disabled:opacity-40"
                   />
-                  <span className="font-semibold text-brand">{FIX_TITLE[kind].title}</span>
-                  <span className="text-sm text-muted tabular-nums">· {list.length}</span>
+                  <span>
+                    {FIX_TITLE[kind].title}
+                    <span className="font-normal tabular-nums text-on-accent/80"> · {list.length}</span>
+                  </span>
                 </label>
-                </h3>
-                <span className="basis-full sm:basis-auto sm:ml-auto text-sm text-muted">{FIX_TITLE[kind].help}</span>
-              </header>
-              <ul className="divide-y divide-line">
+              </SectionTitle>
+              {/* Lignes zébrées : une correction par ligne, sans perdre la ligne en lisant de gauche à droite. */}
+              <ul className="zebra divide-y divide-line">
                 {list.map(({ r, f }) => {
                   const why = blocked(f);
                   const unresolved = f.kind === 'brevets' && catalog ? targets(f).filter((t) => !t.level).map((t) => t.brevet) : [];
                   return (
                     <li key={keyOf(r, f)}>
-                      <label className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 ${why ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-raised/60'}`}>
+                      <label className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 ${why ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-accent-soft'}`}>
                         <input
                           type="checkbox"
                           checked={!why && picked.has(keyOf(r, f))}

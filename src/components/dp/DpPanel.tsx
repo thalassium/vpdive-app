@@ -237,7 +237,7 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
                 <li key={e.token}>
                   <button
                     onClick={() => onSelect(e)}
-                    className={`w-full text-left pl-3 pr-4 py-2.5 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-tint border-brand' : 'border-transparent hover:bg-raised'}`}
+                    className={`w-full text-left pl-3 pr-4 py-2.5 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-accent-soft border-accent' : 'border-transparent hover:bg-raised'}`}
                   >
                     <span className="w-[5.75rem] shrink-0 whitespace-nowrap">
                       <span className="block text-sm font-bold tabular-nums text-brand">{shortDate(d)}</span>
@@ -912,7 +912,7 @@ function OutingWorkspace({
               setTab(d.validated ? 'fiche' : 'palanquees');
             }}
             aria-pressed={view === 'dive' && d.id === dive.id}
-            className={`btn btn-quiet sm:h-9 text-sm ${view === 'dive' && d.id === dive.id ? 'bg-tint border-brand' : ''}`}
+            className={`btn btn-quiet sm:h-9 text-sm ${view === 'dive' && d.id === dive.id ? PRESSED : ''}`}
           >
             {d.validated && <Lock className="w-3.5 h-3.5" />}
             {d.label}
@@ -936,7 +936,7 @@ function OutingWorkspace({
         <button
           onClick={() => setView('benevoles')}
           aria-pressed={view === 'benevoles'}
-          className={`btn btn-quiet sm:h-9 text-sm ${view === 'benevoles' ? 'bg-tint border-brand' : ''}`}
+          className={`btn btn-quiet sm:h-9 text-sm ${view === 'benevoles' ? PRESSED : ''}`}
         >
           <HandHelping className="w-4 h-4" /> Bénévoles
         </button>
@@ -966,7 +966,7 @@ function OutingWorkspace({
       ) : (
         <>
         {/* Palanquées / Fiche */}
-        <TabList label={dive.label} className="flex border-b border-line print:hidden">
+        <TabList label={dive.label} className="flex flex-wrap gap-1.5 print:hidden">
           <TabButton id={tabId('palanquees')} controls={panelId('palanquees')} active={shown === 'palanquees'} onClick={() => setTab('palanquees')} icon={<Users className="w-4 h-4" />}>
             Palanquées
           </TabButton>
@@ -1033,6 +1033,9 @@ function OutingWorkspace({
   );
 }
 
+/** Plongée ou Bénévoles choisi : la pilule rose de l'emplacement courant, sur un bouton à bord. */
+const PRESSED = 'bg-accent hover:bg-accent text-on-accent border-accent font-bold';
+
 function TabButton({
   id,
   controls,
@@ -1058,9 +1061,7 @@ function TabButton({
       disabled={disabled}
       onSelect={onClick}
       title={disabled ? 'Validez d’abord les palanquées' : undefined}
-      className={`inline-flex items-center gap-2 px-4 h-11 -mb-px border-b-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
-        active ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-ink'
-      }`}
+      className="px-4"
     >
       {icon}
       {children}

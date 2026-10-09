@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AlertTriangle, ChevronDown, FileDown, MessageSquare, Printer } from 'lucide-react';
 import { Menu } from '../Menu';
+import { SectionTitle } from '../SectionTitle';
 import { Spinner } from '../Spinner';
 import { useConfirm } from '../../hooks/useConfirm';
 import { chosenDepth, depthOf, kindLabel, prerogativeLabel } from '../../lib/palanquees';
@@ -68,32 +69,35 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
   };
   return (
     <div id="print-sheet" className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold text-brand print:text-black">Fiche de sécurité · {dive.label}</h3>
-        </div>
-        <div className="print:hidden flex flex-wrap items-center gap-2">
-          {pdfState === 'error' && <span className="text-sm text-danger">PDF indisponible, réessayez</span>}
-          <button
-            type="button"
-            onClick={() => void downloadPdf()}
-            disabled={pdfState === 'busy'}
-            aria-busy={pdfState === 'busy'}
-            className="btn btn-primary sm:h-9 text-sm"
-          >
-            {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              if (await confirmPrint()) window.print();
-            }}
-            className="btn btn-quiet sm:h-9 text-sm"
-          >
-            <Printer className="w-4 h-4" /> Imprimer
-          </button>
-        </div>
-      </div>
+      {/* Bandeau rose à l'écran ; à l'impression, texte marine et filet (section-title). */}
+      <SectionTitle
+        bleed
+        actions={
+          <div className="print:hidden flex flex-wrap items-center gap-2">
+            {pdfState === 'error' && <span className="rounded-md bg-surface px-1.5 text-sm text-danger">PDF indisponible, réessayez</span>}
+            <button
+              type="button"
+              onClick={() => void downloadPdf()}
+              disabled={pdfState === 'busy'}
+              aria-busy={pdfState === 'busy'}
+              className="btn btn-primary sm:h-9 text-sm"
+            >
+              {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (await confirmPrint()) window.print();
+              }}
+              className="btn btn-quiet sm:h-9 text-sm"
+            >
+              <Printer className="w-4 h-4" /> Imprimer
+            </button>
+          </div>
+        }
+      >
+        Fiche de sécurité · {dive.label}
+      </SectionTitle>
 
       {missing.length > 0 && (
         <p role="status" className="text-sm text-warn flex items-start gap-1.5 print:hidden">

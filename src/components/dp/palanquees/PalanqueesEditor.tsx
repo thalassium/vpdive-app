@@ -9,7 +9,8 @@ import { FreeList } from './FreeList';
 import { PalanqueeCard } from './PalanqueeCard';
 import { RolesSection } from './RolesSection';
 import { RosterSection } from './RosterSection';
-import { ActionButton, SectionHead } from './SectionHead';
+import { ActionButton } from './ActionButton';
+import { SectionTitle } from '../../SectionTitle';
 import { RolesContext, type Target } from './format';
 
 interface Props {
@@ -174,9 +175,10 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
 
       {!locked && rosterOk && (
         <section>
-          <SectionHead
+          <SectionTitle
+            bleed
+            className="mb-4"
             n={1}
-            tone="mid"
             hint={`${diving.filter((d) => isInstructor(d) && !d.training).length} encadrant${diving.filter((d) => isInstructor(d) && !d.training).length > 1 ? 's' : ''} · ${diving.filter((d) => d.training).length} en formation`}
             actions={
               !readOnly && (
@@ -187,16 +189,16 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             }
           >
             {diving.length} à l’eau
-          </SectionHead>
+          </SectionTitle>
         </section>
       )}
 
       {/* 2. Palanquées : générées ou composées, puis validées */}
       {!frozen && rosterOk && !plan && (
         <section>
-          <SectionHead n={2} tone="deep">
+          <SectionTitle bleed className="mb-4" n={2}>
             Palanquées
-          </SectionHead>
+          </SectionTitle>
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
@@ -218,9 +220,10 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
 
       {plan && (
         <section>
-          <SectionHead
+          <SectionTitle
+            bleed
+            className="mb-4"
             n={locked ? undefined : 2}
-            tone="deep"
             hint={locked ? undefined : `${plan.palanquees.length} palanquée${plan.palanquees.length > 1 ? 's' : ''}`}
             actions={
               <>
@@ -241,7 +244,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             }
           >
             {locked ? `${plan.palanquees.length} palanquée${plan.palanquees.length > 1 ? 's' : ''}` : 'Palanquées'}
-          </SectionHead>
+          </SectionTitle>
 
           <div className="grid md:grid-cols-2 gap-3">
             {plan.palanquees.map((p, i) => (

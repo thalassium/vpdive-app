@@ -38,7 +38,7 @@ export function RelanceSummary({ relance }: { relance: Relance }) {
             role="radio"
             aria-checked={relance.filter === f.key}
             onClick={() => relance.setFilter(f.key)}
-            className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${relance.filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+            className="tab-pill px-3 rounded-md"
           >
             {f.label}
             {f.key === 'ignored' && relance.ignoredList.length > 0 && <span className="ml-1 tabular-nums">{relance.ignoredList.length}</span>}

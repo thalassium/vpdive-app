@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ExternalLink } from 'lucide-react';
 import { appApi, type MemberWriteLog } from '../../../services/appApi';
 import { GabianLoader } from '../../Gabian';
+import { SectionTitle } from '../../SectionTitle';
 import { describeSnapshot } from '../../../lib/memberWrite';
 import type { Capacity } from '../../../lib/membership';
 import { message } from '../../../lib/errors';
@@ -38,8 +39,8 @@ export function Journal({ catalog, onClose, onSessionLost }: { catalog: Capacity
         <button type="button" onClick={onClose} className="btn btn-quiet sm:h-9 text-sm">
           <ArrowLeft className="w-4 h-4" /> Retour
         </button>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-lg font-semibold text-brand">Journal des écritures</h3>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <SectionTitle>Journal des écritures</SectionTitle>
           <p className="text-sm text-muted max-w-3xl">
             Les fiches VPDive écrites par les corrections rapides, les plus récentes d’abord. La fiche d’avant est gardée : de quoi remettre une valeur à la main si besoin.
           </p>
@@ -54,9 +55,10 @@ export function Journal({ catalog, onClose, onSessionLost }: { catalog: Capacity
       ) : writes.length === 0 ? (
         <p className="py-10 text-center text-muted">Aucune écriture pour l’instant.</p>
       ) : (
-        <ul className="card divide-y divide-line">
+        // Une carte par écriture : chaque fiche écrite se lit à part.
+        <ul className="space-y-2">
           {writes.map((w, i) => (
-            <li key={`${w.at}|${w.uct}|${i}`} className="px-4 py-3 space-y-1.5">
+            <li key={`${w.at}|${w.uct}|${i}`} className="item-card space-y-1.5">
               <div className="flex flex-wrap items-start gap-x-4 gap-y-1 text-sm">
                 {w.ok ? <Check className="w-4 h-4 mt-0.5 text-ok shrink-0" aria-label="réussie" /> : <AlertTriangle className="w-4 h-4 mt-0.5 text-danger shrink-0" aria-label="à vérifier" />}
                 <span className="w-40 shrink-0 text-muted tabular-nums">{when(w.at)}</span>

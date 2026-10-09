@@ -12,6 +12,7 @@ import { useRelance } from './useRelance';
 import { DAYS_AHEAD, type Me } from './relance';
 import { message } from '../../lib/errors';
 import { Dialog, DialogHeader } from '../Dialog';
+import { SectionTitle } from '../SectionTitle';
 
 /**
  * Le parcours, dans l'ordre : 1 à traiter (sinon VPDive ignore la personne ou
@@ -146,12 +147,13 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             </p>
           }
         >
-          {/* Onglets : les quatre étapes dans l'ordre (la première, prioritaire, en teinte d'alerte), puis la relance. */}
+          {/* Onglets : les quatre étapes dans l'ordre, puis la relance. L'onglet choisi est la pilule rose (tab-pill) ;
+              la première étape, prioritaire, se signale par sa pastille et son compteur en teinte d'alerte. */}
           {/* Activation au clavier par Entrée : ouvrir une étape lit beaucoup sur VPDive, les flèches ne font que s'y déplacer. */}
           <TabList
             label="Gestion des adhésions"
             activation="manual"
-            className="mt-3 flex items-end gap-1 border-b border-line -mb-4 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="mt-3 flex items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             {STEPS.map(([key, text], i) => {
               const count = key === 'todo' ? (requests && pendingDocs ? requests.length + pendingDocs.length : undefined) : key === 'quickfix' ? stepCounts?.fixes : key === 'arbitrage' ? stepCounts?.cases : undefined;
@@ -164,19 +166,15 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                   controls={panelId(key)}
                   selected={on}
                   onSelect={() => setChosenTab(key)}
-                  className={`h-10 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 inline-flex items-center gap-2 rounded-t-md transition-colors ${
-                    first ? (on ? 'border-warn text-warn bg-warn-soft' : 'border-transparent text-warn bg-warn-soft/60 hover:bg-warn-soft') : on ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'
-                  }`}
+                  className="px-3"
                 >
-                  <span
-                    aria-hidden
-                    className={`w-5 h-5 rounded-full text-xs font-bold inline-flex items-center justify-center ${first ? 'bg-surface text-warn border border-warn/40' : on ? 'bg-fill text-on-fill' : 'bg-raised text-muted'}`}
-                  >
+                  {/* Pastille marine (step-dot) ; celle de l'étape 1, prioritaire, en teinte d'alerte sur fond opaque (lisible aussi sur la pilule rose). */}
+                  <span aria-hidden className={`step-dot w-5 h-5 text-xs ${first ? 'bg-surface text-warn border border-warn' : ''}`}>
                     {i + 1}
                   </span>
                   {text}
                   {count !== undefined && count > 0 && (
-                    <span className={`min-w-5 h-5 px-1.5 rounded-full text-xs tabular-nums inline-flex items-center justify-center border ${first ? 'border-warn/40 bg-surface' : 'border-line bg-surface text-ink'}`}>{count}</span>
+                    <span className={`min-w-5 h-5 px-1.5 rounded-full text-xs font-semibold tabular-nums inline-flex items-center justify-center border bg-surface ${first ? 'border-warn text-warn' : 'border-line text-ink'}`}>{count}</span>
                   )}
                 </TabItem>
               );
@@ -190,7 +188,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                 setChosenTab('relance');
                 relance.open();
               }}
-              className={`h-10 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 transition-colors ${tab === 'relance' ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'}`}
+              className="px-3"
             >
               Relance
             </TabItem>
@@ -201,15 +199,15 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
         {tab === 'todo' && (
           <TabPanel id={panelId('todo')} labelledBy={tabId('todo')} className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4 space-y-8">
             <section>
-              <h3 className="text-lg font-semibold text-brand mb-2">
-                Membres à valider {requests && requests.length > 0 && <span className="text-muted font-normal tabular-nums">· {requests.length}</span>}
-              </h3>
+              <SectionTitle className="mb-3" count={requests && requests.length > 0 ? requests.length : undefined}>
+                Membres à valider
+              </SectionTitle>
               <RegistrationRequestsTab requests={requests} error={requestsError} onReload={loadRequests} onChange={setRequests} onSessionLost={onSessionLost} />
             </section>
             <section>
-              <h3 className="text-lg font-semibold text-brand mb-2">
-                Documents en attente {pendingDocs && pendingDocs.length > 0 && <span className="text-muted font-normal tabular-nums">· {pendingDocs.length}</span>}
-              </h3>
+              <SectionTitle className="mb-3" count={pendingDocs && pendingDocs.length > 0 ? pendingDocs.length : undefined}>
+                Documents en attente
+              </SectionTitle>
               <PendingDocumentsTab
                 items={pendingDocs}
                 error={docsError}

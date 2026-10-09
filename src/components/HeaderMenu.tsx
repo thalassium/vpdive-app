@@ -13,13 +13,14 @@ export interface HeaderMenuItem {
 /**
  * Menu de l'en-tête (« Gestion de sortie », « Admin ») : une icône, le libellé à
  * partir du grand écran, et la liste de ses écrans au clic. En rose, la couleur
- * des écrans réservés à l'encadrement.
+ * des écrans réservés à l'encadrement. `active` : un de ses écrans est ouvert,
+ * le bouton reste foncé et cerclé (on voit d'où vient la fenêtre).
  *
  * Clavier : le focus va au premier écran à l'ouverture, ↑ ↓ Début Fin pour se
  * déplacer, Échap ou Tab pour refermer. Un écran choisi s'ouvre avec le focus
  * rendu d'abord au bouton du menu : c'est là qu'il revient à sa fermeture.
  */
-export function HeaderMenu({ icon, label, items }: { icon: ReactNode; label: string; items: HeaderMenuItem[] }) {
+export function HeaderMenu({ icon, label, items, active }: { icon: ReactNode; label: string; items: HeaderMenuItem[]; active?: boolean }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -43,7 +44,7 @@ export function HeaderMenu({ icon, label, items }: { icon: ReactNode; label: str
         aria-controls={open ? menuId : undefined}
         aria-label={label}
         title={label}
-        className={`inline-flex items-center gap-2 h-11 sm:h-9 px-2.5 rounded-lg bg-pink text-on-pink text-sm font-semibold transition-[filter] hover:brightness-95 ${open ? 'brightness-90' : ''}`}
+        className={`inline-flex items-center gap-2 h-11 sm:h-9 px-2.5 rounded-lg bg-pink text-on-pink text-sm font-semibold transition-[filter] hover:brightness-95 ${open || active ? 'brightness-90' : ''} ${active ? 'ring-2 ring-brand ring-offset-2 ring-offset-surface' : ''}`}
       >
         {icon}
         <span className="hidden lg:inline">{label}</span>

@@ -67,9 +67,10 @@ export function RegistrationRequestsTab({
       <p className="text-sm text-muted max-w-3xl">
         Ces personnes ont créé leur compte et demandé à rejoindre le club. Tant que la demande n’est pas acceptée, elles ne sont pas dans la liste des membres de VPDive.
       </p>
-      <ul className="card divide-y divide-line">
+      {/* Une carte par personne : où commence et finit chaque demande se voit d'un coup d'œil. */}
+      <ul className="space-y-2">
         {requests.map((r) => (
-          <li key={r.token} className="p-4 flex flex-wrap items-center gap-x-4 gap-y-3">
+          <li key={r.token} className="item-card flex flex-wrap items-center gap-x-4 gap-y-3">
             <Avatar name={r.name} picture={r.picture} size="md" initials={false} />
             <div className="flex-1 min-w-[12rem]">
               <p className="font-semibold text-ink">{r.name || 'Sans nom'}</p>

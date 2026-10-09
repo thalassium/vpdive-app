@@ -11,6 +11,7 @@ import { Menu } from '../Menu';
 import { useConfirm } from '../../hooks/useConfirm';
 import { GabianLoader } from '../Gabian';
 import { message } from '../../lib/errors';
+import { SectionTitle } from '../SectionTitle';
 import { Dialog, DialogHeader } from '../Dialog';
 import { Failure } from '../Feedback';
 
@@ -147,7 +148,7 @@ function OutingButton({ event: e, active, onSelect }: { event: CalendarEvent; ac
     <button
       onClick={onSelect}
       aria-current={active || undefined}
-      className={`w-full text-left pl-3 pr-4 py-2.5 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-tint border-brand' : 'border-transparent hover:bg-raised'}`}
+      className={`w-full text-left pl-3 pr-4 py-2.5 flex items-center gap-3 border-l-4 transition-colors ${active ? 'bg-accent-soft border-accent' : 'border-transparent hover:bg-raised'}`}
     >
       <span className="w-[5.75rem] shrink-0 whitespace-nowrap">
         <span className="block text-sm font-bold tabular-nums text-brand">{shortDay(e.start)}</span>
@@ -262,59 +263,71 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
         </button>
       </div>
 
-      <section className="card border-l-4 border-l-brand p-4 sm:p-5">
-        <h4 className="text-lg font-semibold text-brand mb-3">À préparer</h4>
-        {summary.items.length === 0 ? (
-          <p className="text-muted">
-            {summary.people.length === 0
-              ? 'Aucun inscrit pour cette sortie.'
-              : `Aucun matériel demandé pour cette sortie. Les bouteilles restent à prévoir : ${bottlesDue}.`}
-          </p>
-        ) : (
-          <ul className="divide-y divide-line">
-            {summary.items.map((item) => (
-              <li key={item.name} className="py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
-                <span className="flex-1 min-w-[10rem] text-base text-ink font-medium">{item.name}</span>
-                <span className="code text-lg w-8 text-right">{item.total}</span>
-                {Object.keys(item.bySize).length > 0 && (
-                  <span className="basis-full sm:basis-auto flex flex-wrap gap-1.5">
-                    {sortedSizes(item.bySize).map(([size, n]) => (
-                      <span key={size} className={`chip ${isUnknownSize(size) ? 'bg-warn-soft text-warn' : 'text-brand'}`}>
-                        {size} × {n}
-                      </span>
-                    ))}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+      <section className="card overflow-hidden">
+        <SectionTitle as="h4" flush>
+          À préparer
+        </SectionTitle>
+        <div className="p-4 sm:p-5">
+          {summary.items.length === 0 ? (
+            <p className="text-muted">
+              {summary.people.length === 0
+                ? 'Aucun inscrit pour cette sortie.'
+                : `Aucun matériel demandé pour cette sortie. Les bouteilles restent à prévoir : ${bottlesDue}.`}
+            </p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {summary.items.map((item) => (
+                <li key={item.name} className="py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <span className="flex-1 min-w-[10rem] text-base text-ink font-medium">{item.name}</span>
+                  <span className="code text-lg w-8 text-right">{item.total}</span>
+                  {Object.keys(item.bySize).length > 0 && (
+                    <span className="basis-full sm:basis-auto flex flex-wrap gap-1.5">
+                      {sortedSizes(item.bySize).map(([size, n]) => (
+                        <span key={size} className={`chip ${isUnknownSize(size) ? 'bg-warn-soft text-warn' : 'text-brand'}`}>
+                          {size} × {n}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
 
       {summary.items.length > 0 && (
-        <section className="card border-l-4 border-l-brand p-4 sm:p-5">
-          <h4 className="text-lg font-semibold text-brand mb-3">Bouteilles</h4>
-          <ul className="flex flex-wrap gap-x-8 gap-y-2">
-            {BOTTLES.map((b) => (
-              <li key={b} className={`flex items-baseline gap-2 ${summary.bottles[b] ? '' : 'text-muted'}`}>
-                <span className="text-base">{b}</span>
-                <span className={summary.bottles[b] ? 'code text-lg' : 'text-lg'}>{summary.bottles[b]}</span>
-              </li>
-            ))}
-          </ul>
+        <section className="card overflow-hidden">
+          <SectionTitle as="h4" flush>
+            Bouteilles
+          </SectionTitle>
+          <div className="p-4 sm:p-5">
+            <ul className="flex flex-wrap gap-x-8 gap-y-2">
+              {BOTTLES.map((b) => (
+                <li key={b} className={`flex items-baseline gap-2 ${summary.bottles[b] ? '' : 'text-muted'}`}>
+                  <span className="text-base">{b}</span>
+                  <span className={summary.bottles[b] ? 'code text-lg' : 'text-lg'}>{summary.bottles[b]}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </section>
       )}
 
       {(summary.people.length > 0 || summary.waiting.length > 0) && (
-        <section className="card border-l-4 border-l-brand p-4 sm:p-5">
-          <h4 className="text-lg font-semibold text-brand mb-2">Par plongeur</h4>
-          <PeopleList people={summary.people} />
-          {summary.waiting.length > 0 && (
-            <div className="mt-4 opacity-70">
-              <h5 className="label mb-1">Liste d’attente (non compté)</h5>
-              <PeopleList people={summary.waiting} />
-            </div>
-          )}
+        <section className="card overflow-hidden">
+          <SectionTitle as="h4" flush>
+            Par plongeur
+          </SectionTitle>
+          <div className="p-4 sm:p-5">
+            <PeopleList people={summary.people} />
+            {summary.waiting.length > 0 && (
+              <div className="mt-4 opacity-70">
+                <h5 className="label mb-1">Liste d’attente (non compté)</h5>
+                <PeopleList people={summary.waiting} />
+              </div>
+            )}
+          </div>
         </section>
       )}
       {confirmDialog}

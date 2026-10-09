@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Plus, UserPlus } from 'lucide-react';
 import { newGuest, type Guest } from '../../../lib/outing';
-import { ActionButton } from './SectionHead';
+import { ActionButton } from './ActionButton';
 
 /** Ajouter un plongeur qui n'est pas sur VPDive (baptême, invité) : prénom, nom, baptême, commentaire. */
 export function GuestForm({ onAdd }: { onAdd: (g: Guest) => void }) {

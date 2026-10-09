@@ -4,7 +4,7 @@ import { DIVE_ROLES, dayParticipants, toggleRole, type DiveRole, type Roles } fr
 import { Avatar } from '../../Avatar';
 import { Menu } from '../../Menu';
 import { AddMember } from './AddMember';
-import { SectionHead } from './SectionHead';
+import { SectionTitle } from '../../SectionTitle';
 
 /**
  * Rôles de la sortie : DP, pilote, sécurité surface. N'importe quel inscrit de la
@@ -27,9 +27,9 @@ export function RolesSection({
   const byId = new Map(roster.map((r) => [r.id, r]));
   return (
     <section>
-      <SectionHead tone="surface" hint="DP, pilote, sécurité surface">
+      <SectionTitle bleed className="mb-4" hint="DP, pilote, sécurité surface">
         Rôles de la sortie
-      </SectionHead>
+      </SectionTitle>
       <ul className="card border-l-4 border-l-brand divide-y divide-line">
         {DIVE_ROLES.map((role) => {
           const ids = roles[role.id] ?? [];

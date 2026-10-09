@@ -9,6 +9,7 @@ import { asksFor, canSupervise, classifyRoles, cleanRoleLabel, entryFromRole, ro
 import { isCancelledTitle } from '../lib/agenda';
 import { message } from '../lib/errors';
 import { Dialog, DialogHeader } from './Dialog';
+import { SectionTitle } from './SectionTitle';
 
 const VPDIVE_EVENT_URL = (token: string) => `https://septentrion-env.vpdive.com/app/activities/${token}`;
 
@@ -434,7 +435,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     {/* Entry: diver, instructor (N4/E1…E4 only), volunteer on a surface post. The DP is never offered. */}
                     {hasRoles && !fixedRole && (
                       <section>
-                        <SectionTitle n={nextStep()}>Je viens comme…</SectionTitle>
+                        <SectionTitle className="mb-3" n={nextStep()}>Je viens comme…</SectionTitle>
                         <div role="radiogroup" aria-label="Je viens comme" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <ChoiceCard role="radio" selected={entry === 'diver'} onClick={() => pick('diver')}>
                             <span className="text-base font-medium">Plongeur</span>
@@ -469,7 +470,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     )}
                     {fixedRole && (
                       <section>
-                        <SectionTitle n={nextStep()}>Votre rôle</SectionTitle>
+                        <SectionTitle className="mb-3" n={nextStep()}>Votre rôle</SectionTitle>
                         <p className="text-base text-ink">
                           {cleanRoleLabel(fixedRole.label) || 'Rôle'} <span className="text-muted">(attribué par le club)</span>
                         </p>
@@ -479,7 +480,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     {/* Tariff */}
                     {asks.tariff && detail.tariffs.length > 0 && (
                       <section>
-                        <SectionTitle n={nextStep()} hint={pricesLoading ? 'Mise à jour des tarifs…' : undefined}>
+                        <SectionTitle className="mb-3" n={nextStep()} hint={pricesLoading ? 'Mise à jour des tarifs…' : undefined}>
                           Formule
                         </SectionTitle>
                         <div className={`rounded-xl border border-line divide-y divide-line ${pricesLoading ? 'opacity-60' : ''}`}>
@@ -516,6 +517,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     {asks.gear && (
                       <section>
                         <SectionTitle
+                          className="mb-3"
                           n={nextStep()}
                           hint={
                             detail.materials.length === 0
@@ -978,18 +980,6 @@ function Notice({ tone, title, children }: { tone: 'info' | 'warn'; title: strin
         <span className="font-semibold block">{title}</span>
         <span className="leading-relaxed text-ink">{children}</span>
       </div>
-    </div>
-  );
-}
-
-function SectionTitle({ children, n, hint }: { children: ReactNode; n: number; hint?: string }) {
-  return (
-    <div className="flex items-center justify-between gap-2 mb-3">
-      <h3 className="flex items-center gap-2.5 text-lg font-semibold text-brand">
-        <span className="w-6 h-6 rounded-full bg-pink text-on-pink text-sm font-bold flex items-center justify-center">{n}</span>
-        {children}
-      </h3>
-      {hint && <span className="text-sm text-muted text-right">{hint}</span>}
     </div>
   );
 }
