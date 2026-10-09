@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
+  caseKey,
+  checkFor,
+  linkFor,
   adhesionView,
   brevetsView,
   buildPeople,
@@ -343,6 +347,42 @@ test('même numéro de licence deux fois sur la fiche : celle qui finit le plus 
   assert.equal(licenceView(lea!, r, 2027).vpdive.mark, 'ok');
   const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
   assert.ok(!quickFixes(lea!, sure, r, 2027).some((f) => f.kind === 'licence'), 'la plus récente est à jour : rien à corriger');
+});
+
+test('clés : la clé HelloAsso reste connue quand la licence apparaît ; choix et validations retrouvés sous lic: puis ha:', () => {
+  const [before] = buildPeople([item({})], [], 2027);
+  const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
+  const [after] = buildPeople([item({})], [row], 2027);
+  assert.equal(after!.key, 'lic:A-16-733717');
+  assert.equal(after!.haKey, before!.key);
+  const chosen = { uct: 'u1', by: 'Lucas', at: '2026-09-20T10:00:00Z' };
+  assert.deepEqual(linkFor(after!, { [before!.key]: chosen }, 2027), { key: before!.key, link: chosen });
+  const newer = { uct: 'u2', by: 'Marie', at: '2026-10-01T10:00:00Z' };
+  assert.equal(linkFor(after!, { [before!.key]: chosen, [after!.key]: newer }, 2027)?.link.uct, 'u2', 'lic: d’abord');
+  // « Pas dans VPDive » d'une saison passée ne vaut plus ; d'un admin de cette saison, si.
+  assert.equal(linkFor(after!, { [after!.key]: { uct: 'none', by: 'Lucas', at: '2025-10-01T10:00:00Z' } }, 2027), null);
+  assert.equal(linkFor(after!, { [after!.key]: { uct: 'none', by: 'Lucas', at: '2026-10-01T10:00:00Z' } }, 2027)?.link.uct, 'none');
+  assert.equal(linkFor(after!, { [after!.key]: { uct: 'u1', by: 'Lucas', at: '2024-10-01T10:00:00Z' } }, 2027)?.link.uct, 'u1', 'un membre choisi reste choisi');
+  // Validations : par saison.
+  const check = (at: string) => ({ by: 'Lucas', at, comment: '' });
+  assert.equal(caseKey(after!, 'unpaid', 2027), 'lic:A-16-733717|2027|unpaid');
+  assert.equal(checkFor(after!, 'unpaid', 2027, { 'lic:A-16-733717|2026|unpaid': check('2025-10-01T10:00:00Z') }).check, undefined, 'autre saison');
+  assert.equal(checkFor(after!, 'unpaid', 2027, { [`${before!.key}|2027|unpaid`]: check('2026-09-20T10:00:00Z') }).key, `${before!.key}|2027|unpaid`, 'sous la clé HelloAsso');
+  // Ancienne clé sans saison : comptée si elle a été posée pendant la saison.
+  assert.ok(checkFor(after!, 'unpaid', 2027, { 'lic:A-16-733717|unpaid': check('2026-10-01T10:00:00Z') }).check);
+  assert.equal(checkFor(after!, 'unpaid', 2027, { 'lic:A-16-733717|unpaid': check('2026-03-01T10:00:00Z') }).check, undefined);
+  assert.equal(checkFor(after!, 'unpaid', 2027, {}).key, 'lic:A-16-733717|2027|unpaid');
+});
+
+test('validations par saison : la clé passe le contrôle du serveur (server/handler.ts, lu tel quel)', () => {
+  const src = readFileSync(new URL('../../server/handler.ts', import.meta.url), 'utf8');
+  const m = /action === 'arbitrage_checks'[\s\S]*?if \(!\/(.+?)\/\.test\(key\)\)/.exec(src);
+  assert.ok(m, 'contrôle de la clé introuvable dans handler.ts');
+  const re = new RegExp(m[1]!);
+  const [lea] = buildPeople([item({})], [], 2027);
+  assert.ok(re.test(caseKey({ key: 'lic:A-16-733717' }, 'unpaid', 2027)));
+  assert.ok(re.test(caseKey(lea!, 'season-unpaid', 2027)), lea!.key);
+  assert.ok(re.test(caseKey({ key: 'lic:A-16-1' }, 'licence-other', 2027)));
 });
 
 test('parents : même nom de famille ou payeur HelloAsso ; un seul compte au même nom (accents près) est sûr', () => {

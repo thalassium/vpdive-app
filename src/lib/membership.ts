@@ -370,6 +370,12 @@ export function brevetTarget(brevet: string, map: BrevetMap, catalog: Capacity[]
 export interface Person {
   /** Clé stable pour mémoriser un rapprochement : licence FFESSM, sinon nom + naissance. */
   key: string;
+  /**
+   * Clé HelloAsso (nom + naissance) d'une personne retrouvée ensuite dans
+   * l'export FFESSM : sa clé devient `lic:`, mais les choix et validations
+   * faits avant l'export sont rangés sous celle-ci.
+   */
+  haKey?: string;
   name: string;
   birthDate: string;
   email: string;
@@ -440,6 +446,7 @@ export function buildPeople(items: HaItem[], rows: FfessmRow[], season: number):
     const match = sameBirth.length === 1 ? sameBirth[0] : byName.length === 1 ? byName[0] : undefined;
     if (match) {
       match.ffessm = row;
+      match.haKey = match.key;
       match.key = `lic:${row.licence}`;
       match.joinedByNameOnly = !sameBirth.length;
     } else {
@@ -824,4 +831,44 @@ export interface CaseCheck {
   at: string;
   comment: string;
 }
-export const caseKey = (p: Pick<Person, 'key'>, kind: CaseKind) => `${p.key}|${kind}`;
+/**
+ * Clé d'une validation manuelle : la personne, la saison, le cas
+ * (« lic:A-16-733717|2027|unpaid »). Une validation vaut pour une saison :
+ * l'an prochain, le même cas se revalide.
+ */
+export const caseKey = (p: Pick<Person, 'key'>, kind: CaseKind, season: number) => `${p.key}|${season}|${kind}`;
+
+/** Les clés d'une personne : `lic:` d'abord, puis la clé HelloAsso d'avant l'export FFESSM. */
+const keysOf = (p: Pick<Person, 'key' | 'haKey'>) => (p.haKey && p.haKey !== p.key ? [p.key, p.haKey] : [p.key]);
+const inSeason = (at: string, season: number) => !!at && seasonOf(at.slice(0, 10)) === season;
+
+/**
+ * La validation manuelle d'un cas, et la clé sous laquelle elle est rangée
+ * (pour la décocher ou la commenter) ; sans validation, la clé à utiliser.
+ * Lue sous `lic:` puis sous `ha:` ; une validation d'avant les saisons dans la
+ * clé (« lic:…|unpaid ») compte si elle a été faite pendant la saison.
+ */
+export function checkFor(p: Pick<Person, 'key' | 'haKey'>, kind: CaseKind, season: number, checks: Record<string, CaseCheck>): { key: string; check?: CaseCheck } {
+  for (const k of keysOf(p)) {
+    const key = `${k}|${season}|${kind}`;
+    if (checks[key]) return { key, check: checks[key] };
+    const legacy = checks[`${k}|${kind}`];
+    if (legacy && inSeason(legacy.at, season)) return { key: `${k}|${kind}`, check: legacy };
+  }
+  return { key: caseKey(p, kind, season) };
+}
+
+/**
+ * Le rapprochement choisi par un admin pour cette personne, et sa clé : sous
+ * `lic:` puis sous `ha:`. « Pas dans VPDive » ne vaut que pour la saison où il
+ * a été dit : la personne a pu créer sa fiche depuis.
+ */
+export function linkFor(p: Pick<Person, 'key' | 'haKey'>, links: Record<string, LinkChoice>, season: number): { key: string; link: LinkChoice } | null {
+  for (const key of keysOf(p)) {
+    const link = links[key];
+    if (!link) continue;
+    if (link.uct === 'none' && link.at && !inSeason(link.at, season)) continue;
+    return { key, link };
+  }
+  return null;
+}

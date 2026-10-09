@@ -9,7 +9,8 @@ import { appApi, type FfessmImport } from '../../services/appApi';
 import { applyJob, type WriteJob } from '../../services/memberWriter';
 import {
   brevetTarget,
-  caseKey,
+  checkFor,
+  linkFor,
   familyCandidates,
   lackingBrevets,
   arbitrageCases,
@@ -196,14 +197,14 @@ export function MembershipTab({
     const ids = new Set<string>();
     const known = new Set(directory.map((m) => m.id));
     for (const p of people) {
-      const link = links[p.key];
+      const link = linkFor(p, links, season)?.link;
       // Un choix vers un membre sorti de l'annuaire (« choix obsolète ») : on relit les homonymes.
       if (link && (link.uct === 'none' || known.has(link.uct))) {
         if (link.uct !== 'none') ids.add(link.uct);
       } else for (const m of candidatesFor(p, directory)) ids.add(m.id);
     }
     return [...ids];
-  }, [people, directory, links]);
+  }, [people, directory, links, season]);
 
   const run = useRef(0);
   /** Lit les fiches ; `fresh` : sans le cache (après des corrections ou des validations). */
@@ -257,9 +258,10 @@ export function MembershipTab({
   const rows = useMemo<Row[]>(() => {
     if (!people || !directory || !links) return [];
     return people.map((p) => {
-      const match = matchPerson(p, directory, records, links[p.key]);
+      const link = linkFor(p, links, season)?.link;
+      const match = matchPerson(p, directory, records, link);
       const record = match.member ? (records[match.member.id] ?? null) : null;
-      const cands = links[p.key] && !match.obsolete ? [] : candidatesFor(p, directory);
+      const cands = link && !match.obsolete ? [] : candidatesFor(p, directory);
       const view = viewOf(p, record, season, brevets, brevetMap);
       const fixes = quickFixes(p, match, record, season, lackingBrevets(p, record, brevets, brevetMap));
       const family = match.status === 'missing' && !match.why ? familyCandidates(p, directory) : [];
@@ -268,8 +270,9 @@ export function MembershipTab({
   }, [people, directory, links, records, season, brevets, brevetMap]);
 
   const fixCount = rows.reduce((n, r) => n + r.fixes.length, 0);
-  // Un cas coché « vérifié » ne compte plus.
-  const caseCount = rows.reduce((n, r) => n + r.cases.filter((c) => !checks[caseKey(r.p, c.kind)]).length, 0);
+  // Un cas validé à la main (pour la saison) ne compte plus.
+  const isChecked = (r: Row, kind: CaseKind) => !!checkFor(r.p, kind, season, checks).check;
+  const caseCount = rows.reduce((n, r) => n + r.cases.filter((c) => !isChecked(r, c.kind)).length, 0);
   useEffect(() => {
     if (rows.length) onCounts?.({ fixes: fixCount, cases: caseCount });
   }, [rows.length, fixCount, caseCount, onCounts]);
@@ -280,6 +283,13 @@ export function MembershipTab({
 
   const choose = async (p: Person, uct: string | null, relation?: 'parent') => {
     try {
+      if (uct === null) {
+        // Annuler : sous la clé `lic:` et sous l'ancienne clé HelloAsso, sinon l'ancien choix reviendrait.
+        let next = links ?? {};
+        for (const key of [p.key, p.haKey]) if (key && next[key]) next = await appApi.setMemberLink(key, null);
+        setLinks(next);
+        return;
+      }
       setLinks(await appApi.setMemberLink(p.key, uct, relation));
     } catch (e) {
       if (!lost.current(e)) setLoadError(message(e));
@@ -646,8 +656,7 @@ export function MembershipTab({
   }
 
   // ── 4. Arbitrage ──
-  const isChecked = (r: Row, kind: CaseKind) => !!checks[caseKey(r.p, kind)];
-  // Dans chaque groupe, ce qui reste à voir d'abord ; les cas vérifiés en bas, atténués.
+  // Dans chaque groupe, ce qui reste à voir d'abord ; les cas validés à la main en bas, atténués.
   const caseGroups = CASE_ORDER.map((kind) => ({
     kind,
     list: rows.filter((r) => matches(r) && r.cases.some((c) => c.kind === kind)).sort((a, b) => Number(isChecked(a, kind)) - Number(isChecked(b, kind))),
@@ -662,7 +671,10 @@ export function MembershipTab({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <p className="text-sm text-muted max-w-2xl">Le cas par cas : ce qui demande une décision ou une saisie à la main, dans l’appli, sur la fiche VPDive ou sur Mon Club.</p>
+        <p className="text-sm text-muted max-w-2xl">
+          Le cas par cas : ce qui demande une décision ou une saisie à la main, dans l’appli, sur la fiche VPDive ou sur Mon Club. Un cas réglé ou sans suite se coche
+          «{' '}Validation manuelle{' '}» : il ne compte plus pour la saison {seasonLabel(season)}.
+        </p>
         {search}
       </div>
       {errors}
@@ -678,14 +690,13 @@ export function MembershipTab({
               <span className="font-semibold text-brand">{CASE_TITLE[kind]}</span>
               <span className="text-sm text-muted tabular-nums">
                 · {list.filter((r) => !isChecked(r, kind)).length}
-                {list.some((r) => isChecked(r, kind)) && ` (+ ${list.filter((r) => isChecked(r, kind)).length} vérifié${list.filter((r) => isChecked(r, kind)).length > 1 ? 's' : ''})`}
+                {list.some((r) => isChecked(r, kind)) && ` (+ ${list.filter((r) => isChecked(r, kind)).length} validé${list.filter((r) => isChecked(r, kind)).length > 1 ? 's' : ''} à la main)`}
               </span>
             </header>
             <ul className="divide-y divide-line">
               {list.map((r) => {
                 const c = r.cases.find((x) => x.kind === kind)!;
-                const key = caseKey(r.p, kind);
-                const check = checks[key];
+                const { key, check } = checkFor(r.p, kind, season, checks);
                 return (
                   <li key={r.p.key} className={`px-4 py-3 grid gap-x-4 gap-y-2 lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_minmax(0,16rem)_minmax(0,15rem)] items-start ${check ? 'bg-raised/50' : ''}`}>
                     <div className={`min-w-0 ${check ? 'opacity-60' : ''}`}>
@@ -754,8 +765,9 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
 }
 
 /**
- * « Vérifié » : l'admin a regardé le cas à la main et c'est bon. Qui, quand,
- * et un commentaire facultatif ; partagé entre admins. Remplace une liste d'ignorés.
+ * « Validation manuelle » : l'admin a regardé le cas à la main et c'est bon,
+ * pour cette saison. Qui, quand, et un commentaire facultatif ; partagé entre
+ * admins. Remplace une liste d'ignorés.
  */
 function CheckBox({ check, onSave }: { check?: CaseCheck; onSave: (checked: boolean | undefined, comment: string) => void }) {
   const [comment, setComment] = useState(check?.comment ?? '');
@@ -764,7 +776,7 @@ function CheckBox({ check, onSave }: { check?: CaseCheck; onSave: (checked: bool
     <div className="min-w-0 space-y-1.5">
       <label className="inline-flex items-center gap-2 cursor-pointer text-sm font-medium text-ink">
         <input type="checkbox" checked={!!check} onChange={(e) => onSave(e.target.checked, comment)} className="w-5 h-5 accent-[var(--fill)]" />
-        Vérifié
+        Validation manuelle
       </label>
       {check && (
         <>
@@ -777,7 +789,7 @@ function CheckBox({ check, onSave }: { check?: CaseCheck; onSave: (checked: bool
             onBlur={() => comment !== check.comment && onSave(undefined, comment)}
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
             placeholder="Commentaire (facultatif)"
-            aria-label="Commentaire de vérification"
+            aria-label="Commentaire de la validation manuelle"
             className="field h-8 w-full text-sm"
           />
         </>
