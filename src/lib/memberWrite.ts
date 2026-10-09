@@ -105,6 +105,49 @@ export const snapshot = (u: RawMember) => ({
   capacities: currentCapacities(u),
 });
 
+/**
+ * La fiche d'avant, telle que le journal la garde (snapshot), en lignes
+ * lisibles pour l'écran « Journal des écritures ». Lue sans confiance : une
+ * entrée ancienne ou incomplète donne moins de lignes, jamais d'erreur.
+ * `levelName` : nom d'un niveau du référentiel (« l_125 » → « Niveau 2… »).
+ */
+export function describeSnapshot(before: unknown, levelName: (id: string) => string | undefined = () => undefined): { label: string; value: string }[] {
+  const s = (before && typeof before === 'object' ? before : {}) as Record<string, unknown>;
+  const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  const rec = (v: unknown) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
+  const label = (y: number) => `${y - 1}/${y}`;
+  const out: { label: string; value: string }[] = [];
+  if (typeof s.member === 'boolean') out.push({ label: 'Statut', value: s.member ? 'Membre' : 'Invité' });
+  const seasons = years(list(s.seasons) as Years);
+  out.push({ label: 'Saisons', value: seasons.length ? seasons.map(label).join(', ') : 'aucune' });
+  const a = years(list(s.yearsUserConfirmation) as Years).join();
+  const b = years(list(s.yearsConfirmation) as Years).join();
+  if (a !== b && 'yearsConfirmation' in s) out.push({ label: 'Listes VPDive', value: `yearsUserConfirmation : ${a || 'vide'} · yearsConfirmation : ${b || 'vide'}` });
+  const licences = list(s.licences).map(rec);
+  out.push({
+    label: 'Licences',
+    value: licences.length
+      ? licences
+          .map((l) => {
+            const end = frDate(l.expires);
+            return `${String(l.licence ?? '') || '?'}${l.organization ? ` (${String(l.organization)})` : ''}, ${end ? `jusqu’au ${end}` : 'sans date de fin'}`;
+          })
+          .join(' · ')
+      : 'aucune',
+  });
+  if ('insurance' in s) {
+    const i = rec(s.insurance);
+    const name = String(i.choice ?? '').trim() && i.choice !== 'Autre' ? String(i.choice) : String(i.other ?? '').trim();
+    const year = Number(i.year);
+    out.push({ label: 'Assurance', value: name ? `${name}${Number.isInteger(year) && year > 1900 ? ` (${year}/${year + 1})` : ''}` : 'aucune' });
+  }
+  if ('capacities' in s) {
+    const ids = list(s.capacities).map(String);
+    out.push({ label: 'Niveaux', value: ids.length ? ids.map((id) => levelName(id) ?? id).join(', ') : 'aucun' });
+  }
+  return out;
+}
+
 /** Bloc général, recopié de la fiche, avec la saison en plus. */
 export function generalEntries(u: RawMember, season: number): Entry[] {
   // Hors vue admin, VPDive n'attend pas all_members… et le retire quand même : on n'écrit pas.

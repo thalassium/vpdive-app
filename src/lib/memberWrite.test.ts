@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WriteError, capacityEntries, checkWrite, currentCapacities, frDate, generalEntries, insuranceEntries, licenceEntries, rawHasLicence, rawSeasons, snapshot, type RawMember } from './memberWrite';
+import { WriteError, describeSnapshot, capacityEntries, checkWrite, currentCapacities, frDate, generalEntries, insuranceEntries, licenceEntries, rawHasLicence, rawSeasons, snapshot, type RawMember } from './memberWrite';
 import { brevetTarget, type Capacity, type VpRecord } from './membership';
 
 const fiche = (over: Partial<RawMember> = {}): RawMember => ({
@@ -76,6 +76,17 @@ test('saisons : réunion de yearsUserConfirmation et yearsConfirmation, les deux
   assert.deepEqual(get(generalEntries(u, 2027), 'mobile_general_form[years][]'), ['2027', '2026', '2025']);
   const s = snapshot(u);
   assert.deepEqual([s.seasons, s.yearsUserConfirmation, s.yearsConfirmation], [[2027, 2026, 2025], [2027], [2026, 2025]]);
+});
+
+test('journal : la fiche d’avant en lignes lisibles, sans erreur sur une entrée incomplète', () => {
+  const lines = describeSnapshot(snapshot(fiche({ insurance_choice: 'Assurance Loisir 1', insurance_year: 2025 })), (id) => (id === 'l_125' ? 'Niveau 1 (P1-N1)' : undefined));
+  const v = Object.fromEntries(lines.map((l) => [l.label, l.value]));
+  assert.equal(v.Statut, 'Membre');
+  assert.equal(v.Saisons, '2025/2026, 2024/2025');
+  assert.equal(v.Licences, 'A-16-733717 (F.F.E.S.S.M.), jusqu’au 31/12/2026 · X-1 (PADI), jusqu’au 30/06/2028');
+  assert.equal(v.Assurance, 'Assurance Loisir 1 (2025/2026)');
+  assert.equal(v.Niveaux, 'Niveau 1 (P1-N1), t_3');
+  assert.deepEqual(describeSnapshot(null), [{ label: 'Saisons', value: 'aucune' }, { label: 'Licences', value: 'aucune' }]);
 });
 
 test('dates', () => {
