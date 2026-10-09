@@ -15,7 +15,7 @@
 
 import type { RosterEntry } from '../services/vpdive';
 import { seasonLabel, seasonOf } from './membership';
-import { frDate } from './dates';
+import { frDate, ymd } from './dates';
 
 /** Saison d'une sortie, pour les messages de relance (« 2026/2027 »). */
 export const seasonOfOuting = (outingDate: string) => seasonLabel(seasonOf(outingDate));
@@ -58,13 +58,7 @@ export function isFfessm(organization: string, number: string): boolean {
   return FFESSM_NUMBER.test(number.replace(/[^a-z0-9]/gi, ''));
 }
 
-/** AAAA-MM-JJ → JJ/MM/AAAA */
-
-const localToday = (): string => {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
+const localToday = (): string => ymd(new Date());
 
 /** « expiré le » pour une date passée, « expire le » pour une date à venir (mais avant la sortie). */
 const expiry = (until: string, today: string, feminine: boolean) =>

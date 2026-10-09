@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { pdfText } from './pdfText';
 import { dateFr, monthSeries, monthShort, type Stats } from './stats';
-import { WEEKDAYS } from './dates';
+import { WEEKDAYS, ymd } from './dates';
 
 /**
  * Statistiques en PDF (A4 portrait) : les mêmes chiffres et graphiques que
@@ -42,7 +42,7 @@ export interface StatsPdfOptions {
 export function statsPdf(stats: Stats, { from, to, partial }: StatsPdfOptions): jsPDF {
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const today = new Date();
-  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const todayYmd = ymd(today);
   const period = `Du ${dateFr(from, true)} au ${dateFr(to, true)}`;
   pdf.setProperties({ title: pdfText(`Statistiques du club · ${period}`), creator: 'VPDive app' });
 

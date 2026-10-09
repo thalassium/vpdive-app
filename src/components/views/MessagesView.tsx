@@ -6,6 +6,7 @@ import { messaging, type ChatMember, type ChatMessage, type ChatSummary, type Ch
 import { vpdive, type MemberMatch } from '../../services/vpdive';
 import { normalizeName, rankByName } from '../../lib/fuzzy';
 import { message } from '../../lib/errors';
+import { ymd } from '../../lib/dates';
 
 /**
  * Une seule relecture pour tout l'écran : la liste (première page) et le fil
@@ -30,7 +31,7 @@ function sameDay(a: Date, b: Date) {
 }
 
 const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const dayKey = ymd;
 
 /** Date courte de la liste : « 14:05 » aujourd'hui, « hier », sinon « 3 oct. ». */
 function listDate(s: string): string {
