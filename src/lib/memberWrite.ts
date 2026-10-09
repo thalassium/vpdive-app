@@ -10,7 +10,7 @@
  *   - blocs licences et niveaux : VPDive remplace la liste entière. On renvoie
  *     toutes les licences (et tous les niveaux) de la fiche, plus le changement.
  */
-import { flatLicence, isFfessmLicence, licenceEnd, type VpRecord } from './membership';
+import { flatLicence, isFfessmLicence, latestLicence, licenceEnd, type VpRecord } from './membership';
 
 export type Entry = [string, string];
 
@@ -76,17 +76,25 @@ const day = (v: unknown) => {
 /** Membre (et non Invité) d'après la fiche brute. */
 export const rawIsMember = (u: RawMember) => !!(u.user_club_traceability?.allMembers ?? u.user_club_traceability?.all_members);
 
-/** Saisons de la fiche (années de fin, 2027 = 2026/2027). */
+const years = (y: Years | null | undefined) => (y ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 1900);
+
+/**
+ * Saisons de la fiche (années de fin, 2027 = 2026/2027) : la réunion des deux
+ * listes que VPDive tient (yearsUserConfirmation, yearsConfirmation), pour
+ * n'en perdre aucune en renvoyant le bloc général.
+ */
 export function rawSeasons(u: RawMember): number[] {
   const t = u.user_club_traceability ?? {};
-  const y = t.yearsUserConfirmation?.length ? t.yearsUserConfirmation : (t.yearsConfirmation ?? []);
-  return y.map(Number).filter((n) => Number.isInteger(n) && n > 1900);
+  return [...new Set([...years(t.yearsUserConfirmation), ...years(t.yearsConfirmation)])].sort((a, b) => b - a);
 }
 
 /** Ce qu'on garde de la fiche avant d'écrire (journal du serveur) : de quoi tout remettre à la main. */
 export const snapshot = (u: RawMember) => ({
   member: rawIsMember(u),
   seasons: rawSeasons(u),
+  // Les deux listes telles quelles : si elles différaient, on sait laquelle avait quoi.
+  yearsConfirmation: years(u.user_club_traceability?.yearsConfirmation),
+  yearsUserConfirmation: years(u.user_club_traceability?.yearsUserConfirmation),
   licences: (u.user_licence ?? []).map((l) => ({
     id: l.id,
     organization: l.organization?.name ?? '',
@@ -104,7 +112,7 @@ export function generalEntries(u: RawMember, season: number): Entry[] {
   const t = u.user_club_traceability ?? {};
   const c = String(u.civility ?? '').trim().toLowerCase();
   const civility = c === 'mme' ? 'mrs' : c === 'mlle' ? 'ms' : ['mr', 'mrs', 'ms'].includes(c) ? c : '';
-  const years = [...new Set([...rawSeasons(u), season])].sort((a, b) => b - a);
+  const all = [...new Set([...rawSeasons(u), season])].sort((a, b) => b - a);
   const out: Entry[] = [
     ['mobile_general_form[first_name]', String(u.first_name ?? '')],
     ['mobile_general_form[last_name]', String(u.last_name ?? '')],
@@ -118,7 +126,7 @@ export function generalEntries(u: RawMember, season: number): Entry[] {
   ];
   if (rawIsMember(u)) out.push(['mobile_general_form[all_members]', '1']);
   out.push(['mobile_general_form[created_at_user_update]', day(t.createdAtUserUpdate ?? t.dateConfirmation)]);
-  for (const y of years) out.push(['mobile_general_form[years][]', String(y)]);
+  for (const y of all) out.push(['mobile_general_form[years][]', String(y)]);
   out.push(['mobile_general_form[picture]', String(u.profile_picture ?? '')]);
   return out;
 }
@@ -130,11 +138,16 @@ export interface LicenceChange {
   add?: { number: string; expires: string };
 }
 
+/** La fiche brute porte-t-elle déjà ce numéro de licence (à la ponctuation près) ? */
+export const rawHasLicence = (u: RawMember, number: string) => (u.user_licence ?? []).some((l) => flatLicence(l.licence ?? '') === flatLicence(number));
+
 /** Bloc licences : toutes celles de la fiche, la date changée et / ou la licence ajoutée. */
 export function licenceEntries(u: RawMember, change: LicenceChange): Entry[] {
   const list = u.user_licence ?? [];
   const k = (i: number, f: string) => `mobile_licence_form[user_licence][${i}][${f}]`;
   if (change.extend && !list.some((l) => l.id === change.extend!.id)) throw new WriteError('licence introuvable sur la fiche');
+  // Ajoutée entre-temps (autre admin, autre onglet) : l'ajouter encore ferait un doublon.
+  if (change.add && rawHasLicence(u, change.add.number)) throw new WriteError(`licence ${change.add.number} déjà présente sur la fiche`);
   const out: Entry[] = [];
   list.forEach((l, i) => {
     // Une organisation vide ferait perdre la licence : on ne devine pas.
@@ -218,7 +231,7 @@ export function checkWrite(before: VpRecord, after: VpRecord, want: Expect, seas
   if (lostLevel) return { error: `niveau perdu : ${lostLevel}` };
   if (want.season && !after.seasons.includes(String(want.season))) return { error: 'la saison n’apparaît pas sur la fiche relue' };
   if (want.licence) {
-    const l = after.licences.find((x) => isFfessmLicence(x) && flatLicence(x.number) === flatLicence(want.licence!));
+    const l = latestLicence(after.licences.filter((x) => isFfessmLicence(x) && flatLicence(x.number) === flatLicence(want.licence!)));
     if (!l) return { error: 'la licence n’apparaît pas sur la fiche relue' };
     if (!l.expires || l.expires < licenceEnd(season)) return { error: `licence encore ${l.expires ? `au ${l.expires.split('-').reverse().join('/')}` : 'sans date de fin'}` };
   }

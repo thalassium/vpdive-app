@@ -6,7 +6,7 @@
  */
 import { SessionExpiredError, vpdive } from './vpdiveApi';
 import { appApi } from './appApi';
-import { capacityEntries, checkWrite, generalEntries, insuranceEntries, licenceEntries, snapshot, type Entry, type Expect, type RawMember } from '../lib/memberWrite';
+import { capacityEntries, checkWrite, generalEntries, insuranceEntries, licenceEntries, rawHasLicence, snapshot, type Entry, type Expect, type RawMember } from '../lib/memberWrite';
 import { licenceEnd, type Fix, type VpRecord } from '../lib/membership';
 
 // Plus lent que les lectures : ce sont des écritures, et le pare-feu de VPDive veille.
@@ -41,6 +41,8 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
   const kinds = new Set(job.fixes.map((f) => f.kind));
   const licenceFix = job.fixes.find((f) => f.kind === 'licence');
   const done: string[] = [];
+  /** Au moins un envoi a changé la fiche. */
+  let wrote = false;
   let before: ReturnType<typeof snapshot> | null = null;
   let after: VpRecord | undefined;
   let result: WriteResult;
@@ -60,15 +62,21 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
       blocks.push({ kind: 'season', entries: () => generalEntries(raw, season) });
       want.season = season;
     }
-    if (licenceFix || kinds.has('licence-add')) {
+    // Licence à ajouter déjà sur la fiche relue (ajoutée entre-temps) : rien à ajouter, pas de doublon.
+    let add = kinds.has('licence-add');
+    if (add && job.licence && rawHasLicence(raw, job.licence)) {
+      add = false;
+      done.push('licence déjà présente, rien ajouté');
+    }
+    if (licenceFix || add) {
       if (!job.licence) throw new Error('n° de licence FFESSM inconnu');
       if (licenceFix && !licenceFix.licenceId) throw new Error('licence sans identifiant VPDive : à faire à la main');
       const change = () => ({
         ...(licenceFix?.licenceId && !refreshed ? { extend: { id: licenceFix.licenceId, expires: licenceEnd(season) } } : {}),
-        ...(kinds.has('licence-add') ? { add: { number: job.licence!, expires: licenceEnd(season) } } : {}),
+        ...(add ? { add: { number: job.licence!, expires: licenceEnd(season) } } : {}),
       });
       licenceEntries(raw, change());
-      blocks.push({ kind: kinds.has('licence-add') ? 'licence-add' : 'licence', entries: () => licenceEntries(raw, change()) });
+      blocks.push({ kind: add ? 'licence-add' : 'licence', entries: () => licenceEntries(raw, change()) });
       want.licence = job.licence;
     }
     if (kinds.has('insurance')) {
@@ -92,6 +100,7 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
         return false;
       });
       if (applied) {
+        wrote = true;
         await wait();
         const r = await vpdive.memberRecord(uct);
         refreshed = r.licences.some((l) => l.id === licenceFix.licenceId && l.expires >= licenceEnd(season));
@@ -106,6 +115,7 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
       const entries = b.entries();
       await wait();
       await vpdive.updateMember(uct, entries);
+      wrote = true;
       done.push(KIND_LABEL[b.kind] ?? b.kind);
     }
 
@@ -116,8 +126,16 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
       ? { ok: false, message: `Écrit (${done.join(', ')}) mais à vérifier : ${check.error}`, after }
       : { ok: true, message: `Écrit : ${done.join(', ')}`, ...(check.warning ? { warning: check.warning } : {}), after };
   } catch (e) {
-    if (e instanceof SessionExpiredError) throw e;
-    result = { ok: false, message: done.length ? `Écrit en partie (${done.join(', ')}), puis : ${message(e)}` : `Rien écrit : ${message(e)}`, ...(after ? { after } : {}) };
+    if (e instanceof SessionExpiredError) {
+      // Session perdue entre deux blocs : ce qui est déjà écrit va quand même au journal (si le serveur l'accepte encore).
+      if (before && wrote) {
+        await appApi
+          .logMemberWrite({ uct, name: job.name, kinds: [...kinds], ok: false, message: `Écrit en partie (${done.join(', ')}), puis : session VPDive expirée`, before })
+          .catch(() => undefined);
+      }
+      throw e;
+    }
+    result = { ok: false, message: wrote ? `Écrit en partie (${done.join(', ')}), puis : ${message(e)}` : `Rien écrit : ${message(e)}`, ...(after ? { after } : {}) };
   }
 
   // Le journal garde la fiche d'avant : sans lui, on ne continue pas le lot.

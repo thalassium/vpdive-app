@@ -634,13 +634,22 @@ export function licenceView(p: Person, r: VpRecord | null, season: number): Item
   const expected = paid || row;
   const end = licenceEnd(season);
   const ffessmOnes = r.licences.filter(isFfessmLicence);
-  const same = row ? ffessmOnes.find((l) => flatLicence(l.number) === flatLicence(row.licence)) : ffessmOnes.find((l) => l.expires >= end);
+  // Sans ligne FFESSM, on ne connaît pas le numéro attendu : la licence FFESSM la plus récente de la fiche.
+  const same = row ? latestLicence(ffessmOnes.filter((l) => flatLicence(l.number) === flatLicence(row.licence))) : latestLicence(ffessmOnes);
   let vpdive: Cell;
   if (same && same.expires >= end) vpdive = { mark: expected ? 'ok' : 'diff', text: `jusqu’au ${frDate(same.expires)}` };
-  else if (same) vpdive = { mark: 'diff', text: same.expires ? `jusqu’au ${frDate(same.expires)}` : 'sans date de fin' };
-  else if (ffessmOnes.length) vpdive = { mark: expected ? 'diff' : 'na', text: `autre n° ${ffessmOnes[0]!.number}` };
+  else if (same) {
+    // Finie avant le début de la saison : expirée ; sinon, celle de la saison passée.
+    const text = !same.expires ? 'sans date de fin' : same.expires < `${season - 1}-09-01` ? `expirée le ${frDate(same.expires)}` : `jusqu’au ${frDate(same.expires)}`;
+    vpdive = { mark: expected ? 'diff' : 'na', text };
+  } else if (ffessmOnes.length) vpdive = { mark: 'diff', text: `autre n° ${latestLicence(ffessmOnes)!.number}` };
   else vpdive = expected ? { mark: 'missing', text: 'absente' } : NA;
   return { helloasso, ffessm, vpdive };
+}
+
+/** De plusieurs licences (le même numéro saisi deux fois…), celle qui finit le plus tard ; une sans date en dernier recours. */
+export function latestLicence<L extends { expires: string }>(list: L[]): L | undefined {
+  return list.reduce<L | undefined>((best, l) => (!best || l.expires > best.expires ? l : best), undefined);
 }
 
 /** Adhésion de la saison. Fait foi : HelloAsso (geste d'août compris) ; VPDive doit avoir la saison et le statut Membre. */
@@ -737,7 +746,8 @@ export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: 
   }
   if (p.ffessm) {
     const ffessmOnes = r.licences.filter(isFfessmLicence);
-    const same = ffessmOnes.find((l) => flatLicence(l.number) === flatLicence(p.ffessm!.licence));
+    // Le même numéro saisi deux fois : celle qui finit le plus tard.
+    const same = latestLicence(ffessmOnes.filter((l) => flatLicence(l.number) === flatLicence(p.ffessm!.licence)));
     if (same && (!same.expires || same.expires < licenceEnd(season))) {
       out.push({
         kind: 'licence',
@@ -779,7 +789,8 @@ export function arbitrageCases(p: Person, match: Match, r: VpRecord | null, v: P
   if (!p.ha?.licence && !p.ha?.pass && !p.ffessm && p.ha?.adhesion) out.push({ kind: 'no-licence', text: 'Ni licence ni Pass plongée payés au club : licence prise dans un autre club ?' });
   if (!r) return out;
   if (!r.member && p.ha?.adhesion) out.push({ kind: 'guest', text: 'Statut Invité dans VPDive : à passer en Membre.' });
-  if (v.licence.vpdive.mark === 'diff' && v.licence.vpdive.text.startsWith('autre n°')) {
+  // Seulement face à une ligne FFESSM : sans elle, on ne sait pas quel numéro attendre.
+  if (p.ffessm && v.licence.vpdive.mark === 'diff' && v.licence.vpdive.text.startsWith('autre n°')) {
     out.push({ kind: 'licence-other', text: `La fiche VPDive porte une autre licence FFESSM (${v.licence.vpdive.text.replace('autre n° ', '')}) que celle de la FFESSM (${p.ffessm?.licence ?? '?'}).` });
   }
   if (v.adhesion.vpdive.mark === 'diff' && r.member) out.push({ kind: 'season-unpaid', text: 'Saison présente dans VPDive sans adhésion HelloAsso.' });

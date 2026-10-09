@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WriteError, capacityEntries, checkWrite, currentCapacities, frDate, generalEntries, insuranceEntries, licenceEntries, type RawMember } from './memberWrite';
+import { WriteError, capacityEntries, checkWrite, currentCapacities, frDate, generalEntries, insuranceEntries, licenceEntries, rawHasLicence, rawSeasons, snapshot, type RawMember } from './memberWrite';
 import { brevetTarget, type Capacity, type VpRecord } from './membership';
 
 const fiche = (over: Partial<RawMember> = {}): RawMember => ({
@@ -62,6 +62,20 @@ test('bloc licences : toutes renvoyées, date changée ou licence ajoutée', () 
   assert.throws(() => licenceEntries(fiche(), { extend: { id: 99, expires: '2027-12-31' } }), WriteError);
   assert.throws(() => licenceEntries(fiche({ user_licence: [{ id: 3, licence: 'A', organization: null }] }), { add: { number: 'B', expires: '2027-12-31' } }), WriteError);
   assert.throws(() => licenceEntries(fiche({ organizations: [] }), { add: { number: 'B', expires: '2027-12-31' } }), WriteError);
+});
+
+test('licence à ajouter déjà sur la fiche (même numéro aplati) : refus explicite, pas de doublon', () => {
+  assert.throws(() => licenceEntries(fiche(), { add: { number: 'A16733717', expires: '2027-12-31' } }), /déjà présente/);
+  assert.equal(rawHasLicence(fiche(), 'a-16-733717'), true);
+  assert.equal(rawHasLicence(fiche(), 'A-22-111111'), false);
+});
+
+test('saisons : réunion de yearsUserConfirmation et yearsConfirmation, les deux gardées au journal', () => {
+  const u = fiche({ user_club_traceability: { allMembers: true, yearsUserConfirmation: ['2027'], yearsConfirmation: ['2026', 2025] } });
+  assert.deepEqual(rawSeasons(u), [2027, 2026, 2025]);
+  assert.deepEqual(get(generalEntries(u, 2027), 'mobile_general_form[years][]'), ['2027', '2026', '2025']);
+  const s = snapshot(u);
+  assert.deepEqual([s.seasons, s.yearsUserConfirmation, s.yearsConfirmation], [[2027, 2026, 2025], [2027], [2026, 2025]]);
 });
 
 test('dates', () => {

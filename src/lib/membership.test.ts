@@ -295,6 +295,37 @@ test('rapprochement : choix mémorisé vers un membre sorti de l’annuaire = «
   assert.equal(matchPerson(lea!, [], {}, { uct: 'parti', by: 'Lucas', at: '' }).status, 'missing');
 });
 
+test('licence VPDive sans ligne FFESSM : la plus récente, « expirée le … », jamais « autre n° »', () => {
+  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: ['2027'], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
+  const [lea] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [], 2027);
+  const old = rec({
+    licences: [
+      { number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2024-12-31' },
+      { number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2025-12-31' },
+    ],
+  });
+  const v = licenceView(lea!, old, 2027);
+  assert.deepEqual([v.vpdive.mark, v.vpdive.text], ['diff', 'expirée le 31/12/2025']);
+  assert.equal(licenceView(lea!, rec({ licences: [{ number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2026-12-31' }] }), 2027).vpdive.text, 'jusqu’au 31/12/2026');
+  const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
+  assert.ok(!arbitrageCases(lea!, sure, old, viewOf(lea!, old, 2027, null)).some((c) => c.kind === 'licence-other'));
+});
+
+test('même numéro de licence deux fois sur la fiche : celle qui finit le plus tard', () => {
+  const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
+  const [lea] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [row], 2027);
+  const r: VpRecord = {
+    email: '', birthday: '', seasons: ['2027'], insurance: '', insuranceYear: null, member: true, levels: [],
+    licences: [
+      { number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2025-12-31', id: 1 },
+      { number: 'A16733717', organization: 'F.F.E.S.S.M.', expires: '2027-12-31', id: 2 },
+    ],
+  };
+  assert.equal(licenceView(lea!, r, 2027).vpdive.mark, 'ok');
+  const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
+  assert.ok(!quickFixes(lea!, sure, r, 2027).some((f) => f.kind === 'licence'), 'la plus récente est à jour : rien à corriger');
+});
+
 test('parents : même nom de famille ou payeur HelloAsso ; un seul compte au même nom (accents près) est sûr', () => {
   const [tom] = buildPeople([item({ firstName: 'Tom', lastName: 'Petit', birthDate: '2012-05-05', payerName: 'Claire Durand' })], [], 2027);
   const dir: VpMember[] = [
