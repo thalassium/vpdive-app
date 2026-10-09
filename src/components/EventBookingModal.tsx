@@ -798,7 +798,7 @@ function ChoiceCard({
       <span className="block pr-6">{children}</span>
       <span
         className={`absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
-          selected ? 'bg-fill text-white' : 'border-2 border-line'
+          selected ? 'bg-fill text-on-fill' : 'border-2 border-line'
         }`}
       >
         {selected && <Check className="w-3 h-3" strokeWidth={3} />}
@@ -836,7 +836,7 @@ function RegisteredPanel({
   const canEdit = detail.canModify && !detail.requiresExtraForm && !!r && !cancelled;
   const waiting = detail.onWaitingList;
   return (
-    <div className={`p-4 rounded-xl border text-base space-y-3 ${waiting ? 'bg-warn-soft border-warn/40' : 'bg-ok-soft border-green/40'}`}>
+    <div className={`p-4 rounded-xl border text-base space-y-3 ${waiting ? 'bg-warn-soft border-warn/40' : 'bg-ok-soft border-ok/40'}`}>
       {waiting ? (
         <div className="text-warn">
           <p className="flex items-center gap-2 font-semibold text-base">

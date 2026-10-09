@@ -557,7 +557,7 @@ function Bubble({ message: m, mine, author, onRetry }: { message: Shown; mine: b
       {author && <span className="text-sm text-muted mb-1 px-1">{author}</span>}
       <div
         className={`max-w-[80%] px-3 py-2 text-base whitespace-pre-wrap break-words ${
-          mine ? 'bg-fill text-white rounded-xl rounded-br-md' : 'bg-raised text-ink rounded-xl rounded-bl-md'
+          mine ? 'bg-fill text-on-fill rounded-xl rounded-br-md' : 'bg-raised text-ink rounded-xl rounded-bl-md'
         } ${m.status ? 'opacity-60' : ''}`}
       >
         {m.text}

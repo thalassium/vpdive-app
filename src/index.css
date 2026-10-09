@@ -19,13 +19,17 @@
  *   field / field-border               champs de saisie et menus : toujours distincts de leur fond
  *   ink / muted / line                 texte, texte secondaire, filets
  *   brand                              marine en TEXTE et bordures (bleu clair en sombre)
- *   fill                               marine en APLAT (bouton principal), texte blanc dessus
+ *   fill / on-fill                     marine en APLAT (bouton principal, bulle de mes messages) et
+ *                                      le texte posé dessus : ≥ 4,5:1 en clair (14,8) et en sombre (6,3 ; 5,1 au survol)
  *   band / on-band                     le pied de page, seule grande surface marine, et son texte
  *   scrim                              voile derrière les fenêtres ; sans flou, la carte marine reste visible
  *   focus                              anneau de focus des champs
  *   pink                               accent ; jamais en texte sur fond clair (trop pâle)
  *   ok / warn / danger                 inscrit, alerte (peu de places, vent), erreur : en texte, filet
- *                                      et teinte douce (-soft), jamais en aplat
+ *                                      et teinte douce (-soft), jamais en aplat ; ok ≥ 4,5:1 sur tous
+ *                                      les fonds clairs (4,57 sur tint) et sombres
+ *   pink / green (@theme)              identité du club (logo, repères) : jamais pour dire un état,
+ *                                      le vert du logo n'a que 2,6:1 sur blanc
  *   deep / chart / bubble              fond « carte marine » (SeaBackdrop) : eau profonde,
  *   coast-far / coast-near / swell     traits de carte, bulles, îles, calanques, houle
  *
@@ -72,6 +76,7 @@
   --brand: #012362;
   --fill: #012362;
   --fill-hover: #0c2d69;
+  --on-fill: #ffffff;
   --band: #012362;
   --on-band: #ffffff;
   --scrim: rgb(1 35 98 / 0.45);
@@ -117,6 +122,7 @@
   --brand: #b9caf6;
   --fill: #3559c0;
   --fill-hover: #4268d2;
+  --on-fill: #ffffff;
   --band: #0d1a40;
   --on-band: #e9edf7;
   --scrim: rgb(0 0 0 / 0.6);
@@ -208,6 +214,7 @@
   --color-brand: var(--brand);
   --color-fill: var(--fill);
   --color-fill-hover: var(--fill-hover);
+  --color-on-fill: var(--on-fill);
   --color-band: var(--band);
   --color-on-band: var(--on-band);
   --color-scrim: var(--scrim);
@@ -252,7 +259,7 @@
 }
 /* L'action principale de l'écran, une seule par vue. */
 @utility btn-primary {
-  @apply bg-fill text-white hover:bg-fill-hover;
+  @apply bg-fill text-on-fill hover:bg-fill-hover;
 }
 /* Tout autre bouton, et les déclencheurs de choix. */
 @utility btn-quiet {

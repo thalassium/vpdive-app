@@ -75,7 +75,7 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
           onChange={(e) => type(e.target.value)}
           placeholder="Prénom et nom"
           aria-describedby="buddy-help"
-          className={`field w-full pl-10 pr-10 text-base ${picked ? 'border-green text-ok font-medium' : ''}`}
+          className={`field w-full pl-10 pr-10 text-base ${picked ? 'border-ok text-ok font-medium' : ''}`}
         />
         {typed && (
           <button

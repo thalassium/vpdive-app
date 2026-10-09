@@ -414,7 +414,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             {new Date(dive.validated!.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}. La fiche de sécurité est débloquée.
           </p>
           {!readOnly && (
-            <button type="button" onClick={onReopen} className="btn btn-quiet sm:h-9 text-sm border-green/50 text-ok">
+            <button type="button" onClick={onReopen} className="btn btn-quiet sm:h-9 text-sm border-ok/50 text-ok">
               <Pencil className="w-4 h-4" /> Modifier les palanquées
             </button>
           )}

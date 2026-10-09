@@ -487,7 +487,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                 >
                   <span
                     aria-hidden
-                    className={`w-5 h-5 rounded-full text-xs font-bold inline-flex items-center justify-center ${first ? 'bg-surface text-warn border border-warn/40' : on ? 'bg-fill text-white' : 'bg-raised text-muted'}`}
+                    className={`w-5 h-5 rounded-full text-xs font-bold inline-flex items-center justify-center ${first ? 'bg-surface text-warn border border-warn/40' : on ? 'bg-fill text-on-fill' : 'bg-raised text-muted'}`}
                   >
                     {i + 1}
                   </span>

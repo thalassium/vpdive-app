@@ -471,7 +471,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
             <div className="flex items-center gap-1 sm:gap-2 min-w-0">
               {/* État de VPDive : la couleur pour l'œil, le texte (caché) pour les lecteurs d'écran. */}
               <span title={vpdiveStatus} className="hidden lg:inline-flex items-center mr-1">
-                <span aria-hidden className={`w-2 h-2 rounded-full ${error ? 'bg-danger' : connected ? 'bg-green' : 'bg-line'}`} />
+                <span aria-hidden className={`w-2 h-2 rounded-full ${error ? 'bg-danger' : connected ? 'bg-ok' : 'bg-line'}`} />
                 <span className="sr-only">{vpdiveStatus}</span>
               </span>
 

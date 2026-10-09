@@ -290,7 +290,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
                         {dayEvents.slice(0, 3).map((ev) => (
                           <span
                             key={ev.token}
-                            className={`w-2 h-2 rounded-full ${ev.registered ? 'ring-2 ring-green ring-offset-1 ring-offset-surface' : ''} ${ev.cancelled ? 'opacity-40' : ''}`}
+                            className={`w-2 h-2 rounded-full ${ev.registered ? 'ring-2 ring-ok ring-offset-1 ring-offset-surface' : ''} ${ev.cancelled ? 'opacity-40' : ''}`}
                             style={{ backgroundColor: ev.color }}
                           />
                         ))}
