@@ -3,7 +3,6 @@ import { AlertTriangle, EyeOff, FileText, Mail, MessageCircle, RefreshCw, Undo2,
 import { Avatar } from '../Avatar';
 import { Tab as TabItem, TabList, TabPanel } from '../Tabs';
 import { useConfirm } from '../../hooks/useConfirm';
-import { useDialog } from '../../hooks/useDialog';
 import { vpdive, isUnavailable, type RosterEntry } from '../../services/vpdive';
 import { ymd, shortDay } from '../../lib/dates';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
@@ -15,6 +14,7 @@ import type { PendingValidation } from '../../services/vpdive';
 import type { RegistrationRequest } from '../../services/appApi';
 import { message } from '../../lib/errors';
 import { docsStatusCache } from './memberCache';
+import { Dialog, DialogHeader } from '../Dialog';
 
 /**
  * Le parcours, dans l'ordre : 1 à traiter (sinon VPDive ignore la personne ou
@@ -82,8 +82,6 @@ type Phase = 'events' | 'rosters' | 'status' | 'stopped' | 'done' | 'error';
 const DAYS_AHEAD = 60;
 /** Erreurs d'affilée sur les fiches membres avant de s'arrêter ; VPDive indisponible (pare-feu, réseau) : tout de suite. */
 const MAX_FAILURES = 3;
-
-
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'Tout' },
@@ -326,8 +324,8 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
     if (outings) checkStatuses(outings, ++run.current);
   };
 
-  // Échap et le bouton Retour ferment la relance si elle est ouverte (jamais en plein envoi), sinon le panneau
-  // (jamais en pleine écriture dans VPDive).
+  // Échap et le bouton Retour (la fenêtre <Dialog>, plus bas) ferment la relance si elle est ouverte (jamais
+  // en plein envoi), sinon le panneau (jamais en pleine écriture dans VPDive).
   // useDialog relit ses fonctions à chaque appel : `reminder` y est toujours celui du dernier rendu.
   const reminderBusy = useRef(false);
   const { confirm, confirmDialog } = useConfirm();
@@ -335,17 +333,6 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   const tabsId = useId();
   const tabId = (key: Tab) => `${tabsId}-tab-${key}`;
   const panelId = (key: Tab) => `${tabsId}-panel-${key === 'todo' || key === 'relance' ? key : 'steps'}`;
-  const { ref: dialogRef } = useDialog({
-    onClose: () => (reminder !== null ? setReminder(null) : onClose()),
-    canClose: () => {
-      if (reminderBusy.current) return false;
-      if (reminder !== null || !membershipBusy.current) return true;
-      // Écriture dans VPDive en cours : on ne ferme pas tout de suite, on pose la question (requestClose ferme si accepté).
-      void requestClose();
-      return false;
-    },
-    label: 'docs',
-  });
   /** Croix, clic à côté, Échap et Retour : pendant une écriture dans VPDive, on demande d'abord (le lot s'arrête après la fiche en cours). */
   const requestClose = async () => {
     if (
@@ -428,25 +415,33 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   const verifying = phase === 'status';
 
   return (
-    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="docs-title" className={`relative bg-surface w-full ${tab === 'relance' ? 'sm:max-w-5xl' : 'sm:max-w-7xl'} h-dvh sm:h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop`}>
-        <header className="relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <span className="label block mb-0.5">Admin</span>
-              <h2 id="docs-title" className="text-xl font-semibold text-brand leading-snug flex items-center gap-2">
-                <FileText className="w-6 h-6 text-brand" /> Gestion des adhésions
-              </h2>
-              <p className="mt-1 text-sm text-muted">
-                {tab === 'relance' ? `Inscrits des ${DAYS_AHEAD} prochains jours dont le dossier VPDive n’est pas en règle à la date de la sortie.` : SUBTITLE[tab]}
-              </p>
-            </div>
-            <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
-              <button onClick={requestClose} aria-label="Fermer" className="icon-btn">
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-          </div>
+    <>
+      <Dialog
+        label="docs"
+        onClose={() => (reminder !== null ? setReminder(null) : onClose())}
+        canClose={() => {
+          if (reminderBusy.current) return false;
+          if (reminder !== null || !membershipBusy.current) return true;
+          // Écriture dans VPDive en cours : on ne ferme pas tout de suite, on pose la question (requestClose ferme si accepté).
+          void requestClose();
+          return false;
+        }}
+        onBackdrop={() => void requestClose()}
+        titleId="docs-title"
+        className={`${tab === 'relance' ? 'sm:max-w-5xl' : 'sm:max-w-7xl'} h-dvh sm:h-[92vh]`}
+      >
+        <DialogHeader
+          titleId="docs-title"
+          kicker="Admin"
+          icon={<FileText className="w-6 h-6 text-brand" />}
+          title="Gestion des adhésions"
+          onClose={() => void requestClose()}
+          subtitle={
+            <p className="mt-1 text-sm text-muted">
+              {tab === 'relance' ? `Inscrits des ${DAYS_AHEAD} prochains jours dont le dossier VPDive n’est pas en règle à la date de la sortie.` : SUBTITLE[tab]}
+            </p>
+          }
+        >
           {/* Onglets : les quatre étapes dans l'ordre (la première, prioritaire, en teinte d'alerte), puis la relance. */}
           {/* Activation au clavier par Entrée : ouvrir une étape lit beaucoup sur VPDive, les flèches ne font que s'y déplacer. */}
           <TabList
@@ -528,7 +523,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               </div>
             </div>
           )}
-        </header>
+        </DialogHeader>
 
         {tab === 'todo' && (
           <TabPanel id={panelId('todo')} labelledBy={tabId('todo')} className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4 space-y-8">
@@ -705,9 +700,9 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             onSessionLost={onSessionLost}
           />
         )}
-      </div>
+      </Dialog>
       {confirmDialog}
-    </div>
+    </>
   );
 }
 

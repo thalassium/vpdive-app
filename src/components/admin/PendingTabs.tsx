@@ -8,6 +8,7 @@ import { appApi, type RegistrationRequest } from '../../services/appApi';
 import { useConfirm } from '../../hooks/useConfirm';
 import { docsStatusCache, recordCache } from './memberCache';
 import { message } from '../../lib/errors';
+import { Empty, Failure } from '../Feedback';
 
 /*
  * Les deux onglets « à traiter d'abord » de la gestion des adhésions : tant
@@ -20,21 +21,6 @@ import { message } from '../../lib/errors';
 function forgetMember(uct: string) {
   recordCache.forget(uct);
   docsStatusCache.forget(uct);
-}
-
-function Empty({ children }: { children: string }) {
-  return <p className="py-12 text-center text-muted">{children}</p>;
-}
-
-function Failure({ error, onRetry }: { error: string; onRetry: () => void }) {
-  return (
-    <div role="alert" className="p-4 rounded-xl bg-danger-soft text-danger flex flex-wrap items-center gap-3">
-      <span className="flex-1 min-w-0">{error}</span>
-      <button type="button" onClick={onRetry} className="btn btn-quiet sm:h-9 text-sm">
-        Réessayer
-      </button>
-    </div>
-  );
 }
 
 // ── Membres à valider ──────────────────────────────────────────────
@@ -59,7 +45,7 @@ export function RegistrationRequestsTab({
   const [busy, setBusy] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const { confirm, confirmDialog } = useConfirm();
-  if (error) return <Failure error={error} onRetry={onReload} />;
+  if (error) return <Failure look="soft" text={error} onRetry={onReload} />;
   if (!requests) return <GabianLoader label="Lecture des demandes d’inscription sur VPDive…" />;
   if (!requests.length) return <Empty>Aucune demande d’inscription en attente.</Empty>;
 
@@ -145,7 +131,7 @@ export function PendingDocumentsTab({
   const [busy, setBusy] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const { confirm, confirmDialog } = useConfirm();
-  if (error) return <Failure error={error} onRetry={onReload} />;
+  if (error) return <Failure look="soft" text={error} onRetry={onReload} />;
   if (!items) return <GabianLoader label="Lecture des documents en attente sur VPDive…" />;
   if (!items.length) return <Empty>Aucun document en attente de validation.</Empty>;
 

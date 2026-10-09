@@ -7,6 +7,7 @@ import type { Me } from '../../services/appApi';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
 import { message } from '../../lib/errors';
+import { Failure } from '../Feedback';
 
 /** Ma page profil sur VPDive : informations, documents, niveaux. */
 const VPDIVE_URL = 'https://septentrion-env.vpdive.com/app/profile';
@@ -202,7 +203,7 @@ export function ProfileView({
         <Box icon={<Award className="w-5 h-5" />} title="Mes niveaux">
           <div className="p-4">
             {qualsError ? (
-              <ErrorLine text={qualsError} onRetry={load} />
+              <Failure look="line" text={qualsError} onRetry={load} />
             ) : quals === undefined ? (
               <div aria-hidden className="h-14 rounded-lg animate-pulse bg-raised" />
             ) : quals === null ? (
@@ -563,17 +564,6 @@ function Box({ icon, title, count, defaultOpen, children }: { icon: ReactNode; t
       </summary>
       <div className="border-t border-line">{children}</div>
     </details>
-  );
-}
-
-function ErrorLine({ text, onRetry }: { text: string; onRetry: () => void }) {
-  return (
-    <div role="alert" className="flex flex-wrap items-center gap-3">
-      <p className="text-danger flex-1 min-w-0">{text}</p>
-      <button type="button" onClick={onRetry} className="btn btn-quiet">
-        Réessayer
-      </button>
-    </div>
   );
 }
 

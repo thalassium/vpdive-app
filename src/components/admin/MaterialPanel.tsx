@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, Copy, Package, RefreshCw, X } from 'lucide-react';
+import { Check, ChevronDown, Copy, Package } from 'lucide-react';
 import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdive';
 import { ymd, shortDay } from '../../lib/dates';
 import { appApi } from '../../services/appApi';
@@ -9,9 +9,10 @@ import { adoptRegistrations, divingIds, syncWithRoster, withGuests, type OutingD
 import { Avatar } from '../Avatar';
 import { Menu } from '../Menu';
 import { useConfirm } from '../../hooks/useConfirm';
-import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 import { message } from '../../lib/errors';
+import { Dialog, DialogHeader } from '../Dialog';
+import { Failure } from '../Feedback';
 
 /** « sam. 11 oct. » */
 const timeLabel = (e: CalendarEvent) => (e.allDay ? 'Journée' : new Date(e.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
@@ -52,8 +53,6 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
     void fetchList();
   }, [fetchList]);
 
-  const { ref: dialogRef } = useDialog({ onClose, label: 'material' });
-
   // Aujourd'hui et à venir d'abord (la plus proche en tête), puis les passées, la plus récente d'abord.
   const { upcoming, past } = useMemo(() => {
     const today = ymd(new Date());
@@ -75,86 +74,70 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
   ].filter((s) => s.list.length > 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="material-title"
-        className="relative bg-surface w-full sm:max-w-5xl h-dvh sm:h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop"
-      >
-        <header className="border-t-[3px] border-pink border-b border-line px-5 sm:px-6 py-3.5 shrink-0 flex items-center gap-3">
-          <Package className="w-6 h-6 text-brand shrink-0" />
-          <h2 id="material-title" className="text-xl font-semibold text-brand flex-1">
-            Matériel
-          </h2>
-          <button onClick={onClose} aria-label="Fermer" className="icon-btn -mr-2">
-            <X className="w-6 h-6" />
-          </button>
-        </header>
+    <Dialog label="material" onClose={onClose} titleId="material-title" className="sm:max-w-5xl h-dvh sm:h-[92vh]">
+      <DialogHeader titleId="material-title" icon={<Package className="w-6 h-6 text-brand shrink-0" />} title="Matériel" onClose={onClose} />
 
-        <div className="flex-1 min-h-0 flex">
-          {/* Sorties, en colonne sur tablette et ordinateur */}
-          <aside className="hidden md:flex flex-col w-72 shrink-0 border-r border-line overflow-y-auto overscroll-contain">
-            {sections.map((s) => (
-              <section key={s.title} className="py-2">
-                <h3 className="sticky top-0 z-10 bg-surface px-4 pt-2 pb-1 label">{s.title}</h3>
-                <ul>
-                  {s.list.map((e) => (
-                    <li key={e.token}>
-                      <OutingButton event={e} active={selected?.token === e.token} onSelect={() => setSelectedToken(e.token)} />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-            {events && events.length === 0 && <p className="p-6 text-muted">Aucune sortie dans les semaines qui viennent.</p>}
-          </aside>
+      <div className="flex-1 min-h-0 flex">
+        {/* Sorties, en colonne sur tablette et ordinateur */}
+        <aside className="hidden md:flex flex-col w-72 shrink-0 border-r border-line overflow-y-auto overscroll-contain">
+          {sections.map((s) => (
+            <section key={s.title} className="py-2">
+              <h3 className="sticky top-0 z-10 bg-surface px-4 pt-2 pb-1 label">{s.title}</h3>
+              <ul>
+                {s.list.map((e) => (
+                  <li key={e.token}>
+                    <OutingButton event={e} active={selected?.token === e.token} onSelect={() => setSelectedToken(e.token)} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+          {events && events.length === 0 && <p className="p-6 text-muted">Aucune sortie dans les semaines qui viennent.</p>}
+        </aside>
 
-          <main className="flex-1 min-w-0 flex flex-col overflow-y-auto overscroll-contain bg-canvas">
-            <div className="p-4 sm:p-5 space-y-4">
-              {!events && !listError && <GabianLoader label="Chargement des sorties…" />}
-              {listError && <Failure text={listError} onRetry={loadList} />}
-              {events && events.length === 0 && <p className="md:hidden py-10 text-center text-muted">Aucune sortie dans les semaines qui viennent.</p>}
+        <main className="flex-1 min-w-0 flex flex-col overflow-y-auto overscroll-contain bg-canvas">
+          <div className="p-4 sm:p-5 space-y-4">
+            {!events && !listError && <GabianLoader label="Chargement des sorties…" />}
+            {listError && <Failure text={listError} onRetry={loadList} />}
+            {events && events.length === 0 && <p className="md:hidden py-10 text-center text-muted">Aucune sortie dans les semaines qui viennent.</p>}
 
-              {/* Choix de la sortie sur téléphone */}
-              {selected && (
-                <div className="md:hidden">
-                  <Menu
-                    ariaLabel="Choisir la sortie"
-                    triggerClassName="field w-full flex items-center gap-2 text-left text-base"
-                    trigger={
-                      <>
-                        <span className="flex-1 min-w-0 truncate">
-                          <span className="font-semibold text-brand">{shortDay(selected.start)}</span> · {selected.title}
+            {/* Choix de la sortie sur téléphone */}
+            {selected && (
+              <div className="md:hidden">
+                <Menu
+                  ariaLabel="Choisir la sortie"
+                  triggerClassName="field w-full flex items-center gap-2 text-left text-base"
+                  trigger={
+                    <>
+                      <span className="flex-1 min-w-0 truncate">
+                        <span className="font-semibold text-brand">{shortDay(selected.start)}</span> · {selected.title}
+                      </span>
+                      <ChevronDown className="w-4 h-4 text-muted shrink-0" />
+                    </>
+                  }
+                  sections={sections.map((s) => ({
+                    title: s.title,
+                    selected: selected.token,
+                    onSelect: setSelectedToken,
+                    options: s.list.map((e) => ({
+                      value: e.token,
+                      label: (
+                        <span className="block truncate">
+                          {shortDay(e.start)} · {e.title}
                         </span>
-                        <ChevronDown className="w-4 h-4 text-muted shrink-0" />
-                      </>
-                    }
-                    sections={sections.map((s) => ({
-                      title: s.title,
-                      selected: selected.token,
-                      onSelect: setSelectedToken,
-                      options: s.list.map((e) => ({
-                        value: e.token,
-                        label: (
-                          <span className="block truncate">
-                            {shortDay(e.start)} · {e.title}
-                          </span>
-                        ),
-                        hint: `${e.registeredCount}`,
-                      })),
-                    }))}
-                  />
-                </div>
-              )}
+                      ),
+                      hint: `${e.registeredCount}`,
+                    })),
+                  }))}
+                />
+              </div>
+            )}
 
-              {selected && <OutingMaterial key={selected.token} event={selected} onSessionLost={onSessionLost} />}
-            </div>
-          </main>
-        </div>
+            {selected && <OutingMaterial key={selected.token} event={selected} onSessionLost={onSessionLost} />}
+          </div>
+        </main>
       </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -179,17 +162,6 @@ function OutingButton({ event: e, active, onSelect }: { event: CalendarEvent; ac
         </span>
       </span>
     </button>
-  );
-}
-
-function Failure({ text, onRetry }: { text: string; onRetry: () => void }) {
-  return (
-    <div role="alert" className="card p-4 flex flex-wrap items-center gap-3">
-      <p className="flex-1 min-w-0 text-danger">{text}</p>
-      <button type="button" onClick={onRetry} className="btn btn-quiet">
-        <RefreshCw className="w-4 h-4" /> Réessayer
-      </button>
-    </div>
   );
 }
 

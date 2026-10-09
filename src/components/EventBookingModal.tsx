@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, Pencil, Users } from 'lucide-react';
+import { Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, Pencil, Users } from 'lucide-react';
 import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption, type RoleOption } from '../services/vpdive';
 import { BuddyField } from './BuddyField';
 import { useConfirm } from '../hooks/useConfirm';
-import { useDialog } from '../hooks/useDialog';
 import { GabianLoader } from './Gabian';
 import { BOTTLES, DEFAULT_BOTTLE, SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Bottle, type Size, type SizedKind } from '../lib/gear';
 import { asksFor, canSupervise, classifyRoles, cleanRoleLabel, entryFromRole, roleKeyFor, volunteerTotal, type Entry, type InstructorMode } from '../lib/registration';
 import { isCancelledTitle } from '../lib/agenda';
 import { message } from '../lib/errors';
+import { Dialog, DialogHeader } from './Dialog';
 
 const VPDIVE_EVENT_URL = (token: string) => `https://septentrion-env.vpdive.com/app/activities/${token}`;
 
@@ -146,8 +146,6 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
     void fetchDetail();
   }, [fetchDetail]);
 
-  // Échap, bouton Retour, focus et verrou de défilement : hooks/useDialog. Pas de fermeture pendant un envoi.
-  const { ref: dialogRef } = useDialog({ onClose, canClose: () => !busy, label: 'inscription' });
   const { confirm, confirmDialog } = useConfirm();
 
   /** Opens the form on the member's current registration, as VPDive recorded it. */
@@ -338,32 +336,23 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const nextStep = stepCounter();
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade"
-      onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}
-    >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="booking-title"
-        className="relative bg-surface w-full sm:max-w-xl h-dvh sm:h-auto sm:max-h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop"
+    <>
+      <Dialog
+        label="inscription"
+        onClose={onClose}
+        canClose={() => !busy}
+        onBackdrop={() => !busy && onClose()}
+        titleId="booking-title"
+        className="sm:max-w-xl h-dvh sm:h-auto sm:max-h-[92vh]"
       >
-        {/* Header */}
-        <header className="relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              {event.activity && <span className="label block mb-0.5">{event.activity.name}</span>}
-              <h2 id="booking-title" className="text-xl font-semibold text-brand leading-snug">
-                {title}
-              </h2>
-            </div>
-            <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
-              <button onClick={onClose} disabled={busy} aria-label="Fermer" className="icon-btn">
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-          </div>
+        <DialogHeader
+          wide
+          titleId="booking-title"
+          kicker={event.activity?.name}
+          title={title}
+          onClose={onClose}
+          closeDisabled={busy}
+        >
           <div className="mt-1 space-y-1 text-sm text-muted">
             <p className="flex items-start gap-2">
               <Clock className="w-4 h-4 text-brand shrink-0 mt-0.5" />
@@ -379,7 +368,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
               <Users className="w-4 h-4" /> Palanquées
             </button>
           )}
-        </header>
+        </DialogHeader>
 
         <form onSubmit={submit} className="flex-1 flex flex-col min-h-0">
           {/* Scrollable body */}
@@ -703,12 +692,11 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
             </div>
           )}
         </form>
-      </div>
+      </Dialog>
       {confirmDialog}
-    </div>
+    </>
   );
 }
-
 
 /** One row of choice chips under the gear grid: size of a checked wetsuit, BCD or item with club-defined variants, or the bottle. */
 function SizePicker({

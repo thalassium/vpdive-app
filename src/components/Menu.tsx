@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Check } from 'lucide-react';
+import { usePopover } from '../hooks/usePopover';
 
 export interface MenuOption {
   value: string;
@@ -77,29 +78,14 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
     if (open) place();
   }, [open, place]);
 
-  useEffect(() => {
-    if (!open) return;
-    let frame = 0;
-    const follow = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(place);
-    };
-    const outside = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (!button.current?.contains(t) && !panel.current?.contains(t)) setOpen(false);
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        close();
-        return;
-      }
-      if (e.key === 'Tab') {
-        // Tab quitte la liste : le focus repart du bouton, le dialogue garde sa boucle.
-        e.preventDefault();
-        close();
-        return;
-      }
+  // Clic ailleurs, Échap ou Tab (le focus repart du bouton) : la liste se referme. Flèches : d'une option à l'autre.
+  usePopover({
+    open,
+    onClose: () => setOpen(false),
+    inside: [button, panel],
+    button,
+    tab: 'return',
+    onKeyDown: (e) => {
       const items = [...(panel.current?.querySelectorAll<HTMLButtonElement>('[role=option]') ?? [])];
       const i = items.indexOf(document.activeElement as HTMLButtonElement);
       const next =
@@ -111,20 +97,24 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
       if (next === null) return;
       e.preventDefault();
       items[next]?.focus();
+    },
+  });
+  useEffect(() => {
+    if (!open) return;
+    let frame = 0;
+    const follow = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(place);
     };
     // Le défilement déplace le menu avec son bouton, il ne le ferme pas.
     window.addEventListener('scroll', follow, true);
     window.addEventListener('resize', follow);
-    document.addEventListener('pointerdown', outside, true);
-    document.addEventListener('keydown', key, true);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('scroll', follow, true);
       window.removeEventListener('resize', follow);
-      document.removeEventListener('pointerdown', outside, true);
-      document.removeEventListener('keydown', key, true);
     };
-  }, [open, place, close]);
+  }, [open, place]);
 
   useEffect(() => {
     if (open) panel.current?.querySelector<HTMLButtonElement>('[aria-selected=true], [role=option]')?.focus({ preventScroll: true });
