@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["cdg1"],
+  "functions": {
+    "api/app.ts": { "maxDuration": 30 },
+    "api/backup.ts": { "maxDuration": 60 }
+  },
+  "crons": [{ "path": "/api/backup", "schedule": "30 2 * * *" }],
   "rewrites": [
     {
       "source": "/api/vpdive/:path*",

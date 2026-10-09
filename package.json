@@ -3,13 +3,17 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\" \"server/**/*.test.ts\"",
-    "probe": "tsx scripts/probe.ts"
+    "probe": "tsx scripts/probe.ts",
+    "restore": "tsx scripts/restore.ts"
   },
   "dependencies": {
     "@upstash/redis": "^1.39.0",
