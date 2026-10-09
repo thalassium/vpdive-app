@@ -94,6 +94,35 @@ export function searchFragments(typed: string): string[] {
  * Même personne, quel que soit l'ordre prénom/nom, la casse ou les accents :
  * « DUPONT Jean » (inscrits d'une sortie) et « Jean Dupont » (annuaire).
  */
+/**
+ * Deux noms qui peuvent désigner la même personne (homonymes à départager) :
+ * chaque mot du nom le plus court a son pareil dans l'autre (accents, casse et
+ * ordre ignorés ; des mots en plus sont tolérés : prénom composé, deuxième nom),
+ * avec au plus une faute de frappe d'une lettre sur un mot d'au moins 5 lettres
+ * (« Mathieu » / « Matthieu »). Un nom de famille en commun ne suffit pas
+ * (« Margaux Boyer » / « Arnaud BOYER » : un parent), ni deux noms voisins
+ * (« Charrier » / « Charret »).
+ */
+export function couldBeSamePerson(a: string, b: string): boolean {
+  const [short, long] = [words(a), words(b)].sort((x, y) => x.length - y.length) as [string[], string[]];
+  if (!short.length) return false;
+  const left = [...long];
+  let typos = 0;
+  // Les mots identiques d'abord, pour qu'une faute ne leur vole pas leur pareil.
+  const rest = short.filter((w) => {
+    const i = left.indexOf(w);
+    if (i < 0) return true;
+    left.splice(i, 1);
+    return false;
+  });
+  for (const w of rest) {
+    const i = left.findIndex((x) => Math.min(w.length, x.length) >= 5 && editDistance(w, x) <= 1);
+    if (i < 0 || ++typos > 1) return false;
+    left.splice(i, 1);
+  }
+  return true;
+}
+
 export const sameName = (a: string, b: string): boolean => {
   const key = (s: string) => words(s).sort().join(' ');
   return key(a) !== '' && key(a) === key(b);

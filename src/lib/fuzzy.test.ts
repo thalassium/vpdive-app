@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { editDistance, nameScore, rankByName, sameName, searchFragments } from './fuzzy';
+import { editDistance, nameScore, rankByName, sameName, searchFragments, couldBeSamePerson } from './fuzzy';
 
 const members = ['DUPONT Jean', 'Dupuis Jeanne', 'Martin Sébastien', 'Lefèvre Anne-Sophie', 'Duval Jean-Marc', 'Nguyen Thi'];
 
@@ -29,6 +29,18 @@ test('rien ne ressort pour un nom sans rapport', () => {
 test('fragments de recherche envoyés à VPDive', () => {
   assert.deepEqual(searchFragments('Jean Dupond'), ['jean', 'dupond', 'dup']);
   assert.deepEqual(searchFragments('  Élodie  '), ['elodie', 'elo']);
+});
+
+test('homonymes possibles : mêmes mots, une faute d’une lettre au plus, jamais un simple patronyme commun', () => {
+  assert.ok(couldBeSamePerson('Adrien Cheminee', 'CHEMINÉE Adrien'));
+  assert.ok(couldBeSamePerson('Mathieu Charrier', 'CHARRIER Matthieu'));
+  assert.ok(couldBeSamePerson('Léa Martin', 'MARTIN Léa-Marie'));
+  assert.ok(!couldBeSamePerson('Matthieu Charrier', 'CHARRET Matthieu'));
+  assert.ok(!couldBeSamePerson('Margaux Boyer', 'BOYER Arnaud'));
+  assert.ok(!couldBeSamePerson('Jean Dupont', 'DUPONT Jeanne'));
+  assert.ok(!couldBeSamePerson('Mathieu Charier', 'CHARRIER Matthieu'), 'deux fautes');
+  assert.ok(!couldBeSamePerson('Paul Roux', 'ROUSSEAU Paul'));
+  assert.ok(!couldBeSamePerson('', 'Dupont'));
 });
 
 test('même personne quel que soit l’ordre prénom/nom, la casse et les accents', () => {

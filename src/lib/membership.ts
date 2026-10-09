@@ -8,7 +8,7 @@
  * fin, comme VPDive (« 2027 » pour 2026/2027). Fonctions pures, testées dans
  * membership.test.ts.
  */
-import { nameScore, normalizeName } from './fuzzy';
+import { couldBeSamePerson, nameScore, normalizeName } from './fuzzy';
 import { frDate } from './dates';
 
 // ── Saisons ──────────────────────────────────────────────────────
@@ -487,10 +487,11 @@ export interface VpRecord {
 }
 
 /** Les membres VPDive dont le nom ressemble, du plus proche au moins proche. */
+/** Homonymes possibles dans l'annuaire VPDive (voir couldBeSamePerson), les plus proches d'abord. */
 export function candidatesFor(p: Pick<Person, 'name'>, directory: VpMember[], max = 3): VpMember[] {
   return directory
+    .filter((m) => couldBeSamePerson(p.name, m.name))
     .map((m) => ({ m, s: nameScore(p.name, m.name) }))
-    .filter((x) => x.s >= 0.75)
     .sort((a, b) => b.s - a.s)
     .slice(0, max)
     .map((x) => x.m);

@@ -280,16 +280,18 @@ test('arbitrage : homonymes, parents, absent, invité, licence non prise, autre 
 
 test('rapprochement : une naissance différente sur la fiche interdit « sûr » (Jean/Jeanne, Léa/Léa-Marie, père/fils)', () => {
   const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: [], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
-  // Seul compte Membre « à ce nom » (préfixe jean/jeanne), mais née en 2010.
+  // Jean n'est pas Jeanne : pas même un homonyme à départager.
   const [jean] = buildPeople([item({ firstName: 'Jean', lastName: 'Dupont', birthDate: '1980-03-03', email: 'jean@ex.org' })], [], 2027);
-  const jeanne = [{ id: 'j', name: 'DUPONT Jeanne', picture: '' }];
-  assert.equal(matchPerson(jean!, jeanne, { j: rec({ birthday: '2010-06-06' }) }).status, 'confirm');
-  assert.equal(matchPerson(jean!, jeanne, { j: rec({}) }).status, 'sure', 'naissance vide sur la fiche : le nom seul vaut encore');
+  assert.equal(matchPerson(jean!, [{ id: 'j', name: 'DUPONT Jeanne', picture: '' }], { j: rec({}) }).status, 'missing');
+  // Seul compte Membre au même nom, mais né en 2010.
+  const homonyme = [{ id: 'j', name: 'DUPONT Jean', picture: '' }];
+  assert.equal(matchPerson(jean!, homonyme, { j: rec({ birthday: '2010-06-06' }) }).status, 'confirm');
+  assert.equal(matchPerson(jean!, homonyme, { j: rec({}) }).status, 'sure', 'naissance vide sur la fiche : le nom seul vaut encore');
   // Même e-mail, mais pas la même personne (le parent qui a donné son e-mail).
-  assert.equal(matchPerson(jean!, jeanne, { j: rec({ birthday: '2010-06-06', email: 'jean@ex.org' }) }).status, 'confirm');
+  assert.equal(matchPerson(jean!, homonyme, { j: rec({ birthday: '2010-06-06', email: 'jean@ex.org' }) }).status, 'confirm');
   // Un autre e-mail propre, sans naissance : le nom seul ne suffit plus.
-  assert.equal(matchPerson(jean!, jeanne, { j: rec({ email: 'jeanne@ex.org' }) }).status, 'confirm');
-  assert.equal(matchPerson(jean!, jeanne, { j: rec({ email: 'parent@example.org' }) }).status, 'sure', 'e-mail du payeur : pas un doute');
+  assert.equal(matchPerson(jean!, homonyme, { j: rec({ email: 'autre@ex.org' }) }).status, 'confirm');
+  assert.equal(matchPerson(jean!, homonyme, { j: rec({ email: 'parent@example.org' }) }).status, 'sure', 'e-mail du payeur : pas un doute');
   // Léa / Léa-Marie.
   const [lea] = buildPeople([item({})], [], 2027);
   const leaMarie = [{ id: 'lm', name: 'MARTIN Léa-Marie', picture: '' }];
