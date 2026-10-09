@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, Check, ExternalLink, FileUp, Loader2, RefreshCw, Search, Settings, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ExternalLink, FileUp, Loader2, RefreshCw, ScrollText, Search, Settings, UserX, X } from 'lucide-react';
 import { BrevetMapView } from './BrevetMapView';
 import { Avatar } from '../Avatar';
 import { GabianLoader } from '../Gabian';
 import { MemberSearch } from '../dp/MemberSearch';
-import { vpdive } from '../../services/vpdiveApi';
-import { appApi, type FfessmImport } from '../../services/appApi';
+import { vpdive, ymd } from '../../services/vpdiveApi';
+import { appApi, type FfessmImport, type MemberWriteLog } from '../../services/appApi';
 import { applyJob, type WriteJob } from '../../services/memberWriter';
 import {
   brevetTarget,
@@ -48,6 +48,7 @@ import {
   sameName,
 } from '../../lib/membership';
 import { normalizeName } from '../../lib/fuzzy';
+import { describeSnapshot } from '../../lib/memberWrite';
 
 /**
  * Gestion des adhésions, étapes 2 à 4 : chaque personne de la saison vue par
@@ -134,13 +135,19 @@ export function MembershipTab({
   step,
   onCounts,
   onSessionLost,
+  onWriting,
+  forgetRef,
 }: {
   step: MembershipStep;
   onCounts?: (c: { fixes: number; cases: number }) => void;
   onSessionLost: (e: unknown) => boolean;
+  /** Écriture dans VPDive en cours ou finie : le panneau ne se ferme pas pendant. */
+  onWriting?: (busy: boolean) => void;
+  /** Rempli ici : à appeler après une validation (étape 1), la fiche de ce membre est relue. */
+  forgetRef?: { current: ((uct: string) => void) | null };
 }) {
-  // Une seule saison : celle en cours (l'export FFESSM déposé est celui de la saison).
-  const season = useMemo(() => seasonOf(new Date().toISOString().slice(0, 10)), []);
+  // Une seule saison : celle en cours (l'export FFESSM déposé est celui de la saison), d'après la date locale.
+  const season = useMemo(() => seasonOf(ymd(new Date())), []);
   const [items, setItems] = useState<HaItem[] | null>(null);
   const [haError, setHaError] = useState<string | null>(null);
   const [ffessm, setFfessm] = useState<FfessmImport | null | undefined>(undefined);
@@ -161,8 +168,10 @@ export function MembershipTab({
   const [picked, setPicked] = useState<Set<string>>(new Set());
   /** Cas d'arbitrage vérifiés à la main, partagés entre admins. */
   const [checks, setChecks] = useState<Record<string, CaseCheck>>({});
-  /** Référentiel des niveaux VPDive (identifiants à écrire pour les brevets), lu à l'étape 3. */
+  /** Référentiel des niveaux VPDive (identifiants à écrire pour les brevets) : dit aussi quelles corrections sont possibles. */
   const [catalog, setCatalog] = useState<Capacity[] | null>(null);
+  /** Journal des écritures (étape 3) ouvert. */
+  const [logOpen, setLogOpen] = useState(false);
   /** Écriture en cours dans VPDive, et ce qu'elle a donné fiche par fiche. */
   const [writing, setWriting] = useState<{ done: number; total: number; name: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -183,9 +192,23 @@ export function MembershipTab({
     vpdive.fetchMemberDirectory().then(setDirectory, (e) => lost.current(e) || setLoadError(message(e)));
   }, []);
 
+  // Une lecture : le compteur de l'onglet 3 en a besoin (une correction de brevets sans niveau à cocher ne compte pas).
   useEffect(() => {
-    if (step === 'quickfix' && !catalog) vpdive.capacities().then(setCatalog, (e) => lost.current(e) || setLoadError(message(e)));
-  }, [step, catalog]);
+    vpdive.capacities().then(setCatalog, (e) => lost.current(e) || setLoadError(message(e)));
+  }, []);
+
+  // Le panneau ne se ferme pas en pleine écriture ; fermé quand même (démontage), le lot s'arrête après la fiche en cours.
+  const busy = !!writing;
+  const writingCb = useRef(onWriting);
+  writingCb.current = onWriting;
+  useEffect(() => writingCb.current?.(busy), [busy]);
+  useEffect(
+    () => () => {
+      stopWriting.current = true;
+      writingCb.current?.(false);
+    },
+    [],
+  );
 
   const loadHelloasso = useCallback(() => {
     setItems(null);
@@ -260,6 +283,28 @@ export function MembershipTab({
     [],
   );
 
+  // Validation à l'étape 1 (document, saison, licence…) : la fiche gardée ici est périmée. Elle est
+  // oubliée tout de suite et relue sans cache, dès que la lecture en cours (s'il y en a une) est finie.
+  const stale = useRef(new Set<string>());
+  const [staleTick, setStaleTick] = useState(0);
+  useEffect(() => {
+    if (!forgetRef) return;
+    forgetRef.current = (uct) => {
+      stale.current.add(uct);
+      setRecords(({ [uct]: _, ...rest }) => rest);
+      setStaleTick((n) => n + 1);
+    };
+    return () => {
+      forgetRef.current = null;
+    };
+  }, [forgetRef]);
+  useEffect(() => {
+    if (progress || !stale.current.size) return;
+    const ids = [...stale.current].filter((u) => wanted.includes(u));
+    stale.current.clear();
+    if (ids.length) void readRecords(ids, true);
+  }, [staleTick, progress, wanted, readRecords]);
+
   const rows = useMemo<Row[]>(() => {
     if (!people || !directory || !links) return [];
     return people.map((p) => {
@@ -276,7 +321,17 @@ export function MembershipTab({
     });
   }, [people, directory, links, records, season, brevets, brevetMap]);
 
-  const fixCount = rows.reduce((n, r) => n + r.fixes.length, 0);
+  // Brevets : le niveau VPDive à cocher, quand il n'y en a qu'un possible.
+  const targets = (f: Fix) => (f.brevets ?? []).map((b) => ({ brevet: b, level: catalog ? brevetTarget(b, brevetMap, catalog) : null }));
+  /** Pourquoi une correction ne peut pas s'écrire (case grisée), sinon null. */
+  const blocked = (f: Fix): string | null => {
+    if (f.kind === 'licence' && !f.licenceId) return 'licence sans identifiant VPDive : à faire à la main';
+    if (f.kind !== 'brevets') return null;
+    if (!catalog) return 'lecture du référentiel des niveaux…';
+    return targets(f).some((t) => t.level) ? null : 'niveau VPDive à choisir dans la correspondance des brevets (roue crantée, étape 2)';
+  };
+  // Les corrections grisées ne comptent pas : il n'y a rien à cocher.
+  const fixCount = rows.reduce((n, r) => n + r.fixes.filter((f) => !blocked(f)).length, 0);
   // Un cas validé à la main (pour la saison) ne compte plus.
   const isChecked = (r: Row, kind: CaseKind) => !!checkFor(r.p, kind, season, checks).check;
   const caseCount = rows.reduce((n, r) => n + r.cases.filter((c) => !isChecked(r, c.kind)).length, 0);
@@ -306,6 +361,8 @@ export function MembershipTab({
   const refresh = () => void readRecords([...new Set(rows.map((r) => r.match.member?.id).filter((x): x is string => !!x))], true);
 
   const loading = !people || !directory || !links;
+
+  if (logOpen) return <WriteLog catalog={catalog} onClose={() => setLogOpen(false)} onSessionLost={onSessionLost} />;
 
   if (configOpen) {
     return (
@@ -362,6 +419,12 @@ export function MembershipTab({
         </button>
       )}
     </div>
+  );
+
+  const refreshButton = (
+    <button type="button" onClick={refresh} disabled={!!progress || loading || busy} className="btn btn-quiet h-9 text-sm" title="Relit les fiches VPDive, sans le cache de la session">
+      <RefreshCw className="w-4 h-4" /> Relire les fiches VPDive
+    </button>
   );
 
   const search = (
@@ -428,6 +491,7 @@ export function MembershipTab({
                   </button>
                 ))}
               </div>
+              {refreshButton}
               {search}
             </div>
             {progressBar}
@@ -457,24 +521,9 @@ export function MembershipTab({
     );
   }
 
-  const refreshButton = (
-    <button type="button" onClick={refresh} disabled={!!progress || loading} className="btn btn-quiet h-9 text-sm" title="Relit les fiches VPDive, sans le cache de la session">
-      <RefreshCw className="w-4 h-4" /> Relire les fiches VPDive
-    </button>
-  );
-
   // ── 3. Corrections rapides ──
   if (step === 'quickfix') {
     const keyOf = (r: Row, f: Fix) => `${r.p.key}|${f.kind}`;
-    // Brevets : le niveau VPDive à cocher, quand il n'y en a qu'un possible.
-    const targets = (f: Fix) => (f.brevets ?? []).map((b) => ({ brevet: b, level: catalog ? brevetTarget(b, brevetMap, catalog) : null }));
-    /** Pourquoi une correction ne peut pas s'écrire (case grisée), sinon null. */
-    const blocked = (f: Fix): string | null => {
-      if (f.kind === 'licence' && !f.licenceId) return 'licence sans identifiant VPDive : à faire à la main';
-      if (f.kind !== 'brevets') return null;
-      if (!catalog) return 'lecture du référentiel des niveaux…';
-      return targets(f).some((t) => t.level) ? null : 'niveau VPDive à choisir dans la correspondance des brevets (roue crantée, étape 2)';
-    };
     const groups = FIX_ORDER
       .map((kind) => ({ kind, list: rows.filter((r) => matches(r)).flatMap((r) => r.fixes.filter((f) => f.kind === kind).map((f) => ({ r, f }))) }))
       .filter((g) => g.list.length > 0);
@@ -524,8 +573,8 @@ export function MembershipTab({
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm text-muted max-w-2xl">
-            Corrections sans risque : une valeur connue ajoutée à la fiche d’un membre reconnu avec certitude, sans rien retirer. Après les avoir appliquées, relisez les fiches pour
-            mettre le diagnostic à jour.
+            Corrections sans risque : une valeur connue ajoutée à la fiche d’un membre reconnu avec certitude, sans rien retirer. Après les avoir écrites dans VPDive, relisez les
+            fiches pour mettre le diagnostic à jour.
           </p>
           {search}
         </div>
@@ -645,9 +694,12 @@ export function MembershipTab({
           ) : (
             <>
               <button type="button" disabled={!selected.length || !!progress} onClick={() => setConfirming(true)} className="btn btn-primary">
-                Appliquer dans VPDive ({selected.length})
+                Écrire dans VPDive ({selected.length})
               </button>
               {refreshButton}
+              <button type="button" onClick={() => setLogOpen(true)} className="btn btn-quiet h-9 text-sm" title="Les fiches écrites par les corrections rapides, avec la fiche d’avant">
+                <ScrollText className="w-4 h-4" /> Journal
+              </button>
               <span className="text-sm text-muted">
                 {progress
                   ? 'Lecture des fiches VPDive en cours : le bouton s’active quand elle est finie.'
@@ -735,6 +787,87 @@ export function MembershipTab({
         ))
       )}
       <div className="flex flex-wrap items-center gap-3">{refreshButton}</div>
+    </div>
+  );
+}
+
+const KIND_LABEL: Record<string, string> = { season: 'saison', licence: 'date de licence', 'licence-add': 'licence ajoutée', insurance: 'assurance', brevets: 'niveaux' };
+
+/**
+ * Journal des écritures (étape 3) : chaque fiche écrite par les corrections
+ * rapides, la plus récente d'abord, avec la fiche d'avant (de quoi tout
+ * remettre à la main dans VPDive). Partagé entre admins, lu sur le serveur.
+ */
+function WriteLog({ catalog, onClose, onSessionLost }: { catalog: Capacity[] | null; onClose: () => void; onSessionLost: (e: unknown) => boolean }) {
+  const [writes, setWrites] = useState<MemberWriteLog[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    appApi.memberWrites().then(
+      (w) => live && setWrites([...w].reverse()),
+      (e) => live && !onSessionLost(e) && setError(message(e)),
+    );
+    return () => {
+      live = false;
+    };
+  }, [onSessionLost]);
+  const levelName = useMemo(() => {
+    const names = new Map((catalog ?? []).map((c) => [c.id, c.name]));
+    return (id: string) => names.get(id);
+  }, [catalog]);
+  const when = (at: string) => new Date(at).toLocaleString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start gap-3">
+        <button type="button" onClick={onClose} className="btn btn-quiet h-9 text-sm">
+          <ArrowLeft className="w-4 h-4" /> Retour
+        </button>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-lg font-semibold text-brand">Journal des écritures</h3>
+          <p className="text-sm text-muted max-w-3xl">
+            Les fiches VPDive écrites par les corrections rapides, les plus récentes d’abord. La fiche d’avant est gardée : de quoi remettre une valeur à la main si besoin.
+          </p>
+        </div>
+      </div>
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          Journal illisible : {error}
+        </p>
+      ) : !writes ? (
+        <GabianLoader label="Lecture du journal…" />
+      ) : writes.length === 0 ? (
+        <p className="py-10 text-center text-muted">Aucune écriture pour l’instant.</p>
+      ) : (
+        <ul className="card divide-y divide-line">
+          {writes.map((w, i) => (
+            <li key={`${w.at}|${w.uct}|${i}`} className="px-4 py-3 space-y-1.5">
+              <div className="flex flex-wrap items-start gap-x-4 gap-y-1 text-sm">
+                {w.ok ? <Check className="w-4 h-4 mt-0.5 text-ok shrink-0" aria-label="réussie" /> : <AlertTriangle className="w-4 h-4 mt-0.5 text-danger shrink-0" aria-label="à vérifier" />}
+                <span className="w-40 shrink-0 text-muted tabular-nums">{when(w.at)}</span>
+                <span className="w-40 min-w-0 shrink-0 text-muted truncate">par {w.by}</span>
+                <a href={VPDIVE_MEMBER(w.uct)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-brand underline underline-offset-2">
+                  {w.name || 'Fiche'} <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+                <span className="text-ink">{w.kinds.map((k) => KIND_LABEL[k] ?? k).join(', ')}</span>
+              </div>
+              <p className={`text-sm ${w.ok ? 'text-muted' : 'text-danger'}`}>{w.message}</p>
+              {w.before != null && (
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-muted hover:text-brand">Fiche d’avant</summary>
+                  <dl className="mt-1.5 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1">
+                    {describeSnapshot(w.before, levelName).map((l) => (
+                      <div key={l.label} className="contents">
+                        <dt className="text-muted">{l.label}</dt>
+                        <dd className="text-ink break-words">{l.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </details>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

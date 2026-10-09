@@ -134,8 +134,20 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
    */
   const [tab, setTab] = useState<Tab>('todo');
   const isStep = tab === 'diagnostic' || tab === 'quickfix' || tab === 'arbitrage';
-  /** Compteurs des étapes 3 et 4, calculés par l'onglet des adhésions (monté dès l'ouverture). */
+  /**
+   * L'onglet des adhésions lit beaucoup (annuaire, HelloAsso, exports, une fiche par membre) :
+   * monté à la première visite d'une étape 2 à 4, puis gardé (données lues une fois).
+   */
+  const [stepsOpened, setStepsOpened] = useState(false);
+  useEffect(() => {
+    if (isStep) setStepsOpened(true);
+  }, [isStep]);
+  /** Compteurs des étapes 3 et 4, calculés par l'onglet des adhésions (une fois monté). */
   const [stepCounts, setStepCounts] = useState<{ fixes: number; cases: number } | null>(null);
+  /** Écriture dans VPDive en cours (étape 3) : le panneau ne se ferme pas. */
+  const membershipBusy = useRef(false);
+  /** Rempli par l'onglet des adhésions : oublie la fiche d'un membre validé à l'étape 1. */
+  const forgetMember = useRef<((uct: string) => void) | null>(null);
   /** L'admin a choisi un onglet : on ne le change plus pour lui. */
   const chosen = useRef(false);
   const [requests, setRequests] = useState<RegistrationRequest[] | null>(null);
@@ -325,15 +337,21 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
     if (outings) checkStatuses(outings, ++run.current);
   };
 
-  // Échap et le bouton Retour ferment la relance si elle est ouverte (jamais en plein envoi), sinon le panneau.
+  // Échap et le bouton Retour ferment la relance si elle est ouverte (jamais en plein envoi), sinon le panneau
+  // (jamais en pleine écriture dans VPDive).
   const reminderOpen = useRef(false);
   reminderOpen.current = reminder !== null;
   const reminderBusy = useRef(false);
   const { ref: dialogRef } = useDialog({
     onClose: () => (reminderOpen.current ? setReminder(null) : onClose()),
-    canClose: () => !reminderBusy.current,
+    canClose: () => !reminderBusy.current && (reminderOpen.current || !membershipBusy.current),
     label: 'docs',
   });
+  /** Croix et clic à côté : pendant une écriture dans VPDive, on demande d'abord (le lot s'arrête après la fiche en cours). */
+  const requestClose = () => {
+    if (membershipBusy.current && !window.confirm('Écriture dans VPDive en cours. Fermer quand même ? Le lot s’arrêtera après la fiche en cours.')) return;
+    onClose();
+  };
 
   const rows = useMemo(() => {
     const map = new Map<string, Row>();
@@ -407,7 +425,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   const verifying = phase === 'status';
 
   return (
-    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-50 flex sm:items-center justify-center sm:p-4 bg-scrim animate-fade" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="docs-title" className={`relative bg-surface w-full ${tab === 'relance' ? 'sm:max-w-5xl' : 'sm:max-w-7xl'} h-dvh sm:h-[92vh] sm:rounded-xl shadow-lift flex flex-col overflow-hidden animate-sheet sm:animate-pop`}>
         <header className="relative border-t-[3px] border-pink border-b border-line px-5 sm:px-6 pt-4 pb-4 shrink-0">
           <div className="flex items-start justify-between gap-3">
@@ -422,7 +440,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             </div>
             <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
               <ThemeToggle />
-              <button onClick={onClose} aria-label="Fermer" className="icon-btn">
+              <button onClick={requestClose} aria-label="Fermer" className="icon-btn">
                 <X className="w-6 h-6" />
               </button>
             </div>
@@ -521,14 +539,31 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               <h3 className="text-lg font-semibold text-brand mb-2">
                 Documents en attente {pendingDocs && pendingDocs.length > 0 && <span className="text-muted font-normal tabular-nums">· {pendingDocs.length}</span>}
               </h3>
-              <PendingDocumentsTab items={pendingDocs} error={docsError} onReload={loadPendingDocs} onChange={setPendingDocs} onSessionLost={onSessionLost} />
+              <PendingDocumentsTab
+                items={pendingDocs}
+                error={docsError}
+                onReload={loadPendingDocs}
+                onChange={setPendingDocs}
+                onSessionLost={onSessionLost}
+                onForget={(uct) => forgetMember.current?.(uct)}
+              />
             </section>
           </div>
         )}
-        {/* Étapes 2 à 4 : un seul onglet des adhésions, monté dès l'ouverture (données lues une fois, compteurs dans les onglets). */}
-        <div className={isStep ? 'flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4' : 'hidden'}>
-          <MembershipTab step={isStep ? (tab as MembershipStep) : 'diagnostic'} onCounts={setStepCounts} onSessionLost={onSessionLost} />
-        </div>
+        {/* Étapes 2 à 4 : un seul onglet des adhésions, monté à la première visite puis gardé (données lues une fois, compteurs dans les onglets). */}
+        {stepsOpened && (
+          <div className={isStep ? 'flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4' : 'hidden'}>
+            <MembershipTab
+              step={isStep ? (tab as MembershipStep) : 'diagnostic'}
+              onCounts={setStepCounts}
+              onSessionLost={onSessionLost}
+              onWriting={(busy) => {
+                membershipBusy.current = busy;
+              }}
+              forgetRef={forgetMember}
+            />
+          </div>
+        )}
         {tab === 'relance' && (
         <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-4 py-3 space-y-3">
           {(loading || verifying || phase === 'stopped') && (

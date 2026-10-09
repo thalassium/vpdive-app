@@ -106,7 +106,7 @@ export function RegistrationRequestsTab({
                 title="Invité : pas de messagerie, n’apparaît pas aux autres membres"
                 className="btn btn-quiet h-9 text-sm"
               >
-                <UserPlus className="w-4 h-4" /> Comme invité
+                <UserPlus className="w-4 h-4" /> Accepter comme invité
               </button>
               <button type="button" disabled={busy !== null} onClick={() => void decide(r, 'refuse')} className="btn btn-quiet h-9 text-sm hover:text-danger hover:border-danger/40">
                 <X className="w-4 h-4" /> Refuser
@@ -132,12 +132,15 @@ export function PendingDocumentsTab({
   onReload,
   onChange,
   onSessionLost,
+  onForget,
 }: {
   items: PendingValidation[] | null;
   error: string | null;
   onReload: () => void;
   onChange: (list: PendingValidation[]) => void;
   onSessionLost: (e: unknown) => boolean;
+  /** Après une décision : la fiche de ce membre gardée en mémoire (gestion des adhésions) est périmée. */
+  onForget?: (uct: string) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
@@ -169,6 +172,7 @@ export function PendingDocumentsTab({
       }
     } finally {
       forgetMember(list[0]!.member);
+      onForget?.(list[0]!.member);
       setBusy(null);
     }
   };
