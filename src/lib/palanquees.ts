@@ -21,6 +21,12 @@
  * (arrêté du 6 avril 2012), tables vérifiées sur le texte officiel.
  *
  * Règles de pratique du club, en plus du Code :
+ *   - un mineur n'est autonome que par l'aptitude PA que le club lui a
+ *     attribuée : l'âge seul ne décide de rien (le Code demande des
+ *     majeurs, le club tranche en attribuant ou non l'aptitude) ;
+ *   - un E1 n'encadre pas en exploration (le Code le lui permet pour des
+ *     débutants à 6 m) : il prend les débutants en palanquée de formation,
+ *     sinon il plonge avec ses aptitudes de plongeur ;
  *   - un élève (FN#) impose une palanquée de formation ; il l'est ce jour-là
  *     même s'il est moniteur, et ne peut alors ni encadrer ni enseigner ;
  *   - enseignant minimum selon le niveau visé (MIN_TEACH_FOR_TRAINING) ; un
@@ -51,7 +57,11 @@ export const AUTO_MAX_DEPTH: Depth = 40;
  */
 export type GuideLevel = 'E1' | 'GP' | 'E3' | 'E4';
 const GUIDE_RANK: Record<GuideLevel, number> = { E1: 1, GP: 2, E3: 3, E4: 4 };
-/** Profondeur maximale qu'un encadrant peut faire atteindre à une palanquée en exploration. */
+/**
+ * Profondeur maximale qu'un encadrant peut faire atteindre à une palanquée en
+ * exploration, d'après le Code (E1 : débutants à 6 m). Le club ne fait pas
+ * encadrer d'exploration par un E1 (canGuideExploration).
+ */
 export const GUIDE_MAX_DEPTH: Record<GuideLevel, Depth> = { E1: 6, GP: 40, E3: 40, E4: 60 };
 
 /**
@@ -119,7 +129,8 @@ export interface Diver extends Aptitudes {
   labels: string[];
   /**
    * Mineur, si on le sait : affiché pour information. L'âge ne décide de rien :
-   * l'autonomie (PA dès 16 ans) et l'encadrement viennent des aptitudes que le club attribue.
+   * règle du club, un mineur n'est autonome que par l'aptitude PA que le club
+   * lui a attribuée ; l'encadrement vient de même des aptitudes.
    */
   minor?: boolean;
   /** Niveaux et diplômes tels que VPDive les écrit (DEJEPS, MF1, P2, PADI - AOW…). */
@@ -138,7 +149,7 @@ export interface Diver extends Aptitudes {
 
 /**
  * - guided      exploration encadrée (PE), par un GP/N4 ou un E
- * - autonomous  exploration autonome (PA), 2 ou 3 majeurs
+ * - autonomous  exploration autonome (PA), 2 ou 3 plongeurs ayant une aptitude PA (un mineur seulement si le club la lui a attribuée)
  * - teaching    formation : l'enseignant (E1…E4) fixe la zone, les élèves sont FN#
  */
 export type PalanqueeKind = 'guided' | 'autonomous' | 'teaching';
@@ -430,7 +441,7 @@ export const kindLabel = (p: Palanquee): string => [KIND_LABEL[p.kind], objectiv
 /** Une palanquée qui compte un élève en formation (FN#) est forcément une palanquée de formation. */
 export const hasStudent = (p: Palanquee): boolean => p.members.some((m) => m.training > 0);
 
-/** Encadrant d'exploration : N4/GP au minimum (un E1 seul n'encadre pas en exploration). */
+/** Encadrant d'exploration : N4/GP au minimum (règle du club : un E1 seul n'encadre pas en exploration, même à 6 m). */
 export const canGuideExploration = (d: Aptitudes): boolean => !!d.guide && GUIDE_RANK[d.guide] >= GUIDE_RANK.GP;
 
 /**
@@ -491,7 +502,8 @@ export function settleKind(p: Palanquee): Palanquee {
 /**
  * Prérogative de la palanquée, d'après les aptitudes de ceux qui la composent :
  * PE12, PE20, PA20, PE40, PA40, PE60, PA60 (PE pour une palanquée encadrée ou
- * de formation, PA pour une autonome), ou « Débutants 6 m ». La profondeur max
+ * de formation, PA pour une autonome), « Débutants 6 m », ou « 6 m » quand un
+ * plongeur plus formé descend avec des débutants. La profondeur max
  * retenue par le DP (chosenDepth) ne la change pas : un PE40 à 25 m reste PE40.
  */
 export function prerogativeLabel(p: Palanquee): string {
@@ -499,7 +511,8 @@ export function prerogativeLabel(p: Palanquee): string {
   if (!d) return 'À revoir';
   if (p.kind === 'autonomous') return `PA${d}`;
   const students = p.kind === 'teaching' ? studentsOf(p) : p.members;
-  if (d === 6 && students.length > 0 && students.every((m) => m.beginner && !m.pe)) return 'Débutants 6 m';
+  // Pas d'aptitude PE6 : à 6 m (débutants, ou un N1 avec eux), la prérogative s'écrit en mètres.
+  if (d === 6) return students.length > 0 && students.every((m) => m.beginner && !m.pe) ? 'Débutants 6 m' : '6 m';
   return `PE${d}`;
 }
 
@@ -519,6 +532,16 @@ export function prerogativeCode(d: Aptitudes): string {
   if (d.pe) return `PE${d.pe}`;
   if (d.beginner) return 'Débutant';
   return '';
+}
+
+/**
+ * Une exploration encadrée qui peut recevoir un plongeur supplémentaire : pas
+ * déjà un, et une prérogative de 40 m au plus — pas une palanquée « À revoir »
+ * (depthOf = 0), qu'un plongeur de plus n'arrangerait pas.
+ */
+export function acceptsExtra(p: Palanquee, outingMax: Depth = 60): boolean {
+  const d = depthOf(p, outingMax);
+  return p.kind === 'guided' && !p.extra && d > 0 && d <= 40;
 }
 
 /** Moniteur : GP/N4 ou E1…E4. */
@@ -561,6 +584,8 @@ export const studentsOf = (p: Palanquee): Diver[] => p.members.filter((m) => m.t
 
 /** Ce qui rend une palanquée non conforme. Liste vide = conforme. */
 export function validate(p: Palanquee, outingMax: Depth = 60): string[] {
+  // Une palanquée vide n'a qu'un défaut : la remplir ou la supprimer.
+  if (!p.guide && !p.extra && p.members.length === 0) return ['Palanquée vide.'];
   const issues: string[] = [];
   if (p.depth && p.depth > (depthOf(p, outingMax) || 0)) {
     issues.push(`${p.depth} m dépasse la prérogative de la palanquée (${depthOf(p, outingMax) || 0} m).`);
@@ -760,7 +785,7 @@ function assignGuided(divers: Diver[], guides: Diver[], outingMax: Depth, out: P
   if (!divers.length) return free;
   const isGp = (g: Diver) => GUIDE_RANK[g.guide!] >= GUIDE_RANK.GP;
 
-  // Les E1 prennent d'abord les débutants (0-6 m), seuls, par 4 : en formation, un E1 n'encadre pas en exploration.
+  // Les E1 prennent d'abord les débutants (0-6 m), seuls, par 4, en formation : règle du club, un E1 n'encadre pas en exploration.
   let rest = [...divers];
   const beginners = rest.filter((d) => guidedDepthOf(d) === 6).sort(byName);
   for (const e1 of free.filter((g) => !isGp(g))) {
@@ -884,7 +909,7 @@ function groupByTier(pool: Diver[], outingMax: Depth, out: Palanquee[], unassign
     host.members.push(lone);
     return;
   }
-  const extraHost = lone.canBeExtra && out.find((p) => p.kind === 'guided' && !p.extra && depthOf(p, outingMax) <= 40);
+  const extraHost = lone.canBeExtra && out.find((p) => p.kind === 'guided' && !p.extra && acceptsExtra(p, outingMax));
   if (extraHost) {
     extraHost.extra = lone;
     return;

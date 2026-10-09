@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aptitudesFromLabels, chosenDepth, depthOf, guideLabel, kindLabel, lowestTeacher, memberLabel, minTeachFor, trainingLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
+import { acceptsExtra, aptitudesFromLabels, chosenDepth, depthOf, guideLabel, kindLabel, lowestTeacher, memberLabel, minTeachFor, trainingLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
 
 let n = 0;
 const diver = (name: string, ...labels: string[]): Diver => ({ id: `d${++n}`, name, labels, ...aptitudesFromLabels(labels) });
@@ -546,4 +546,21 @@ test('le directeur de plongée reste sur le bateau, sauf si sans lui des plongeu
   assert.ok(everyone(five).includes(dp.id));
   assert.equal(five.unassigned.length, 0);
 
+});
+
+test('6 m sans aptitude PE6 ; palanquée vide signalée comme telle ; plongeur supplémentaire refusé sur une palanquée à revoir', () => {
+  const gp = diver('GP', 'N4');
+  const mixed: Palanquee = { id: 'm', kind: 'guided', guide: gp, extra: null, members: [diver('Deb', 'Débutant'), diver('N1', 'N1')] };
+  assert.equal(prerogativeLabel(mixed), '6 m', 'un N1 avec un débutant : 6 m, pas « PE6 »');
+  assert.equal(memberLabel(mixed.members[1]!, mixed), '6 m');
+  assert.equal(prerogativeLabel({ ...mixed, members: [diver('Deb2', 'Débutant')] }), 'Débutants 6 m');
+
+  const empty: Palanquee = { id: 'e', kind: 'autonomous', guide: null, extra: null, members: [] };
+  assert.deepEqual(validate(empty), ['Palanquée vide.']);
+
+  assert.equal(acceptsExtra({ id: 'g', kind: 'guided', guide: gp, extra: null, members: [diver('A', 'N1')] }), true);
+  const unknown: Palanquee = { id: 'u', kind: 'guided', guide: gp, extra: null, members: [diver('Inconnu')] };
+  assert.equal(depthOf(unknown), 0);
+  assert.equal(acceptsExtra(unknown), false, '« À revoir » : pas de plongeur supplémentaire');
+  assert.equal(acceptsExtra({ id: 'd', kind: 'guided', guide: diver('E4', 'MF2'), extra: null, members: [diver('B', 'N3')] }), false, 'au-delà de 40 m');
 });

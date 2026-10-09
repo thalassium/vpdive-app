@@ -5,6 +5,7 @@ import { MemberSearch } from './MemberSearch';
 import { Avatar } from '../Avatar';
 import {
   TYPE_LABEL,
+  acceptsExtra,
   typeOf,
   trainingLabel,
   trainingTargetOf,
@@ -191,7 +192,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
   };
   const targetsFor = (exclude?: string): Target[] =>
     (plan?.palanquees ?? [])
-      .map((p, i) => ({ id: p.id, label: `P${i + 1}`, kind: p.kind, students: studentsOf(p), extraOk: p.kind === 'guided' && !p.extra && depthOf(p) <= 40 }))
+      .map((p, i) => ({ id: p.id, label: `P${i + 1}`, kind: p.kind, students: studentsOf(p), extraOk: acceptsExtra(p) }))
       .filter((t) => t.id !== exclude);
 
   /**
