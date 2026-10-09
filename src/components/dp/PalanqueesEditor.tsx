@@ -1,8 +1,9 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Loader2, Lock, MessageSquare, Pencil, Plus, RotateCcw, Share2, ShieldCheck, Sparkles, Star, Trash2, UserMinus, UserPlus, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Lock, MessageSquare, Pencil, Plus, RotateCcw, Share2, ShieldCheck, Sparkles, Star, Trash2, UserMinus, UserPlus, UserX, X } from 'lucide-react';
 import type { MemberMatch, RosterEntry } from '../../services/vpdiveApi';
 import { MemberSearch } from './MemberSearch';
 import { Avatar } from '../Avatar';
+import { Spinner } from '../Spinner';
 import {
   TYPE_LABEL,
   acceptsExtra,
@@ -70,6 +71,7 @@ import {
   type Unregistered,
 } from '../../lib/outing';
 import { Menu } from '../Menu';
+import { useConfirm } from '../../hooks/useConfirm';
 
 interface Props {
   title: string;
@@ -105,7 +107,7 @@ const TYPES: PalanqueeType[] = ['exploration', 'teaching'];
  * son niveau ou son diplôme tel que VPDive l'écrit (DEJEPS, MF1, P2…). Un E3
  * peut être MF1 ou DEJEPS : on ne le devine jamais.
  */
-const describe = (d: Diver) => [prerogativeCode({ ...d, training: 0 }) || 'niveau ?', ...diplomas(d)].join(' · ');
+const describe = (d: Diver) => [prerogativeCode({ ...d, training: 0 }) || 'niveau ?', ...diplomas(d)].join(' · ');
 /** Niveaux et diplômes VPDive, sans ceux qui répètent la prérogative (« PE-40 » à côté de « PE40 »). */
 const diplomas = (d: Diver) => {
   const flat = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -144,6 +146,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
   const [copied, setCopied] = useState(false);
   /** Inscription depuis la liste d'attente en cours ('busy') ou refusée (message). */
   const [promoting, setPromoting] = useState<Record<string, string>>({});
+  const { confirm, confirmDialog } = useConfirm();
   const settings = doc.settings;
   // Décochés, et liste d'attente VPDive que le DP n'a pas prise.
   const excluded = useMemo(() => outOfWater(roster, settings), [roster, settings]);
@@ -157,8 +160,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
   const roles = useMemo(() => doc.roles ?? defaultRoles(roster), [doc.roles, roster]);
   const roleMap = useMemo(() => new Map(roster.map((r) => [r.id, rolesOf(roles, r.id)])), [roster, roles]);
 
-  const generate = () => {
-    if (plan && !window.confirm('Refaire les palanquées ? La composition actuelle sera remplacée.')) return;
+  const generate = async () => {
+    if (plan && !(await confirm({ title: 'Refaire les palanquées ?', message: 'La composition actuelle sera remplacée.', confirmLabel: 'Refaire' }))) return;
     const ids = new Set(diving.map((d) => d.id));
     const buddies = buddyPairs(roster).filter(([a, b]) => ids.has(a) && ids.has(b));
     // Le DP (rôle de la sortie) reste sur le bateau, sauf si sans lui des plongeurs restaient à terre.
@@ -208,7 +211,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      window.prompt('Copiez la composition :', text);
+      // Presse-papiers refusé : la composition est affichée, sélectionnée, à copier à la main.
+      await confirm({ title: 'Copiez la composition', text, confirmLabel: 'Fermer', cancelLabel: null });
     }
   };
 
@@ -280,12 +284,12 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
         {/* Apt. : la prérogative VPDive, ou celle retenue par le DP (brevet étranger, N1 porté à PE40…). */}
         <Menu
           ariaLabel={`Aptitude de ${d.name}`}
-          triggerClassName={`btn h-9 px-1.5 gap-0.5 text-sm ${APT_COL} ${
+          triggerClassName={`btn sm:h-9 px-1.5 gap-0.5 text-sm ${APT_COL} ${
             !prerogative ? (out ? 'btn-quiet text-muted' : 'border border-warn bg-warn-soft text-warn') : forced ? 'border border-brand bg-tint text-brand' : 'btn-quiet'
           }`}
           trigger={
             <>
-              <span className={`truncate ${prerogative ? 'font-bold tabular-nums' : ''}`}>{prerogative ? prerogative.replace(' · ', '/') : 'Apt. ?'}</span>
+              <span className={`truncate ${prerogative ? 'font-bold tabular-nums' : ''}`}>{prerogative ? prerogative.replace(' · ', '/') : 'Apt. ?'}</span>
               <ChevronDown className="hidden sm:block w-3.5 h-3.5 shrink-0 opacity-60" />
             </>
           }
@@ -304,7 +308,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
         {!instructor && (
         <Menu
           ariaLabel={`Formation de ${d.name}`}
-          triggerClassName={`btn h-9 px-1.5 gap-0.5 text-sm ${FN_COL} ${current ? 'border border-brand bg-tint text-brand' : 'btn-quiet text-muted'}`}
+          triggerClassName={`btn sm:h-9 px-1.5 gap-0.5 text-sm ${FN_COL} ${current ? 'border border-brand bg-tint text-brand' : 'btn-quiet text-muted'}`}
           trigger={
             <>
               <span className={`truncate ${current ? 'font-bold tabular-nums' : ''}`}>{current || '—'}</span>
@@ -340,8 +344,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
               type="button"
               aria-pressed={companion}
               onClick={() => onSettings(toggleCompanion(settings, d.id, !companion))}
-              title="À bord sans plonger : n’a pas à être placé dans une palanquée"
-              className={`btn h-8 px-2.5 text-sm ${companion ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
+              title="À bord sans plonger : n’a pas à être placé dans une palanquée"
+              className={`btn sm:h-8 px-2.5 text-sm ${companion ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
             >
               {companion && <Check className="w-4 h-4" />} Accompagnant
             </button>
@@ -351,11 +355,12 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
           <div className="basis-full pl-[1.875rem] pt-1">
             <button
               type="button"
-              onClick={() =>
-                window.confirm(`Retirer ${d.name} de la sortie ?`) &&
-                (r.outside ? onGuests((doc.guests ?? []).filter((g) => g.id !== d.id)) : onMembers((doc.members ?? []).filter((m) => m.id !== d.id)))
-              }
-              className="btn btn-quiet h-8 px-2.5 text-sm hover:text-danger"
+              onClick={async () => {
+                if (!(await confirm({ title: `Retirer ${d.name} de la sortie ?`, confirmLabel: 'Retirer', danger: true }))) return;
+                if (r.outside) onGuests((doc.guests ?? []).filter((g) => g.id !== d.id));
+                else onMembers((doc.members ?? []).filter((m) => m.id !== d.id));
+              }}
+              className="btn btn-quiet sm:h-8 px-2.5 text-sm hover:text-danger"
             >
               <Trash2 className="w-4 h-4" /> Retirer
             </button>
@@ -369,7 +374,15 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
 
   /** Liste d'attente → inscrit sur VPDive, après confirmation. */
   const promote = async (d: Diver) => {
-    if (!onPromote || !window.confirm(`Inscrire ${d.name} sur VPDive ?\n\n${d.name} passe de la liste d’attente aux inscrits, même si la sortie est complète.`)) return;
+    if (
+      !onPromote ||
+      !(await confirm({
+        title: `Inscrire ${d.name} sur VPDive ?`,
+        message: `${d.name} passe de la liste d’attente aux inscrits, même si la sortie est complète.`,
+        confirmLabel: 'Inscrire',
+      }))
+    )
+      return;
     setPromoting((p) => ({ ...p, [d.id]: 'busy' }));
     try {
       await onPromote({ id: d.id, name: d.name });
@@ -385,8 +398,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
   const gone = stillUnregistered(doc, roster);
   const goneRows = (instructor: boolean) => gone.filter((u) => u.instructor === instructor).map((u) => <UnregisteredRow key={u.id} u={u} />);
   const hasChoices = Object.keys(settings.levels ?? {}).length + Object.keys(settings.training ?? {}).length > 0;
-  const reset = () => {
-    if (!window.confirm('Réinitialiser les aptitudes et formations choisies ? Chacun revient à ce que dit VPDive.')) return;
+  const reset = async () => {
+    if (!(await confirm({ title: 'Réinitialiser les aptitudes et formations choisies ?', message: 'Chacun revient à ce que dit VPDive.', confirmLabel: 'Réinitialiser' }))) return;
     onSettings({ ...settings, levels: {}, training: {} });
   };
 
@@ -401,7 +414,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             {new Date(dive.validated!.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}. La fiche de sécurité est débloquée.
           </p>
           {!readOnly && (
-            <button type="button" onClick={onReopen} className="btn btn-quiet h-9 text-sm border-green/50 text-ok">
+            <button type="button" onClick={onReopen} className="btn btn-quiet sm:h-9 text-sm border-ok/50 text-ok">
               <Pencil className="w-4 h-4" /> Modifier les palanquées
             </button>
           )}
@@ -428,7 +441,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
               )
             }
           >
-            Qui plonge ?
+            Qui plonge ?
           </SectionHead>
           {roster.length === 0 && gone.length === 0 ? (
             <p className="text-muted">Personne n’est encore inscrit à cette sortie.</p>
@@ -462,7 +475,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             {unknownLevels.length > 0 && (
               <span className="text-sm text-warn inline-flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                Prérogative à choisir : {unknownLevels.map((d) => d.name).join(', ')}
+                Prérogative à choisir : {unknownLevels.map((d) => d.name).join(', ')}
               </span>
             )}
           </div>
@@ -506,7 +519,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             <button
               type="button"
               onClick={() => onPlan(addPalanquee(null, diving))}
-              className="btn btn-quiet h-9 text-sm"
+              className="btn btn-quiet sm:h-9 text-sm"
             >
               <Plus className="w-4 h-4" /> Composer à la main
             </button>
@@ -556,9 +569,18 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
                 onGuide={(d) => onPlan(assignGuide(plan, p.id, d))}
                 onType={(t) => onPlan(setType(plan, p.id, t))}
                 onRemoveGuide={() => onPlan(removeGuide(plan, p.id))}
-                onDelete={() => {
+                onDelete={async () => {
                   const people = [p.guide, p.extra, ...p.members].filter(Boolean).length;
-                  if (people && !window.confirm(`Supprimer P${i + 1} ? Ses ${people} participant${people > 1 ? 's' : ''} redeviendront disponibles.`)) return;
+                  if (
+                    people &&
+                    !(await confirm({
+                      title: `Supprimer P${i + 1} ?`,
+                      message: `${people > 1 ? `Ses ${people} participants redeviendront disponibles` : 'Son participant redeviendra disponible'}.`,
+                      confirmLabel: 'Supprimer',
+                      danger: true,
+                    }))
+                  )
+                    return;
                   onPlan(deletePalanquee(plan, p.id));
                 }}
               />
@@ -595,8 +617,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
                 <p role="alert" className="basis-full text-sm text-warn flex items-start gap-1.5">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>
-                    {toPlace.length > 1 ? 'Ils plongent' : 'Plonge'} sans palanquée, à placer avant de valider : {toPlace.map((d) => d.name).join(', ')}. Ou, s’{toPlace.length > 1 ? 'ils ne plongent' : 'il ne plonge'} pas,
-                    décochez-{toPlace.length > 1 ? 'les' : 'le'} dans « Qui plonge ? » (Modifier les plongeurs).
+                    {toPlace.length > 1 ? 'Ils plongent' : 'Plonge'} sans palanquée, à placer avant de valider : {toPlace.map((d) => d.name).join(', ')}. Ou, s’{toPlace.length > 1 ? 'ils ne plongent' : 'il ne plonge'} pas,
+                    décochez-{toPlace.length > 1 ? 'les' : 'le'} dans « Qui plonge ? » (Modifier les plongeurs).
                   </span>
                 </p>
               )}
@@ -605,6 +627,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
 
         </section>
       )}
+      {confirmDialog}
     </div>
     </RolesContext.Provider>
   );
@@ -651,8 +674,8 @@ function RolesSection({
                       <button
                         type="button"
                         onClick={() => onRoles(toggleRole(roles, role.id, id), role.id)}
-                        aria-label={`Retirer ${name} : ${role.label}`}
-                        className="icon-btn w-7 h-7 rounded-md hover:text-danger hover:bg-danger-soft"
+                        aria-label={`Retirer ${name} : ${role.label}`}
+                        className="icon-btn relative w-7 h-7 rounded-md hover:text-danger hover:bg-danger-soft max-sm:before:absolute max-sm:before:-inset-2"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -660,8 +683,8 @@ function RolesSection({
                   );
                 })}
                 <Menu
-                  ariaLabel={`${role.label} : choisir`}
-                  triggerClassName="btn btn-quiet h-9 text-sm border-dashed"
+                  ariaLabel={`${role.label} : choisir`}
+                  triggerClassName="btn btn-quiet sm:h-9 text-sm border-dashed"
                   trigger={
                     <>
                       <Plus className="w-4 h-4" />
@@ -707,7 +730,7 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
   if (!open) {
     return (
       <div className="mt-2">
-        <ActionButton onClick={() => setOpen(true)} icon={<UserPlus className="w-4 h-4" />} title="Un membre du club qui ne s'est pas inscrit">
+        <ActionButton onClick={() => setOpen(true)} icon={<UserPlus className="w-4 h-4" />} title="Un membre du club qui ne s’est pas inscrit">
           Membre non inscrit
         </ActionButton>
       </div>
@@ -733,7 +756,7 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
         <div className="flex items-center gap-2.5">
           <Avatar name={picked.name} picture={picked.picture} size="sm" initials={false} />
           <span className="flex-1 min-w-0 truncate font-medium text-ink">{picked.name}</span>
-          <button type="button" onClick={() => setPicked(null)} className="btn btn-quiet h-8 px-2.5 text-sm">
+          <button type="button" onClick={() => setPicked(null)} className="btn btn-quiet sm:h-8 px-2.5 text-sm">
             Changer
           </button>
         </div>
@@ -751,7 +774,7 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
                 type="button"
                 aria-pressed={on}
                 onClick={() => setChosen((c) => (on ? c.filter((x) => x !== role.id) : [...c, role.id]))}
-                className={`btn h-9 text-sm ${on ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
+                className={`btn sm:h-9 text-sm ${on ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
               >
                 {on && <Check className="w-4 h-4" />} {role.label}
               </button>
@@ -759,17 +782,17 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
           })}
         </div>
       </fieldset>
-      <p className="text-sm text-muted">Ajouté à la sortie dans l’appli seulement : il n’est pas inscrit sur VPDive et ne plonge pas tant qu’on ne le coche pas.</p>
+      <p className="text-sm text-muted">Ajouté à la sortie dans l’appli seulement : il n’est pas inscrit sur VPDive et ne plonge pas tant qu’on ne le coche pas.</p>
       {error && (
         <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => void add()} disabled={!picked || busy} className="btn btn-primary h-9 text-sm">
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Ajouter
+        <button type="button" onClick={() => void add()} disabled={!picked || busy} aria-busy={busy} className="btn btn-primary sm:h-9 text-sm">
+          {busy ? <Spinner /> : <Plus className="w-4 h-4" />} Ajouter
         </button>
-        <button type="button" onClick={close} className="btn btn-quiet h-9 text-sm">
+        <button type="button" onClick={close} className="btn btn-quiet sm:h-9 text-sm">
           Annuler
         </button>
       </div>
@@ -795,8 +818,17 @@ function UnregisteredRow({ u }: { u: Unregistered }) {
 function UnregisterAction({ name, onConfirm }: { name: string; onConfirm: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
   const run = async () => {
-    if (!window.confirm(`Désinscrire ${name} de la sortie sur VPDive ?\n\n${name} sera retiré(e) de la liste des inscrits.`)) return;
+    if (
+      !(await confirm({
+        title: `Désinscrire ${name} de la sortie sur VPDive ?`,
+        message: `${name} sera retiré de la liste des inscrits.`,
+        confirmLabel: 'Désinscrire',
+        danger: true,
+      }))
+    )
+      return;
     setBusy(true);
     setError(null);
     try {
@@ -808,14 +840,15 @@ function UnregisterAction({ name, onConfirm }: { name: string; onConfirm: () => 
   };
   return (
     <div className="basis-full pl-[1.875rem] pt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-      <button type="button" onClick={() => void run()} disabled={busy} className="btn btn-quiet h-8 px-2.5 text-sm hover:text-danger hover:border-danger/40">
-        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserMinus className="w-4 h-4" />} Désinscrire
+      <button type="button" onClick={() => void run()} disabled={busy} aria-busy={busy} className="btn btn-quiet sm:h-8 px-2.5 text-sm hover:text-danger hover:border-danger/40">
+        {busy ? <Spinner /> : <UserMinus className="w-4 h-4" />} Désinscrire
       </button>
       {error && (
         <span role="alert" className="text-sm text-danger">
           {error}
         </span>
       )}
+      {confirmDialog}
     </div>
   );
 }
@@ -855,7 +888,7 @@ function GuestForm({ onAdd }: { onAdd: (g: Guest) => void }) {
           <input value={form.lastname} onChange={(e) => setForm({ ...form, lastname: e.target.value })} className="field w-full" autoComplete="off" />
         </label>
       </div>
-      <label className="inline-flex items-center gap-2.5 cursor-pointer">
+      <label className="inline-flex items-center gap-2.5 max-sm:min-h-11 cursor-pointer">
         <input type="checkbox" checked={form.baptism} onChange={(e) => setForm({ ...form, baptism: e.target.checked })} className="w-5 h-5 accent-[var(--fill)]" />
         <span className="text-ink">Baptême</span>
       </label>
@@ -864,7 +897,7 @@ function GuestForm({ onAdd }: { onAdd: (g: Guest) => void }) {
         <input value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} className="field w-full" placeholder="Niveau, ami de…, matériel…" autoComplete="off" />
       </label>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="submit" disabled={!guest} className="btn btn-primary h-9 text-sm">
+        <button type="submit" disabled={!guest} className="btn btn-primary sm:h-9 text-sm">
           <Plus className="w-4 h-4" /> Ajouter
         </button>
         <button
@@ -873,7 +906,7 @@ function GuestForm({ onAdd }: { onAdd: (g: Guest) => void }) {
             setForm(empty);
             setOpen(false);
           }}
-          className="btn btn-quiet h-9 text-sm"
+          className="btn btn-quiet sm:h-9 text-sm"
         >
           Annuler
         </button>
@@ -955,13 +988,13 @@ function PalanqueeCard({
           <span className="alpha h-8 shrink-0 pl-2 bg-pink text-on-pink text-sm font-bold tabular-nums inline-flex items-center">P{index}</span>
           <span className="min-w-0">
             {locked || hasStudent(p) ? (
-              <span className="block font-semibold text-ink" title={locked ? undefined : 'Un élève en formation (FN#) : palanquée de formation'}>
+              <span className="block font-semibold text-ink" title={locked ? undefined : 'Un élève en formation (FN#) : palanquée de formation'}>
                 {TYPE_LABEL[typeOf(p)]}
               </span>
             ) : (
               <Menu
                 ariaLabel="Type de palanquée"
-                triggerClassName="btn btn-quiet h-8 px-2.5 text-sm"
+                triggerClassName="btn btn-quiet sm:h-8 px-2.5 text-sm"
                 trigger={
                   <>
                     {TYPE_LABEL[typeOf(p)]}
@@ -984,7 +1017,7 @@ function PalanqueeCard({
               onClick={onDelete}
               aria-label={`Supprimer P${index}`}
               title="Supprimer la palanquée (ses participants redeviennent disponibles)"
-              className="icon-btn w-9 h-9 hover:text-danger hover:bg-danger-soft"
+              className="icon-btn sm:w-9 sm:h-9 hover:text-danger hover:bg-danger-soft"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -1067,7 +1100,7 @@ function GuideRow({
         {editable ? (
           <Menu
             ariaLabel={role}
-            triggerClassName={`max-w-full inline-flex items-center gap-1 text-left ${g ? 'font-semibold text-ink' : teaching ? 'font-semibold text-danger' : 'font-medium text-muted'}`}
+            triggerClassName={`relative max-w-full inline-flex items-center gap-1 text-left max-sm:before:absolute max-sm:before:-inset-y-2.5 max-sm:before:inset-x-0 ${g ? 'font-semibold text-ink' : teaching ? 'font-semibold text-danger' : 'font-medium text-muted'}`}
             trigger={
               <>
                 <span className="break-words line-clamp-2 sm:line-clamp-none sm:truncate">{g ? g.name : teaching ? 'Choisir l’enseignant…' : 'Ajouter un encadrant…'}</span>
@@ -1122,10 +1155,10 @@ function GuideNoteRow({ note, onNote }: { note?: GuideNote; onNote?: (text: stri
           maxLength={500}
           placeholder="Commentaire sur l’encadrant (stagiaire, consigne…)"
           aria-label="Commentaire sur l’encadrant"
-          className="field flex-1 min-w-[12rem] h-9 px-2.5 text-sm"
+          className="field flex-1 min-w-[12rem] sm:h-9 px-2.5 text-sm"
           autoFocus
         />
-        <button type="button" onClick={save} className="btn btn-primary h-9 text-sm">
+        <button type="button" onClick={save} className="btn btn-primary sm:h-9 text-sm">
           <Check className="w-4 h-4" /> Enregistrer
         </button>
         <button
@@ -1134,7 +1167,7 @@ function GuideNoteRow({ note, onNote }: { note?: GuideNote; onNote?: (text: stri
             setText(note?.text ?? '');
             setEditing(false);
           }}
-          className="btn btn-quiet h-9 text-sm"
+          className="btn btn-quiet sm:h-9 text-sm"
         >
           Annuler
         </button>
@@ -1150,7 +1183,7 @@ function GuideNoteRow({ note, onNote }: { note?: GuideNote; onNote?: (text: stri
             setText('');
             setEditing(true);
           }}
-          className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-brand"
+          className="inline-flex items-center gap-1.5 max-sm:min-h-11 text-sm text-muted hover:text-brand"
         >
           <MessageSquare className="w-4 h-4" /> Commenter l’encadrant
         </button>
@@ -1174,7 +1207,7 @@ function GuideNoteRow({ note, onNote }: { note?: GuideNote; onNote?: (text: stri
             setEditing(true);
           }}
           aria-label="Modifier le commentaire"
-          className="icon-btn w-8 h-8"
+          className="icon-btn relative w-8 h-8 max-sm:before:absolute max-sm:before:-inset-1.5"
         >
           <Pencil className="w-4 h-4" />
         </button>
@@ -1277,7 +1310,7 @@ function MoveSelect({
   return (
     <Menu
       ariaLabel="Déplacer"
-      triggerClassName="btn btn-quiet h-9 text-sm shrink-0 px-2 sm:px-2.5 gap-1"
+      triggerClassName="btn btn-quiet sm:h-9 text-sm shrink-0 px-2 sm:px-2.5 gap-1"
       trigger={
         <>
           {/* Sur téléphone, l'icône seule : la place va au nom. */}
@@ -1342,7 +1375,7 @@ export function ActionButton({ onClick, icon, title, children }: { onClick: () =
       type="button"
       onClick={onClick}
       title={title}
-      className="btn btn-quiet h-9 px-2.5 sm:px-4 gap-1.5 sm:gap-2 text-sm flex-auto sm:flex-none"
+      className="btn btn-quiet sm:h-9 px-2.5 sm:px-4 gap-1.5 sm:gap-2 text-sm flex-auto sm:flex-none"
     >
       {icon}
       {children}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Award, ChevronDown, ExternalLink, FileText, FolderOpen, IdCard, ImageIcon, LogOut } from 'lucide-react';
 import { vpdive, ymd, type EmergencyContact, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
@@ -75,7 +75,7 @@ export function ProfileView({
         setFreshPicture(p);
         onPictureRef.current?.(p);
       },
-      (e) => live && !onSessionLost(e) && console.warn('Photo non relue :', e),
+      (e) => live && !onSessionLost(e) && console.warn('Photo non relue :', e),
     );
     return () => {
       live = false;
@@ -148,10 +148,14 @@ export function ProfileView({
 
   useEffect(() => {
     load();
-    return () => {
-      request.current++;
-    };
   }, [load]);
+  // Fermeture du profil : la lecture en cours n'écrit plus rien (une nouvelle lecture, elle, invalide la précédente d'elle-même).
+  useEffect(
+    () => () => {
+      request.current++;
+    },
+    [],
+  );
 
   const name = `${session.firstName} ${session.lastName}`.trim() || me?.name || session.email;
   const roleLabel = me?.role === 'superadmin' ? 'Super-admin' : me?.role === 'admin' ? 'Admin' : null;
@@ -219,13 +223,13 @@ export function ProfileView({
                       </ul>
                     </div>
                   ))}
-                {quals.training.length > 0 && <p className="text-ink">En préparation : {quals.training.join(', ')}</p>}
+                {quals.training.length > 0 && <p className="text-ink">En préparation : {quals.training.join(', ')}</p>}
                 <p className="text-ink">
-                  Certificat médical :{' '}
+                  Certificat médical :{' '}
                   {!quals.medical ? (
                     <span className="text-muted">non renseigné</span>
                   ) : quals.medical.valid ? (
-                    <span className="text-ok font-medium">{quals.medical.until ? `valable jusqu'au ${frDate(quals.medical.until)}` : 'valable'}</span>
+                    <span className="text-ok font-medium">{quals.medical.until ? `valable jusqu’au ${frDate(quals.medical.until)}` : 'valable'}</span>
                   ) : (
                     <span className="text-danger font-medium">à renouveler</span>
                   )}
@@ -395,10 +399,13 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  /** Aucun numéro saisi : les deux champs de téléphone sont signalés, reliés au message d'erreur. */
+  const [noPhone, setNoPhone] = useState(false);
+  const errorId = useId();
 
+  // À l'ouverture, le contact est déjà en lecture (undefined) ; « réessayer » l'y remet avant de relire.
   useEffect(() => {
     let cancelled = false;
-    setContact(undefined);
     vpdive.myEmergencyContact().then(
       (c) => !cancelled && setContact(c),
       (e) => !cancelled && !onSessionLost(e) && setContact(null),
@@ -412,9 +419,11 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
   const save = async () => {
     if (!draft) return;
     if (!draft.phone.trim() && !draft.cellphone.trim()) {
+      setNoPhone(true);
       setError('Indiquez au moins un numéro de téléphone.');
       return;
     }
+    setNoPhone(false);
     setSaving(true);
     setError(null);
     try {
@@ -429,18 +438,23 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
     }
   };
 
-  const field = (key: keyof EmergencyContact, label: string, type = 'text', placeholder = '') => (
-    <label className="block">
-      <span className="label block mb-1">{label}</span>
-      <input
-        type={type}
-        value={draft?.[key] ?? ''}
-        placeholder={placeholder}
-        onChange={(e) => setDraft((d) => ({ ...(d ?? NO_CONTACT), [key]: e.target.value }))}
-        className="field w-full"
-      />
-    </label>
-  );
+  const field = (key: keyof EmergencyContact, label: string, type = 'text', placeholder = '') => {
+    const invalid = noPhone && (key === 'phone' || key === 'cellphone');
+    return (
+      <label className="block">
+        <span className="label block mb-1">{label}</span>
+        <input
+          type={type}
+          value={draft?.[key] ?? ''}
+          placeholder={placeholder}
+          aria-invalid={invalid || undefined}
+          aria-describedby={invalid ? errorId : undefined}
+          onChange={(e) => setDraft((d) => ({ ...(d ?? NO_CONTACT), [key]: e.target.value }))}
+          className={`field w-full ${invalid ? 'border-danger' : ''}`}
+        />
+      </label>
+    );
+  };
 
   return (
     <div className="px-4 pb-4">
@@ -454,7 +468,11 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
             {field('phone', 'Téléphone', 'tel', '01 23 45 67 89')}
           </div>
           {field('link', 'Lien avec vous', 'text', 'Conjoint, parent, ami…')}
-          {error && <p className="text-sm text-danger">{error}</p>}
+          {error && (
+            <p id={errorId} role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => void save()} disabled={saving} className="btn btn-primary">
               {saving ? 'Enregistrement…' : 'Enregistrer sur VPDive'}
@@ -464,6 +482,7 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
               onClick={() => {
                 setDraft(null);
                 setError(null);
+                setNoPhone(false);
               }}
               disabled={saving}
               className="btn btn-quiet"
@@ -480,7 +499,14 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
             ) : contact === null ? (
               <p role="alert" className="text-danger">
                 Contact d’urgence illisible,{' '}
-                <button type="button" onClick={() => setAttempt((n) => n + 1)} className="font-semibold underline underline-offset-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContact(undefined);
+                    setAttempt((n) => n + 1);
+                  }}
+                  className="font-semibold underline underline-offset-2"
+                >
                   réessayer
                 </button>
               </p>
@@ -512,7 +538,7 @@ function EmergencyBlock({ onSessionLost }: { onSessionLost: (e: unknown) => bool
                 setError(null);
                 setSaved(false);
               }}
-              className="btn btn-quiet h-9 text-sm"
+              className="btn btn-quiet sm:h-9 text-sm"
             >
               {filled ? 'Modifier' : 'Ajouter'}
             </button>

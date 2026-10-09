@@ -35,8 +35,8 @@ export class HttpError extends Error {
   }
 }
 
-export const VPDIVE_TIMEOUT_MESSAGE = 'VPDive ne répond pas : réessayez dans un instant.';
-export const VPDIVE_FIREWALL_MESSAGE = 'Le pare-feu de VPDive bloque temporairement les appels de l’appli : réessayez dans quelques minutes.';
+export const VPDIVE_TIMEOUT_MESSAGE = 'VPDive ne répond pas : réessayez dans un instant.';
+export const VPDIVE_FIREWALL_MESSAGE = 'Le pare-feu de VPDive bloque temporairement les appels de l’appli : réessayez dans quelques minutes.';
 
 /** Appel à VPDive avec délai maximal : délai dépassé → 504, réseau coupé → 502. */
 export async function vpdiveFetch(url: string, init: RequestInit = {}): Promise<Response> {

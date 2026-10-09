@@ -25,11 +25,11 @@ test('matériel compté par taille : déclinaison, sinon message, sinon taille ?
   assert.deepEqual(s.items, [
     { name: 'Combinaison', total: 1, bySize: { L: 1 } },
     { name: 'Détendeur', total: 3, bySize: {} },
-    { name: 'Gilet stabilisateur', total: 3, bySize: { M: 2, 'taille ?': 1 } },
+    { name: 'Gilet stabilisateur', total: 3, bySize: { M: 2, 'taille ?': 1 } },
     { name: 'Ordinateur de plongée', total: 1, bySize: {} },
     { name: 'Pack complet (hors ordinateur)', total: 2, bySize: { L: 1, 'combi S, gilet M': 1 } },
   ]);
-  assert.deepEqual(s.people.find((p) => p.name === 'C')?.lines, ['Gilet stabilisateur · taille ?', 'Combinaison · L']);
+  assert.deepEqual(s.people.find((p) => p.name === 'C')?.lines, ['Gilet stabilisateur · taille ?', 'Combinaison · L']);
   assert.deepEqual(s.people.find((p) => p.name === 'F')?.lines, ['2 × Détendeur', 'Ordinateur de plongée']);
 });
 
@@ -41,7 +41,7 @@ test('une bouteille par plongeur inscrit, liste d’attente à part et non compt
     diver('D', ['1 Combinaison - M'], 'Bouteille : 15 L', true),
   ]);
   assert.deepEqual(s.bottles, { '12 L': 1, '15 L': 1, 'Enfant (8/10 L)': 1 });
-  assert.equal(bottlesLine(s.bottles), '12 L : 1 · 15 L : 1 · Enfant : 1');
+  assert.equal(bottlesLine(s.bottles), '12 L : 1 · 15 L : 1 · Enfant : 1');
   assert.deepEqual(s.items, []);
   assert.deepEqual(s.people.map((p) => p.lines), [[], ['Bouteille 15 L'], ['Bouteille Enfant (8/10 L)']]);
   assert.deepEqual(s.waiting, [{ name: 'D', picture: '', lines: ['Combinaison · M', 'Bouteille 15 L'] }]);
@@ -49,7 +49,7 @@ test('une bouteille par plongeur inscrit, liste d’attente à part et non compt
 
 test('liste à copier', () => {
   const s = aggregateMaterial([diver('A', ['1 Gilet stabilisateur - M']), diver('B', ['1 Gilet stabilisateur - L', '1 Détendeur'], 'Bouteille : 15 L')]);
-  assert.equal(materialText(s, 'Sortie'), 'Sortie\n\nDétendeur : 1\nGilet stabilisateur : 2 (M × 1, L × 1)\n\nBouteilles : 12 L : 1 · 15 L : 1 · Enfant : 0');
+  assert.equal(materialText(s, 'Sortie'), 'Sortie\n\nDétendeur : 1\nGilet stabilisateur : 2 (M × 1, L × 1)\n\nBouteilles : 12 L : 1 · 15 L : 1 · Enfant : 0');
 });
 
 test('une bouteille par plongeur : ni pilote, ni sécurité surface, ni DP qui ne plonge pas ; la fiche de sortie fait foi', () => {

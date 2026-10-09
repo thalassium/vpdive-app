@@ -185,7 +185,7 @@ export function statsPdf(stats: Stats, { from, to, partial }: StatsPdfOptions): 
     others > 0 && `${plural(others, 'autre événement', 'autres événements')} (réunions, cours théoriques…).`,
     stats.fill !== null && `Remplissage moyen ${Math.round(stats.fill * 100)} %.`,
     stats.waiting > 0 && `${plural(stats.waiting, 'inscription', 'inscriptions')} en liste d’attente.`,
-    stats.merged.length > 0 && `Comptes fusionnés (même personne, plusieurs comptes VPDive) : ${stats.merged.map((m) => `${m.name} (${m.accounts} comptes)`).join(', ')}.`,
+    stats.merged.length > 0 && `Comptes fusionnés (même personne, plusieurs comptes VPDive) : ${stats.merged.map((m) => `${m.name} (${m.accounts} comptes)`).join(', ')}.`,
   ]
     .filter(Boolean)
     .join(' ');
@@ -249,7 +249,7 @@ export function statsPdf(stats: Stats, { from, to, partial }: StatsPdfOptions): 
   });
   if (stats.otherSchools.length) {
     font(8, MUTED);
-    const lines = pdf.splitTextToSize(pdfText(`Autres écoles : ${stats.otherSchools.map((x) => `${x.label} ${n(x.count)}`).join(', ')}.`), diversW) as string[];
+    const lines = pdf.splitTextToSize(pdfText(`Autres écoles : ${stats.otherSchools.map((x) => `${x.label} ${n(x.count)}`).join(', ')}.`), diversW) as string[];
     pdf.text(lines, PAGE.margin, ly + 3);
     ly += lines.length * 3.6 + 1;
   }
@@ -269,7 +269,7 @@ export function statsPdf(stats: Stats, { from, to, partial }: StatsPdfOptions): 
   if (stats.training.length) {
     ly += 2;
     font(9, INK);
-    const lines = pdf.splitTextToSize(pdfText(`En formation : ${stats.training.map((t) => `${n(t.count)} vers le ${t.label}`).join(', ')}.`), leftW) as string[];
+    const lines = pdf.splitTextToSize(pdfText(`En formation : ${stats.training.map((t) => `${n(t.count)} vers le ${t.label}`).join(', ')}.`), leftW) as string[];
     pdf.text(lines, PAGE.margin, ly + 3);
     ly += lines.length * 4;
   }

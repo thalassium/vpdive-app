@@ -34,6 +34,17 @@ export function dayBefore(day: string): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+/** Grille visible d'un mois, lundi en premier : [premier jour montré, dernier jour montré]. */
+export function gridRange(month: Date): [Date, Date] {
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const start = new Date(first);
+  start.setDate(1 - ((first.getDay() + 6) % 7));
+  const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+  const end = new Date(last);
+  end.setDate(last.getDate() + ((7 - ((last.getDay() + 6) % 7) - 1) % 7));
+  return [start, end];
+}
+
 /**
  * Jours que montre la vue Liste d'un mois (`month` de 0 à 11) : tout le mois,
  * sauf le mois en cours, qui commence la veille d'aujourd'hui (le reste est passé).

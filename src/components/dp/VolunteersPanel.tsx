@@ -51,8 +51,8 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
                   return (
                     <span key={slot} className="inline-flex max-w-full min-w-0 items-center">
                       <Menu
-                        ariaLabel={`${post.label} : ${slot === 0 ? 'première' : 'seconde'} personne`}
-                        triggerClassName={`btn btn-quiet h-10 text-base min-w-48 justify-between ${id ? 'border-brand bg-tint' : 'border-dashed text-muted'}`}
+                        ariaLabel={`${post.label} : ${slot === 0 ? 'première' : 'seconde'} personne`}
+                        triggerClassName={`btn btn-quiet sm:h-10 text-base min-w-48 justify-between ${id ? 'border-brand bg-tint' : 'border-dashed text-muted'}`}
                         trigger={
                           <>
                             <span className="truncate">{id ? (person ? nameOf(person) : 'Inscrit retiré') : slot === 0 ? 'Choisir…' : 'Ajouter une 2ᵉ personne…'}</span>
@@ -78,7 +78,7 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
                           type="button"
                           onClick={() => onChange(setVolunteer(volunteers, post.id, slot, null))}
                           aria-label={`Retirer ${person ? nameOf(person) : 'cette personne'} de ${post.label}`}
-                          className="icon-btn ml-1 w-8 h-8 hover:text-danger hover:bg-danger-soft"
+                          className="icon-btn relative ml-1 w-8 h-8 hover:text-danger hover:bg-danger-soft max-sm:before:absolute max-sm:before:-inset-1.5"
                         >
                           <X className="w-4 h-4" />
                         </button>

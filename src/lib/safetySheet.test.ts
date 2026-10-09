@@ -87,7 +87,7 @@ test('avant d’imprimer : DP, pilote, date et lieu manquants ; profondeur prév
   const sheet = (depth: string) => ({ ...emptySheet(), planned: { duration: '', depth, time: '' } });
   const dive = { plan: { palanquees: [n1, n3], unassigned: [] }, sheets: { a: sheet('25 m'), b: sheet('45') } };
   assert.deepEqual(overDepth(dive), [{ label: 'P1', planned: 25, legal: 20 }]);
-  assert.deepEqual(printWarnings(header, dive), ['Non renseigné : Pilote, Lieu de plongée.', 'P1 : 25 m prévus, au-delà de sa prérogative (20 m).']);
+  assert.deepEqual(printWarnings(header, dive), ['Non renseigné : Pilote, Lieu de plongée.', 'P1 : 25 m prévus, au-delà de sa prérogative (20 m).']);
   assert.deepEqual(printWarnings({ ...header, pilote: 'Niels', lieu: 'Riou' }, { ...dive, sheets: {} }), []);
 });
 

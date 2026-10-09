@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { vpdive, ymd, DP_ROLE, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import { appApi, AppApiError, type AppRole, type OutingLock } from '../../services/appApi';
@@ -26,7 +26,8 @@ import { setDepth } from '../../lib/palanqueeEdit';
 import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
-import { ThemeToggle } from '../ThemeToggle';
+import { useConfirm } from '../../hooks/useConfirm';
+import { Tab, TabList, TabPanel } from '../Tabs';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 
@@ -57,9 +58,9 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
   /** Enregistre ce qui reste et dit si tout est bien enregistré. */
   const closeRef = useRef<() => Promise<boolean>>(async () => true);
 
-  const loadList = useCallback(async () => {
-    setListError(null);
-    try {
+  /** Lit les sorties du DP ; la liste est posée par les rappels de la promesse. */
+  const fetchList = useCallback(() => {
+    const read = async () => {
       const today = new Date();
       const from = new Date(today);
       from.setDate(from.getDate() - 14);
@@ -79,27 +80,46 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
         }
         list = dp;
       }
-      setEvents(list);
-    } catch (e) {
+      return list;
+    };
+    return read().then(setEvents, (e: unknown) => {
       if (onSessionLost(e)) return;
       setListError(e instanceof Error ? e.message : String(e));
-    }
+    });
   }, [role, dpEvents, session.userId, onSessionLost]);
+  /** « Réessayer » : l'erreur s'efface, la liste est relue. */
+  const loadList = () => {
+    setListError(null);
+    void fetchList();
+  };
 
   useEffect(() => {
-    loadList();
-  }, [loadList]);
+    void fetchList();
+  }, [fetchList]);
 
   /**
    * Quitter la sortie ouverte (fermer, revenir à la liste, en choisir une autre) :
    * ce qui reste part d'abord ; si l'enregistrement échoue, on demande. La
    * saisie non enregistrée reste en brouillon sur l'appareil.
    */
-  const leave = useCallback(async (then: () => void) => {
-    const saved = await closeRef.current();
-    if (!saved && !window.confirm('Des modifications ne sont pas enregistrées (elles restent en brouillon sur cet appareil). Quitter quand même ?')) return;
-    then();
-  }, []);
+  const { confirm, confirmDialog } = useConfirm();
+  const leave = useCallback(
+    async (then: () => void) => {
+      const saved = await closeRef.current();
+      if (
+        !saved &&
+        !(await confirm({
+          title: 'Quitter quand même ?',
+          message: 'Des modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.',
+          confirmLabel: 'Quitter',
+          cancelLabel: 'Rester',
+        }))
+      )
+        return;
+      then();
+    },
+    [confirm],
+  );
   const close = useCallback(() => leave(onClose), [leave, onClose]);
   const select = useCallback(
     (e: CalendarEvent) => {
@@ -143,7 +163,6 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
             <span className="sm:hidden">DP</span>
             <span className="hidden sm:inline">Directeur de plongée</span>
           </h2>
-          <ThemeToggle />
           <button onClick={() => void close()} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
           </button>
@@ -181,6 +200,7 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
           </main>
         </div>
       </div>
+      {confirmDialog}
     </div>
   );
 }
@@ -206,9 +226,9 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
       <h3 className="sticky top-0 z-10 bg-surface px-4 pt-2 pb-1 label">{label}</h3>
       {months.map((m) => (
         <div key={m.key}>
-          <div className="flex items-center gap-2 px-4 pt-3 pb-1.5" role="separator">
-            <span className="label">{m.title}</span>
-            <span className="flex-1 h-px bg-line" />
+          <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
+            <h4 className="label">{m.title}</h4>
+            <span aria-hidden className="flex-1 h-px bg-line" />
           </div>
           <ul>
             {m.list.map((e) => {
@@ -341,6 +361,8 @@ function OutingWorkspace({
   /** Message passager : action ignorée, main perdue… */
   const [notice, setNotice] = useState<string | null>(null);
   const [client] = useState(editorClient);
+  const { confirm, confirmDialog } = useConfirm();
+  const tabsId = useId();
 
   const docRef = useRef<OutingDoc | null>(null);
   /** La dernière version du serveur, rapprochée de la liste : ce qu'on retrouve si une saisie est refusée. */
@@ -382,10 +404,9 @@ function OutingWorkspace({
     [event, session.clubName],
   );
 
-  const load = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const [r, res] = await Promise.all([vpdive.fetchRoster(token), appApi.getOuting(token, client)]);
+  /** Lit la liste et la fiche ; l'écran est rempli par les rappels de la promesse. */
+  const fetchOuting = useCallback(() => {
+    const show = ([r, res]: [RosterEntry[], Awaited<ReturnType<typeof appApi.getOuting>>]) => {
       const v = derive(res.doc, r);
       // Ouvrir une fiche ne l'enregistre pas : la synchronisation ne part qu'avec le premier geste de celui qui tient la main.
       revRef.current = res.doc?.rev ?? 0;
@@ -404,15 +425,25 @@ function OutingWorkspace({
         if (res.doc && sameContent(draft.doc, res.doc)) clearDraft(token);
         else setDraftOffer(draft);
       }
-    } catch (e) {
-      if (onSessionLost(e)) return;
-      setLoadError(e instanceof Error ? e.message : String(e));
-    }
+    };
+    // .catch après .then : un échec en remplissant l'écran s'affiche aussi comme sortie indisponible.
+    return Promise.all([vpdive.fetchRoster(token), appApi.getOuting(token, client)])
+      .then(show)
+      .catch((e: unknown) => {
+        if (onSessionLost(e)) return;
+        setLoadError(e instanceof Error ? e.message : String(e));
+      });
   }, [token, client, derive, me, onSessionLost]);
+  /** Relire la sortie (« Réessayer », version de l'autre chargée) : l'erreur s'efface d'abord. */
+  const load = () => {
+    setLoadError(null);
+    return fetchOuting();
+  };
 
+  // À l'ouverture (une par sortie : composant remonté à chaque sortie choisie), pas d'erreur à effacer.
   useEffect(() => {
-    load();
-  }, [load]);
+    void fetchOuting();
+  }, [fetchOuting]);
 
   /** Relit la fiche enregistrée et qui la tient ; la remplace à l'écran si rien n'est en attente ici. */
   const refresh = useCallback(async () => {
@@ -479,7 +510,7 @@ function OutingWorkspace({
     inFlight.current = (async () => {
       const lease = await ensureLease();
       if (lease === 'taken') {
-        return backToServer(`Modification non enregistrée : ${takenBy()} a commencé à modifier cette fiche juste avant vous.`, false);
+        return backToServer(`Modification non enregistrée : ${takenBy()} a commencé à modifier cette fiche juste avant vous.`, false);
       }
       if (lease === 'failed') return setSave('error');
       const d = docRef.current!;
@@ -503,7 +534,7 @@ function OutingWorkspace({
           setSave('conflict');
         } else if (e instanceof AppApiError && e.status === 423) {
           setLock(body?.lock ?? null);
-          backToServer(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
+          backToServer(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
         } else {
           setSave('error');
           // Un autre enregistrement de la sortie était en cours : on réessaie de soi-même.
@@ -516,8 +547,11 @@ function OutingWorkspace({
     if (saveStateRef.current === 'pending') timer.current = setTimeout(() => void flushRef.current(), 800);
   };
   const flushRef = useRef(flush);
+  // Pour le renouvellement de la main (effet plus bas), la dernière version, comme flush.
+  const backToServerRef = useRef(backToServer);
   useEffect(() => {
     flushRef.current = flush;
+    backToServerRef.current = backToServer;
   });
 
   // En fermant ou en changeant de sortie : ce qui n'est pas encore parti est enregistré, puis la main est rendue.
@@ -559,7 +593,7 @@ function OutingWorkspace({
           if (saveStateRef.current === 'saved') {
             setNotice(`${takenBy()} a pris la main pendant votre absence.`);
             void refresh();
-          } else backToServer(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
+          } else backToServerRef.current(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
         }
       }
     };
@@ -605,8 +639,8 @@ function OutingWorkspace({
   const update = (fn: (d: OutingDoc) => OutingDoc) => {
     const current = docRef.current;
     if (!current) return;
-    if (lockRef.current && !lockRef.current.mine) return setNotice(`Modification ignorée : ${lockRef.current.name} modifie cette fiche.`);
-    if (saveStateRef.current === 'conflict') return setNotice('Modification ignorée : choisissez d’abord quelle version garder (bandeau en haut).');
+    if (lockRef.current && !lockRef.current.mine) return setNotice(`Modification ignorée : ${lockRef.current.name} modifie cette fiche.`);
+    if (saveStateRef.current === 'conflict') return setNotice('Modification ignorée : choisissez d’abord quelle version garder (bandeau en haut).');
     // Contrôle continu : un plongeur décoché de « Qui plonge ? » quitte aussitôt les palanquées.
     const changed = fn(current);
     const r = rosterRef.current;
@@ -632,15 +666,15 @@ function OutingWorkspace({
   /** L'identifiant d'inscription que VPDive attend pour ses routes d'admin. */
   const socketOf = (id: string, name: string) => {
     const socket = rosterRef.current?.find((r) => r.id === id)?.socket;
-    if (!socket) throw new Error(`Inscription de ${name} introuvable sur VPDive : rechargez la sortie.`);
+    if (!socket) throw new Error(`Inscription de ${name} introuvable sur VPDive : rechargez la sortie.`);
     return socket;
   };
 
   /** Avant d'écrire dans VPDive au nom de la fiche : il faut tenir la main. */
   const mustHoldLease = async () => {
     const lease = await ensureLease();
-    if (lease === 'taken') throw new Error(`${takenBy()} modifie cette fiche : action annulée.`);
-    if (lease === 'failed') throw new Error('Serveur de l’appli injoignable : réessayez.');
+    if (lease === 'taken') throw new Error(`${takenBy()} modifie cette fiche : action annulée.`);
+    if (lease === 'failed') throw new Error('Serveur de l’appli injoignable : réessayez.');
   };
 
   /**
@@ -711,7 +745,7 @@ function OutingWorkspace({
   /** Reprendre la saisie trouvée sur l'appareil : il faut la main ; si la fiche a changé depuis, l'enregistrement fera un conflit à trancher. */
   const resumeDraft = async (draft: Draft) => {
     const lease = await ensureLease();
-    if (lease !== 'ok') return setNotice(lease === 'taken' ? `Impossible de reprendre la saisie : ${takenBy()} modifie cette fiche.` : 'Serveur de l’appli injoignable : réessayez.');
+    if (lease !== 'ok') return setNotice(lease === 'taken' ? `Impossible de reprendre la saisie : ${takenBy()} modifie cette fiche.` : 'Serveur de l’appli injoignable : réessayez.');
     const r = rosterRef.current;
     const d = r ? syncWithRoster(draft.doc, withGuests(r, draft.doc)).doc : draft.doc;
     revRef.current = draft.baseRev;
@@ -729,7 +763,7 @@ function OutingWorkspace({
           <span className="font-semibold block">Sortie indisponible</span>
           {loadError}
         </div>
-        <button type="button" onClick={load} className="inline-flex items-center gap-1 font-semibold underline">
+        <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline">
           <RefreshCw className="w-4 h-4" /> Réessayer
         </button>
       </div>
@@ -739,6 +773,10 @@ function OutingWorkspace({
 
   const dive = doc.dives.find((d) => d.id === diveId) ?? doc.dives[0]!;
   const readOnly = !!other;
+  /** L'onglet affiché : la fiche seulement une fois les palanquées validées. */
+  const shown = tab === 'palanquees' || !dive.validated || !dive.plan ? 'palanquees' : 'fiche';
+  const tabId = (t: 'palanquees' | 'fiche') => `${tabsId}-tab-${t}`;
+  const panelId = (t: 'palanquees' | 'fiche') => `${tabsId}-panel-${t}`;
 
   return (
     <div className="px-5 sm:px-6 py-5 space-y-5">
@@ -761,7 +799,7 @@ function OutingWorkspace({
             <strong className="font-semibold">
               En cours de modification par {other.uct === session.traceability ? 'vous, sur un autre appareil ou un autre onglet,' : other.name} depuis {hhmm(other.since)}.
             </strong>{' '}
-            Lecture seule : la fiche se met à jour toute seule et redevient modifiable dès qu’elle est libre.
+            Lecture seule : la fiche se met à jour toute seule et redevient modifiable dès qu’elle est libre.
           </span>
           {other.uct === session.traceability && (
             <button
@@ -769,10 +807,10 @@ function OutingWorkspace({
               onClick={() =>
                 void ensureLease(true).then((r) => {
                   if (r === 'ok') void refresh();
-                  else setNotice('Impossible de prendre la main : réessayez.');
+                  else setNotice('Impossible de prendre la main : réessayez.');
                 })
               }
-              className="btn btn-quiet h-9 text-sm"
+              className="btn btn-quiet sm:h-9 text-sm"
             >
               Prendre la main ici
             </button>
@@ -784,7 +822,7 @@ function OutingWorkspace({
         <div role="status" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} aria-label="Fermer" className="icon-btn w-9 h-9">
+          <button type="button" onClick={() => setNotice(null)} aria-label="Fermer" className="icon-btn sm:w-9 sm:h-9">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -794,9 +832,9 @@ function OutingWorkspace({
         <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">
-            Une saisie non enregistrée du {dateTime(draftOffer.at)} existe sur cet appareil : la reprendre, ou l’abandonner (modifier la fiche l’abandonne aussi).
+            Une saisie non enregistrée du {dateTime(draftOffer.at)} existe sur cet appareil : la reprendre, ou l’abandonner (modifier la fiche l’abandonne aussi).
           </span>
-          <button type="button" onClick={() => void resumeDraft(draftOffer)} disabled={readOnly} className="btn btn-quiet h-9 text-sm border-warn/40 text-warn">
+          <button type="button" onClick={() => void resumeDraft(draftOffer)} disabled={readOnly} className="btn btn-quiet sm:h-9 text-sm border-warn/40 text-warn">
             La reprendre
           </button>
           <button
@@ -805,7 +843,7 @@ function OutingWorkspace({
               clearDraft(token);
               setDraftOffer(null);
             }}
-            className="btn btn-quiet h-9 text-sm"
+            className="btn btn-quiet sm:h-9 text-sm"
           >
             L’abandonner
           </button>
@@ -817,7 +855,7 @@ function OutingWorkspace({
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">
             {conflict?.updatedBy ?? 'Quelqu’un'} a enregistré cette sortie
-            {conflict?.updatedAt ? ` le ${dateTime(conflict.updatedAt)}` : ''} pendant que vous la modifiiez. Vos derniers changements ne sont pas enregistrés : gardez sa version ou la vôtre.
+            {conflict?.updatedAt ? ` le ${dateTime(conflict.updatedAt)}` : ''} pendant que vous la modifiiez. Vos derniers changements ne sont pas enregistrés : gardez sa version ou la vôtre.
           </span>
           <button
             type="button"
@@ -835,21 +873,29 @@ function OutingWorkspace({
               showDoc(v);
               setSave('saved');
             }}
-            className="btn btn-quiet h-9 text-sm border-warn/40 text-warn"
+            className="btn btn-quiet sm:h-9 text-sm border-warn/40 text-warn"
           >
             Charger sa version
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (!window.confirm(`Écraser la version de ${conflict?.updatedBy ?? 'l’autre personne'} avec la vôtre ? Ses changements seront perdus.`)) return;
+            onClick={async () => {
+              if (
+                !(await confirm({
+                  title: `Écraser la version de ${conflict?.updatedBy ?? 'l’autre personne'} ?`,
+                  message: 'Votre version la remplace : ses changements seront perdus.',
+                  confirmLabel: 'Écraser',
+                  danger: true,
+                }))
+              )
+                return;
               // Ma version, enregistrée par-dessus la sienne : on part de sa révision.
               revRef.current = conflict?.rev ?? revRef.current;
               setConflict(null);
               setSave('pending');
               void flush();
             }}
-            className="btn btn-quiet h-9 text-sm"
+            className="btn btn-quiet sm:h-9 text-sm"
           >
             Écraser avec ma version
           </button>
@@ -860,11 +906,11 @@ function OutingWorkspace({
         <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">
-            {departed.gone.length > 0 && `${departed.gone.length > 1 ? 'Désinscrits' : 'Désinscrit'} depuis la composition : ${departed.gone.join(', ')}. `}
-            {departed.waitlisted.length > 0 && `${departed.waitlisted.length > 1 ? 'Passés' : 'Passé'} en liste d’attente : ${departed.waitlisted.join(', ')}. `}
+            {departed.gone.length > 0 && `${departed.gone.length > 1 ? 'Désinscrits' : 'Désinscrit'} depuis la composition : ${departed.gone.join(', ')}. `}
+            {departed.waitlisted.length > 0 && `${departed.waitlisted.length > 1 ? 'Passés' : 'Passé'} en liste d’attente : ${departed.waitlisted.join(', ')}. `}
             {departed.gone.length + departed.waitlisted.length > 1 ? 'Retirés' : 'Retiré'} des palanquées, à revoir.
           </span>
-          <button type="button" onClick={() => setDeparted({ gone: [], waitlisted: [] })} aria-label="Fermer" className="icon-btn w-9 h-9">
+          <button type="button" onClick={() => setDeparted({ gone: [], waitlisted: [] })} aria-label="Fermer" className="icon-btn sm:w-9 sm:h-9">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -881,7 +927,7 @@ function OutingWorkspace({
               setTab(d.validated ? 'fiche' : 'palanquees');
             }}
             aria-pressed={view === 'dive' && d.id === dive.id}
-            className={`btn btn-quiet h-9 text-sm ${view === 'dive' && d.id === dive.id ? 'bg-tint border-brand' : ''}`}
+            className={`btn btn-quiet sm:h-9 text-sm ${view === 'dive' && d.id === dive.id ? 'bg-tint border-brand' : ''}`}
           >
             {d.validated && <Lock className="w-3.5 h-3.5" />}
             {d.label}
@@ -896,7 +942,7 @@ function OutingWorkspace({
               setView('dive');
               setTab('palanquees');
             }}
-            className="btn btn-quiet h-9 text-sm border-dashed"
+            className="btn btn-quiet sm:h-9 text-sm border-dashed"
           >
             <Plus className="w-4 h-4" /> Plongée
           </button>
@@ -905,21 +951,23 @@ function OutingWorkspace({
         <button
           onClick={() => setView('benevoles')}
           aria-pressed={view === 'benevoles'}
-          className={`btn btn-quiet h-9 text-sm ${view === 'benevoles' ? 'bg-tint border-brand' : ''}`}
+          className={`btn btn-quiet sm:h-9 text-sm ${view === 'benevoles' ? 'bg-tint border-brand' : ''}`}
         >
           <HandHelping className="w-4 h-4" /> Bénévoles
         </button>
         {view === 'dive' && doc.dives.length > 1 && !readOnly && (
           <button
-            onClick={() => {
-              if (!window.confirm(`Supprimer « ${dive.label} » et sa fiche de sécurité ?`)) return;
-              const rest = doc.dives.filter((d) => d.id !== dive.id);
-              update((d) => ({ ...d, dives: rest }));
+            onClick={async () => {
+              if (!(await confirm({ title: `Supprimer « ${dive.label} » ?`, message: 'Sa fiche de sécurité sera supprimée aussi.', confirmLabel: 'Supprimer', danger: true }))) return;
+              // Relue après la question : la fiche a pu changer pendant qu'elle était ouverte.
+              const rest = (docRef.current ?? doc).dives.filter((d) => d.id !== dive.id);
+              if (!rest.length) return;
+              update((d) => ({ ...d, dives: d.dives.filter((x) => x.id !== dive.id) }));
               setDiveId(rest[0]!.id);
             }}
             aria-label={`Supprimer ${dive.label}`}
             title={`Supprimer ${dive.label}`}
-            className="icon-btn ml-auto w-9 h-9 hover:text-danger hover:bg-danger-soft"
+            className="icon-btn ml-auto sm:w-9 sm:h-9 hover:text-danger hover:bg-danger-soft"
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -933,16 +981,24 @@ function OutingWorkspace({
       ) : (
         <>
         {/* Palanquées / Fiche */}
-        <div className="flex border-b border-line print:hidden" role="tablist">
-          <TabButton active={tab === 'palanquees'} onClick={() => setTab('palanquees')} icon={<Users className="w-4 h-4" />}>
+        <TabList label={dive.label} className="flex border-b border-line print:hidden">
+          <TabButton id={tabId('palanquees')} controls={panelId('palanquees')} active={shown === 'palanquees'} onClick={() => setTab('palanquees')} icon={<Users className="w-4 h-4" />}>
             Palanquées
           </TabButton>
-          <TabButton active={tab === 'fiche'} disabled={!dive.validated} onClick={() => setTab('fiche')} icon={dive.validated ? <ClipboardList className="w-4 h-4" /> : <Lock className="w-4 h-4" />}>
+          <TabButton
+            id={tabId('fiche')}
+            controls={panelId('fiche')}
+            active={shown === 'fiche'}
+            disabled={!dive.validated}
+            onClick={() => setTab('fiche')}
+            icon={dive.validated ? <ClipboardList className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+          >
             Fiche de sécurité
           </TabButton>
-        </div>
+        </TabList>
 
-        {tab === 'palanquees' || !dive.validated || !dive.plan ? (
+        <TabPanel id={panelId(shown)} labelledBy={tabId(shown)}>
+        {shown === 'palanquees' ? (
           <PalanqueesEditor
             title={event.title}
             roster={people}
@@ -984,19 +1040,38 @@ function OutingWorkspace({
             onGas={(id, gas) => updateDive((d) => ({ ...d, gas: { ...d.gas, [id]: gas } }))}
           />
         )}
+        </TabPanel>
         </>
       )}
+      {confirmDialog}
     </div>
   );
 }
 
-function TabButton({ active, disabled, onClick, icon, children }: { active: boolean; disabled?: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
+function TabButton({
+  id,
+  controls,
+  active,
+  disabled,
+  onClick,
+  icon,
+  children,
+}: {
+  id: string;
+  controls: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <button
-      role="tab"
-      aria-selected={active}
+    <Tab
+      id={id}
+      controls={controls}
+      selected={active}
       disabled={disabled}
-      onClick={onClick}
+      onSelect={onClick}
       title={disabled ? 'Validez d’abord les palanquées' : undefined}
       className={`inline-flex items-center gap-2 px-4 h-11 -mb-px border-b-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
         active ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-ink'
@@ -1004,14 +1079,14 @@ function TabButton({ active, disabled, onClick, icon, children }: { active: bool
     >
       {icon}
       {children}
-    </button>
+    </Tab>
   );
 }
 
 function SaveBadge({ state, doc, onRetry }: { state: SaveState; doc: OutingDoc; onRetry: () => void }) {
   if (state === 'error') {
     return (
-      <button onClick={onRetry} className="inline-flex items-center gap-1.5 text-sm font-semibold text-danger">
+      <button onClick={onRetry} className="inline-flex items-center gap-1.5 max-sm:min-h-11 text-sm font-semibold text-danger">
         <AlertTriangle className="w-4 h-4" /> Non enregistré · réessayer
       </button>
     );

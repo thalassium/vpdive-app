@@ -11,6 +11,8 @@ interface Props {
 }
 
 type Search = { state: 'idle' } | { state: 'busy' } | { state: 'done'; matches: MemberMatch[] } | { state: 'unavailable' };
+/** Trop court pour chercher (moins de trois lettres). */
+const tooShort = (text: string) => text.trim().replace(/\s/g, '').length < 3;
 
 /**
  * « Je souhaite plonger avec… » : le plongeur tape un prénom et un nom comme il
@@ -26,11 +28,9 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
 
   useEffect(() => {
     if (picked) return;
+    // Trop court : la recherche a été remise au repos par `type`, à la frappe.
+    if (tooShort(typed)) return;
     const q = typed.trim();
-    if (q.replace(/\s/g, '').length < 3) {
-      setSearch({ state: 'idle' });
-      return;
-    }
     const id = ++requestId.current;
     const timer = setTimeout(async () => {
       setSearch({ state: 'busy' });
@@ -52,6 +52,7 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
     setTyped(text);
     setPicked(null);
     onChange(text);
+    if (tooShort(text)) setSearch({ state: 'idle' });
   };
   const pick = (m: MemberMatch) => {
     setPicked(m);
@@ -75,14 +76,14 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
           onChange={(e) => type(e.target.value)}
           placeholder="Prénom et nom"
           aria-describedby="buddy-help"
-          className={`field w-full pl-10 pr-10 text-base ${picked ? 'border-green text-ok font-medium' : ''}`}
+          className={`field w-full pl-10 pr-10 text-base ${picked ? 'border-ok text-ok font-medium' : ''}`}
         />
         {typed && (
           <button
             type="button"
             onClick={() => type('')}
             aria-label="Effacer le binôme"
-            className="icon-btn absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8"
+            className="icon-btn absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 max-sm:before:absolute max-sm:before:-inset-1.5"
           >
             {picked ? <Check className="w-4 h-4 text-ok" strokeWidth={3} /> : <X className="w-4 h-4" />}
           </button>
@@ -91,20 +92,20 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
 
       <div id="buddy-help" aria-live="polite" className="mt-1.5 text-sm">
         {search.state === 'busy' && <p className="text-muted">Recherche parmi les membres…</p>}
-        {search.state === 'unavailable' && <p className="text-muted">Recherche des membres indisponible : le nom sera transmis tel quel.</p>}
+        {search.state === 'unavailable' && <p className="text-muted">Recherche des membres indisponible : le nom sera transmis tel quel.</p>}
         {search.state === 'done' && search.matches.length === 0 && (
-          <p className="text-muted">Aucun membre ne ressemble à ce nom : il sera transmis tel quel.</p>
+          <p className="text-muted">Aucun membre ne ressemble à ce nom : il sera transmis tel quel.</p>
         )}
         {search.state === 'done' && search.matches.length > 0 && (
           <div>
-            <p className="text-muted mb-1.5">{search.matches.length > 1 ? 'Vouliez-vous dire :' : 'Vouliez-vous dire'}</p>
+            <p className="text-muted mb-1.5">{search.matches.length > 1 ? 'Vouliez-vous dire :' : 'Vouliez-vous dire'}</p>
             <div className="flex flex-wrap gap-1.5">
               {search.matches.map((m) => (
                 <button
                   key={m.id}
                   type="button"
                   onClick={() => pick(m)}
-                  className="btn btn-quiet h-9 px-3 font-medium text-ink hover:text-brand"
+                  className="btn btn-quiet sm:h-9 px-3 font-medium text-ink hover:text-brand"
                 >
                   {m.name}
                 </button>

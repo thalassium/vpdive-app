@@ -19,13 +19,17 @@
  *   field / field-border               champs de saisie et menus : toujours distincts de leur fond
  *   ink / muted / line                 texte, texte secondaire, filets
  *   brand                              marine en TEXTE et bordures (bleu clair en sombre)
- *   fill                               marine en APLAT (bouton principal), texte blanc dessus
+ *   fill / on-fill                     marine en APLAT (bouton principal, bulle de mes messages) et
+ *                                      le texte posé dessus : ≥ 4,5:1 en clair (14,8) et en sombre (6,3 ; 5,1 au survol)
  *   band / on-band                     le pied de page, seule grande surface marine, et son texte
  *   scrim                              voile derrière les fenêtres ; sans flou, la carte marine reste visible
  *   focus                              anneau de focus des champs
  *   pink                               accent ; jamais en texte sur fond clair (trop pâle)
  *   ok / warn / danger                 inscrit, alerte (peu de places, vent), erreur : en texte, filet
- *                                      et teinte douce (-soft), jamais en aplat
+ *                                      et teinte douce (-soft), jamais en aplat ; ok ≥ 4,5:1 sur tous
+ *                                      les fonds clairs (4,57 sur tint) et sombres
+ *   pink / green (@theme)              identité du club (logo, repères) : jamais pour dire un état,
+ *                                      le vert du logo n'a que 2,6:1 sur blanc
  *   deep / chart / bubble              fond « carte marine » (SeaBackdrop) : eau profonde,
  *   coast-far / coast-near / swell     traits de carte, bulles, îles, calanques, houle
  *
@@ -72,6 +76,7 @@
   --brand: #012362;
   --fill: #012362;
   --fill-hover: #0c2d69;
+  --on-fill: #ffffff;
   --band: #012362;
   --on-band: #ffffff;
   --scrim: rgb(1 35 98 / 0.45);
@@ -117,6 +122,7 @@
   --brand: #b9caf6;
   --fill: #3559c0;
   --fill-hover: #4268d2;
+  --on-fill: #ffffff;
   --band: #0d1a40;
   --on-band: #e9edf7;
   --scrim: rgb(0 0 0 / 0.6);
@@ -208,6 +214,7 @@
   --color-brand: var(--brand);
   --color-fill: var(--fill);
   --color-fill-hover: var(--fill-hover);
+  --color-on-fill: var(--on-fill);
   --color-band: var(--band);
   --color-on-band: var(--on-band);
   --color-scrim: var(--scrim);
@@ -242,20 +249,23 @@
 
 /*
  * Boutons : 44 px de haut sur téléphone (cible tactile), 40 px au-delà. Une hauteur posée
- * à la main (`btn h-8`) l'emporte toujours, à toutes les largeurs.
+ * à la main (`btn h-8`) l'emporte toujours, à toutes les largeurs : pour un bouton plus
+ * dense sur ordinateur, la poser à partir de sm (`btn sm:h-8`), le téléphone garde 44 px.
+ * Une petite icône qui doit garder sa taille (retrait dans une pastille) étend sa zone de
+ * toucher : `relative max-sm:before:absolute max-sm:before:-inset-2`.
  */
 @utility btn {
   @apply h-10 max-sm:h-11 px-4 rounded-lg font-semibold inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
 }
 /* L'action principale de l'écran, une seule par vue. */
 @utility btn-primary {
-  @apply bg-fill text-white hover:bg-fill-hover;
+  @apply bg-fill text-on-fill hover:bg-fill-hover;
 }
 /* Tout autre bouton, et les déclencheurs de choix. */
 @utility btn-quiet {
   @apply bg-surface text-brand border border-field-border hover:bg-raised;
 }
-/* Bouton icône : 44 × 44 px sur téléphone, 40 × 40 au-delà (même règle que btn pour les tailles posées à la main). */
+/* Bouton icône : 44 × 44 px sur téléphone, 40 × 40 au-delà (même règle que btn pour les tailles posées à la main : `icon-btn sm:w-9 sm:h-9`). */
 @utility icon-btn {
   @apply w-10 h-10 max-sm:w-11 max-sm:h-11 shrink-0 inline-flex items-center justify-center rounded-lg text-muted hover:text-brand hover:bg-raised transition-colors;
 }

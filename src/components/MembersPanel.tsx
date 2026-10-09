@@ -5,7 +5,6 @@ import { vpdive, type MemberMatch, type MemberProfile } from '../services/vpdive
 import { appApi, type AppRole, type Me, type RoleEntry } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
 import { findDuplicates, type DuplicateGroup } from '../lib/duplicates';
-import { ThemeToggle } from './ThemeToggle';
 import { useDialog } from '../hooks/useDialog';
 import { GabianLoader } from './Gabian';
 
@@ -17,7 +16,7 @@ interface Props {
 
 const VPDIVE_MEMBERS_URL = 'https://septentrion-env.vpdive.com/app/members';
 const ROLES_HELP =
-  'Admin : menus Gestion de sortie et Admin. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli par défaut ; le leur retirer ici ne change rien sur vpdive.com.';
+  'Admin : menus Gestion de sortie et Admin. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli par défaut ; le leur retirer ici ne change rien sur vpdive.com.';
 const roleRank: Record<AppRole, number> = { superadmin: 0, admin: 1, member: 2 };
 const byName = (a: MemberMatch, b: MemberMatch) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
 
@@ -76,7 +75,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
       setRoles(new Map(entries.map((e) => [e.uct, e])));
     } catch (e) {
       if (onSessionLost(e)) return;
-      setRoleError(`${m.name} : ${e instanceof Error ? e.message : String(e)}`);
+      setRoleError(`${m.name} : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(null);
     }
@@ -166,7 +165,6 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
               )}
             </div>
             <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
-              <ThemeToggle />
               <button onClick={onClose} aria-label="Fermer" className="icon-btn">
                 <X className="w-6 h-6" />
               </button>
@@ -203,7 +201,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
                 <span className="font-semibold block">Liste des membres indisponible</span>
                 {error}
               </div>
-              <button type="button" onClick={load} className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">
+              <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
                 <RefreshCw className="w-4 h-4" /> Réessayer
               </button>
             </div>
@@ -437,7 +435,7 @@ function Switch({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="inline-flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1.5 text-sm font-semibold text-ink disabled:opacity-50 disabled:cursor-not-allowed"
+      className="inline-flex flex-col sm:flex-row items-center justify-center max-sm:min-h-11 max-sm:min-w-11 gap-0.5 sm:gap-1.5 text-sm font-semibold text-ink disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {/*
         Contraste ≥ 3:1 (WCAG 1.4.11) : rail éteint en field-border (3,6:1 sur blanc), pastille blanche dessus ;
@@ -463,7 +461,7 @@ function Line({ label, values }: { label: string; values: string[] }) {
   if (!values.length) return null;
   return (
     <p className="text-muted">
-      {label} : <span className="text-ink">{values.join(' · ')}</span>
+      {label} : <span className="text-ink">{values.join(' · ')}</span>
     </p>
   );
 }

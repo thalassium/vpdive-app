@@ -191,7 +191,7 @@ export function Menu({ trigger, sections, ariaLabel, triggerClassName = '', disa
                         s.onSelect(o.value);
                         close();
                       }}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-base outline-none focus-visible:bg-raised focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand hover:bg-raised ${selected ? 'bg-tint font-semibold text-brand' : ''}`}
+                      className={`w-full flex items-center gap-2 px-3 py-2.5 sm:py-2 text-left text-base outline-none focus-visible:bg-raised focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand hover:bg-raised ${selected ? 'bg-tint font-semibold text-brand' : ''}`}
                     >
                       <span className="w-4 shrink-0">{selected && <Check className="w-4 h-4" strokeWidth={2.5} />}</span>
                       <span className="flex-1 min-w-0">{o.label}</span>

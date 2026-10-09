@@ -190,7 +190,7 @@ export interface PlanOptions {
 }
 
 /** Raison affichée pour le directeur de plongée laissé hors des palanquées. */
-export const DP_STAYS_ABOARD = 'Directeur de plongée : reste sur le bateau.';
+export const DP_STAYS_ABOARD = 'Directeur de plongée : reste sur le bateau.';
 
 // ── Lecture des niveaux VPDive ───────────────────────────────────
 
@@ -591,41 +591,41 @@ export function validate(p: Palanquee, outingMax: Depth = 60): string[] {
     issues.push(`${p.depth} m dépasse la prérogative de la palanquée (${depthOf(p, outingMax) || 0} m).`);
   }
   for (const m of [p.guide, p.extra, ...p.members]) {
-    if (m?.child) issues.push(`${m.name} : plongeur enfant, conditions de pratique enfants à vérifier.`);
+    if (m?.child) issues.push(`${m.name} : plongeur enfant, conditions de pratique enfants à vérifier.`);
   }
   if (p.kind === 'teaching') {
     const students = studentsOf(p);
     if (!p.guide) issues.push('Pas d’enseignant.');
-    else if (!p.guide.teach) issues.push(`${p.guide.name} n’est pas enseignant (E1, E2, E3 ou E4) : un N4/GP n’encadre pas de formation.`);
-    else if (p.guide.training) issues.push(`${p.guide.name} est en formation (${trainingLabel(p.guide)}) : ne peut pas enseigner.`);
+    else if (!p.guide.teach) issues.push(`${p.guide.name} n’est pas enseignant (E1, E2, E3 ou E4) : un N4/GP n’encadre pas de formation.`);
+    else if (p.guide.training) issues.push(`${p.guide.name} est en formation (${trainingLabel(p.guide)}) : ne peut pas enseigner.`);
     else {
       const demanding = students.filter((s) => s.training && minTeachFor(s) > p.guide!.teach).sort((a, b) => minTeachFor(b) - minTeachFor(a))[0];
       if (demanding) issues.push(`${trainingLabel(demanding)} demande un E${minTeachFor(demanding)} au minimum (${p.guide.name} est E${p.guide.teach}).`);
     }
     if (students.length === 0) issues.push('Aucun élève.');
-    if (students.length > 4) issues.push(`${students.length} élèves : 4 au maximum.`);
+    if (students.length > 4) issues.push(`${students.length} élèves : 4 au maximum.`);
     // Un GP/N4 qui assiste une formation est simplement plongeur : pas de slot « GP suppl. » ici.
-    if (p.extra) issues.push(`${p.extra.name} : pas de plongeur supplémentaire en formation, placez-le comme plongeur.`);
-    for (const m of p.members) if (!teachingDepthOf(m)) issues.push(`${m.name} : niveau inconnu, à vérifier.`);
+    if (p.extra) issues.push(`${p.extra.name} : pas de plongeur supplémentaire en formation, placez-le comme plongeur.`);
+    for (const m of p.members) if (!teachingDepthOf(m)) issues.push(`${m.name} : niveau inconnu, à vérifier.`);
   } else if (p.kind === 'guided') {
     if (!p.guide) issues.push('Pas d’encadrant.');
     else if (!p.guide.guide) issues.push(`${p.guide.name} n’a pas de qualification d’encadrant connue.`);
-    else if (!canGuideExploration(p.guide)) issues.push(`${p.guide.name} : un encadrant d’exploration est au minimum N4/GP.`);
-    else if (p.guide.training) issues.push(`${p.guide.name} est en formation (${trainingLabel(p.guide)}) : ne peut pas encadrer.`);
+    else if (!canGuideExploration(p.guide)) issues.push(`${p.guide.name} : un encadrant d’exploration est au minimum N4/GP.`);
+    else if (p.guide.training) issues.push(`${p.guide.name} est en formation (${trainingLabel(p.guide)}) : ne peut pas encadrer.`);
     if (p.members.length === 0) issues.push('Aucun plongeur encadré.');
-    if (p.members.length > 4) issues.push(`${p.members.length} plongeurs encadrés : 4 au maximum.`);
+    if (p.members.length > 4) issues.push(`${p.members.length} plongeurs encadrés : 4 au maximum.`);
     if (p.extra && !p.extra.canBeExtra) issues.push(`${p.extra.name} doit être au moins GP/N4 pour être plongeur supplémentaire.`);
     // Avec un plongeur supplémentaire, depthOf plafonne déjà la palanquée à 40 m : rien à signaler ici.
     for (const m of p.members) {
-      if (!guidedDepthOf(m)) issues.push(`${m.name} : niveau inconnu, à vérifier.`);
-      if (m.training) issues.push(`${m.name} est en formation (${trainingLabel(m)}) : palanquée de formation avec un enseignant.`);
+      if (!guidedDepthOf(m)) issues.push(`${m.name} : niveau inconnu, à vérifier.`);
+      if (m.training) issues.push(`${m.name} est en formation (${trainingLabel(m)}) : palanquée de formation avec un enseignant.`);
     }
   } else {
     if (p.members.length < 2) issues.push('Une palanquée autonome compte au moins 2 plongeurs.');
-    if (p.members.length > 3) issues.push(`${p.members.length} plongeurs autonomes : 3 au maximum.`);
+    if (p.members.length > 3) issues.push(`${p.members.length} plongeurs autonomes : 3 au maximum.`);
     for (const m of p.members) {
       if (!m.pa) issues.push(`${m.name} n’est pas autonome (aucune aptitude PA).`);
-      if (m.training) issues.push(`${m.name} est en formation (${trainingLabel(m)}) : palanquée de formation avec un enseignant.`);
+      if (m.training) issues.push(`${m.name} est en formation (${trainingLabel(m)}) : palanquée de formation avec un enseignant.`);
     }
   }
   return issues;
@@ -750,13 +750,13 @@ function composePalanquees(divers: Diver[], opts: PlanOptions): Plan {
   const trainees: Diver[] = [];
   const guided: Diver[] = [];
   for (const d of divers) {
-    if (d.child) unassigned.push({ diver: d, reason: 'Plongeur enfant : conditions de pratique enfants, à placer à la main.' });
+    if (d.child) unassigned.push({ diver: d, reason: 'Plongeur enfant : conditions de pratique enfants, à placer à la main.' });
     // Élève ce jour-là, moniteur ou non : il n'encadre pas.
     else if (d.training) trainees.push(d);
     else if (d.guide) guides.push(d);
     else if (d.pa) autonomous.push(d);
     else if (guidedDepthOf(d)) guided.push(d);
-    else unassigned.push({ diver: d, reason: 'Niveau inconnu : à placer à la main.' });
+    else unassigned.push({ diver: d, reason: 'Niveau inconnu : à placer à la main.' });
   }
   guides.sort((a, b) => GUIDE_RANK[a.guide!] - GUIDE_RANK[b.guide!] || a.teach - b.teach);
 
@@ -922,7 +922,7 @@ function groupByTier(pool: Diver[], outingMax: Depth, out: Palanquee[], unassign
   }
   const guidedHost = guidedDepthOf(lone) && out.find((p) => p.kind === 'guided' && p.members.length < 4);
   if (guidedHost) guidedHost.members.push(lone);
-  else unassigned.push({ diver: lone, reason: 'Seul autonome : il faut au moins 2 plongeurs pour une palanquée autonome.' });
+  else unassigned.push({ diver: lone, reason: 'Seul autonome : il faut au moins 2 plongeurs pour une palanquée autonome.' });
 }
 
 /**
@@ -937,7 +937,7 @@ function assignTeaching(trainees: Diver[], guides: Diver[], outingMax: Depth, ou
   if (!trainees.length) return free;
   const count = free.filter((g) => g.teach > 0 && !g.training).length;
   if (!count) {
-    for (const d of trainees) unassigned.push({ diver: d, reason: `En formation (${trainingLabel(d)}) : aucun enseignant (E1, E2, E3, E4) inscrit.` });
+    for (const d of trainees) unassigned.push({ diver: d, reason: `En formation (${trainingLabel(d)}) : aucun enseignant (E1, E2, E3, E4) inscrit.` });
     return free;
   }
   for (const group of guidedGroups(trainees, count, outingMax, teachingDepthOf)) {
@@ -945,7 +945,7 @@ function assignTeaching(trainees: Diver[], guides: Diver[], outingMax: Depth, ou
     if (!teacher) {
       const need = teachingNeed(group, outingMax);
       for (const d of group) {
-        unassigned.push({ diver: d, reason: `En formation (${trainingLabel(d)}) : aucun enseignant disponible (E${need.minTeach} au minimum, zone ${need.depth} m, 4 élèves par enseignant).` });
+        unassigned.push({ diver: d, reason: `En formation (${trainingLabel(d)}) : aucun enseignant disponible (E${need.minTeach} au minimum, zone ${need.depth} m, 4 élèves par enseignant).` });
       }
       continue;
     }

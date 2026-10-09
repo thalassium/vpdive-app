@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowLeft, Check, ExternalLink, FileUp, Loader2, RefreshCw, ScrollText, Search, Settings, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ExternalLink, FileUp, RefreshCw, ScrollText, Search, Settings, UserX, X } from 'lucide-react';
 import { BrevetMapView } from './BrevetMapView';
 import { Avatar } from '../Avatar';
+import { Spinner } from '../Spinner';
 import { GabianLoader } from '../Gabian';
 import { MemberSearch } from '../dp/MemberSearch';
 import { vpdive, ymd } from '../../services/vpdiveApi';
@@ -49,6 +50,7 @@ import {
 } from '../../lib/membership';
 import { normalizeName } from '../../lib/fuzzy';
 import { describeSnapshot } from '../../lib/memberWrite';
+import { cacheKey } from './memberCache';
 
 /**
  * Gestion des adhésions, étapes 2 à 4 : chaque personne de la saison vue par
@@ -59,8 +61,6 @@ import { describeSnapshot } from '../../lib/memberWrite';
 const READ_GAP_MS = 500;
 const MAX_FAILURES = 3;
 const CACHE_TTL_MS = 6 * 3600_000;
-// v4 : l’assurance est lue dans le choix de la liste (insurance_choice), comme sur le site VPDive.
-export const cacheKey = (uct: string) => `member-record:v4:${uct}`;
 function readCache(uct: string): VpRecord | null {
   try {
     const v = JSON.parse(sessionStorage.getItem(cacheKey(uct)) ?? 'null') as { at: number; record: VpRecord } | null;
@@ -100,7 +100,7 @@ const VPDIVE_MEMBER = (uct: string) => `https://septentrion-env.vpdive.com/app/m
 const FIX_ORDER: FixKind[] = ['season', 'licence', 'licence-add', 'insurance', 'brevets'];
 const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
   season: { title: `Saison d’adhésion à ajouter`, help: 'Adhésion payée sur HelloAsso (geste d’août compris), saison absente de la fiche VPDive.' },
-  licence: { title: 'Licence FFESSM : date de fin à mettre à jour', help: 'Même numéro, date ancienne. VPDive relit la FFESSM si la licence est vérifiée, sinon la date est saisie.' },
+  licence: { title: 'Licence FFESSM : date de fin à mettre à jour', help: 'Même numéro, date ancienne. VPDive relit la FFESSM si la licence est vérifiée, sinon la date est saisie.' },
   'licence-add': { title: 'Licence FFESSM à ajouter', help: 'Licence prise par le club (export Mon Club), absente de la fiche VPDive.' },
   insurance: {
     title: 'Assurance à reporter',
@@ -109,8 +109,8 @@ const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
   brevets: { title: 'Brevets à ajouter', help: 'Brevets délivrés par la FFESSM (export des brevets), absents des niveaux de la fiche VPDive.' },
 };
 const CASE_TITLE: Record<CaseKind, string> = {
-  homonym: 'Homonymes : choisir le bon membre',
-  family: 'Patronyme commun : parents',
+  homonym: 'Homonymes : choisir le bon membre',
+  family: 'Patronyme commun : parents',
   absent: 'Pas de fiche VPDive',
   guest: 'Statut Invité à passer en Membre',
   'licence-other': 'Autre numéro de licence dans VPDive',
@@ -325,7 +325,7 @@ export function MembershipTab({
   const targets = (f: Fix) => (f.brevets ?? []).map((b) => ({ brevet: b, level: catalog ? brevetTarget(b, brevetMap, catalog) : null }));
   /** Pourquoi une correction ne peut pas s'écrire (case grisée), sinon null. */
   const blocked = (f: Fix): string | null => {
-    if (f.kind === 'licence' && !f.licenceId) return 'licence sans identifiant VPDive : à faire à la main';
+    if (f.kind === 'licence' && !f.licenceId) return 'licence sans identifiant VPDive : à faire à la main';
     if (f.kind !== 'brevets') return null;
     if (!catalog) return 'lecture du référentiel des niveaux…';
     return targets(f).some((t) => t.level) ? null : 'niveau VPDive à choisir dans la correspondance des brevets (roue crantée, étape 2)';
@@ -393,7 +393,7 @@ export function MembershipTab({
               setProgress(null);
               setReadError('Lecture arrêtée.');
             }}
-            className="btn btn-quiet h-8 text-sm"
+            className="btn btn-quiet sm:h-8 text-sm"
           >
             Arrêter
           </button>
@@ -401,7 +401,7 @@ export function MembershipTab({
       ) : (
         <>
           <span className="text-danger">{readError}</span>
-          <button type="button" onClick={() => void readRecords(wanted.filter((u) => !records[u]))} className="btn btn-quiet h-8 text-sm">
+          <button type="button" onClick={() => void readRecords(wanted.filter((u) => !records[u]))} className="btn btn-quiet sm:h-8 text-sm">
             <RefreshCw className="w-4 h-4" /> Reprendre
           </button>
         </>
@@ -412,9 +412,9 @@ export function MembershipTab({
   const errors = (loadError || haError) && (
     <div role="alert" className="p-3 rounded-xl bg-danger-soft text-danger text-sm flex flex-wrap items-center gap-3">
       <AlertTriangle className="w-4 h-4 shrink-0" />
-      <span className="flex-1 min-w-0">{haError ? `HelloAsso : ${haError}` : loadError}</span>
+      <span className="flex-1 min-w-0">{haError ? `HelloAsso : ${haError}` : loadError}</span>
       {haError && (
-        <button type="button" onClick={loadHelloasso} className="btn btn-quiet h-8 text-sm">
+        <button type="button" onClick={loadHelloasso} className="btn btn-quiet sm:h-8 text-sm">
           <RefreshCw className="w-4 h-4" /> Réessayer
         </button>
       )}
@@ -422,7 +422,7 @@ export function MembershipTab({
   );
 
   const refreshButton = (
-    <button type="button" onClick={refresh} disabled={!!progress || loading || busy} className="btn btn-quiet h-9 text-sm" title="Relit les fiches VPDive, sans le cache de la session">
+    <button type="button" onClick={refresh} disabled={!!progress || loading || busy} className="btn btn-quiet sm:h-9 text-sm" title="Relit les fiches VPDive, sans le cache de la session">
       <RefreshCw className="w-4 h-4" /> Relire les fiches VPDive
     </button>
   );
@@ -430,7 +430,7 @@ export function MembershipTab({
   const search = (
     <label className="relative flex-1 min-w-[12rem] max-w-xs ml-auto">
       <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom ou n° de licence" aria-label="Chercher" className="field w-full h-9 pl-9" />
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom ou n° de licence" aria-label="Chercher" className="field w-full sm:h-9 pl-9" />
     </label>
   );
 
@@ -448,7 +448,11 @@ export function MembershipTab({
         <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
           <p className="text-sm text-ink">
             Saison <strong className="font-semibold">{seasonLabel(season)}</strong>
-            <span className="text-muted"> · ✅ conforme · ❌ absent · ⚠️ différent</span>
+            {/* Légende : les signes sont dits par le texte qui les suit. */}
+            <span className="text-muted">
+              {' '}
+              · <span aria-hidden>✅</span> conforme · <span aria-hidden>❌</span> absent · <span aria-hidden>⚠️</span> différent
+            </span>
           </p>
           <div className="space-y-1.5">
             <FfessmImportBox
@@ -462,12 +466,12 @@ export function MembershipTab({
                 const n = rows.filter((r) => r.season === season).length;
                 return n
                   ? { text: `${n} licence${n > 1 ? 's' : ''} pour ${seasonLabel(season)}`, warn: false }
-                  : { text: `Aucune licence pour ${seasonLabel(season)} : export d’une autre saison ?`, warn: true };
+                  : { text: `Aucune licence pour ${seasonLabel(season)} : export d’une autre saison ?`, warn: true };
               }}
             />
             <FfessmImportBox what="brevets" current={brevetsImport} parse={parseFfessmBrevets} save={appApi.saveFfessmBrevets} onImported={setBrevetsImport} onSessionLost={onSessionLost} />
           </div>
-          <button type="button" onClick={() => setConfigOpen(true)} className="icon-btn ml-auto" aria-label="Réglages : correspondance des brevets" title="Correspondance des brevets">
+          <button type="button" onClick={() => setConfigOpen(true)} className="icon-btn ml-auto" aria-label="Réglages : correspondance des brevets" title="Correspondance des brevets">
             <Settings className="w-5 h-5" />
           </button>
         </div>
@@ -485,7 +489,7 @@ export function MembershipTab({
                     role="radio"
                     aria-checked={filter === f.key}
                     onClick={() => setFilter(f.key)}
-                    className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+                    className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
                   >
                     {f.label} <span className="tabular-nums">{counts[f.key]}</span>
                   </button>
@@ -573,7 +577,7 @@ export function MembershipTab({
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm text-muted max-w-2xl">
-            Corrections sans risque : une valeur connue ajoutée à la fiche d’un membre reconnu avec certitude, sans rien retirer. Après les avoir écrites dans VPDive, relisez les
+            Corrections sans risque : une valeur connue ajoutée à la fiche d’un membre reconnu avec certitude, sans rien retirer. Après les avoir écrites dans VPDive, relisez les
             fiches pour mettre le diagnostic à jour.
           </p>
           {search}
@@ -583,7 +587,7 @@ export function MembershipTab({
         {results.length > 0 && (
           <section ref={resultsRef} className="card overflow-hidden scroll-mt-4" aria-live="polite">
             <header className="flex items-center gap-2 px-4 py-2.5 bg-raised border-b border-line">
-              <span className="font-semibold text-brand">Écrit dans VPDive</span>
+              <h3 className="font-semibold text-brand">Écrit dans VPDive</h3>
               <span className="text-sm text-muted tabular-nums">
                 · {results.filter((x) => x.ok).length} fiche{results.filter((x) => x.ok).length > 1 ? 's' : ''}
                 {results.some((x) => !x.ok) && ' · arrêté au premier problème'}
@@ -596,7 +600,7 @@ export function MembershipTab({
               {results.map((x) => (
                 <li key={x.uct} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-4 py-2.5 text-sm">
                   {x.ok ? <Check className="w-4 h-4 mt-0.5 text-ok shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 text-danger shrink-0" />}
-                  <span className="w-52 min-w-0 font-medium text-ink truncate">{x.name}</span>
+                  <span className="flex-1 sm:flex-none sm:w-52 min-w-0 font-medium text-ink truncate">{x.name}</span>
                   <span className={`flex-1 min-w-0 ${x.ok ? 'text-muted' : 'text-danger'}`}>
                     {x.message}
                     {x.warning && <span className="block text-warn">{x.warning}</span>}
@@ -620,7 +624,9 @@ export function MembershipTab({
             return (
               <section key={kind} className="card overflow-hidden">
                 <header className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 bg-raised border-b border-line">
-                  <label className="inline-flex items-center gap-2.5 cursor-pointer">
+                  {/* Le titre du groupe porte la case « tout cocher » : un titre pour la navigation au clavier, une case pour le geste. */}
+                  <h3>
+                  <label className="inline-flex items-center gap-2.5 max-sm:min-h-11 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={all}
@@ -631,6 +637,7 @@ export function MembershipTab({
                     <span className="font-semibold text-brand">{FIX_TITLE[kind].title}</span>
                     <span className="text-sm text-muted tabular-nums">· {list.length}</span>
                   </label>
+                  </h3>
                   <span className="basis-full sm:basis-auto sm:ml-auto text-sm text-muted">{FIX_TITLE[kind].help}</span>
                 </header>
                 <ul className="divide-y divide-line">
@@ -647,7 +654,7 @@ export function MembershipTab({
                             onChange={() => toggle(keyOf(r, f))}
                             className="w-5 h-5 accent-[var(--fill)] disabled:opacity-40"
                           />
-                          <span className="w-56 min-w-0 font-medium text-ink truncate">{r.match.member?.name ?? r.p.name}</span>
+                          <span className="flex-1 sm:flex-none sm:w-56 min-w-0 font-medium text-ink truncate">{r.match.member?.name ?? r.p.name}</span>
                           <span className="text-sm text-muted">{f.before}</span>
                           <span aria-hidden className="text-muted">→</span>
                           <span className="text-sm font-semibold text-ok">{f.after}</span>
@@ -655,7 +662,7 @@ export function MembershipTab({
                           {f.kind === 'brevets' && !why && catalog && (
                             <span className="text-xs text-muted">
                               coche {targets(f).filter((t) => t.level).map((t) => t.level!.name).join(', ')}
-                              {unresolved.length > 0 && ` · ${unresolved.join(', ')} : niveau à choisir`}
+                              {unresolved.length > 0 && ` · ${unresolved.join(', ')} : niveau à choisir`}
                             </span>
                           )}
                           {why && <span className="text-xs text-warn">{why}</span>}
@@ -671,11 +678,11 @@ export function MembershipTab({
         <div className="sticky -bottom-4 z-10 -mx-3 sm:-mx-5 px-3 sm:px-5 py-3 bg-surface border-t border-line flex flex-wrap items-center gap-3">
           {writing ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin text-brand" />
+              <Spinner className="text-brand" />
               <span className="text-sm text-ink tabular-nums">
-                Écriture {writing.done + 1}/{writing.total} : {writing.name}…
+                Écriture {writing.done + 1}/{writing.total} : {writing.name}…
               </span>
-              <button type="button" onClick={() => (stopWriting.current = true)} className="btn btn-quiet h-9 text-sm">
+              <button type="button" onClick={() => (stopWriting.current = true)} className="btn btn-quiet sm:h-9 text-sm">
                 Arrêter après cette fiche
               </button>
             </>
@@ -687,7 +694,7 @@ export function MembershipTab({
               <button type="button" onClick={() => void apply()} className="btn btn-primary">
                 Écrire dans VPDive
               </button>
-              <button type="button" onClick={() => setConfirming(false)} className="btn btn-quiet h-9 text-sm">
+              <button type="button" onClick={() => setConfirming(false)} className="btn btn-quiet sm:h-9 text-sm">
                 Annuler
               </button>
             </>
@@ -697,12 +704,12 @@ export function MembershipTab({
                 Écrire dans VPDive ({selected.length})
               </button>
               {refreshButton}
-              <button type="button" onClick={() => setLogOpen(true)} className="btn btn-quiet h-9 text-sm" title="Les fiches écrites par les corrections rapides, avec la fiche d’avant">
+              <button type="button" onClick={() => setLogOpen(true)} className="btn btn-quiet sm:h-9 text-sm" title="Les fiches écrites par les corrections rapides, avec la fiche d’avant">
                 <ScrollText className="w-4 h-4" /> Journal
               </button>
               <span className="text-sm text-muted">
                 {progress
-                  ? 'Lecture des fiches VPDive en cours : le bouton s’active quand elle est finie.'
+                  ? 'Lecture des fiches VPDive en cours : le bouton s’active quand elle est finie.'
                   : !selected.length
                     ? 'Cochez les corrections à écrire.'
                     : 'Chaque fiche est relue après l’écriture, et le lot s’arrête au premier problème. La fiche d’avant est gardée dans le journal.'}
@@ -731,8 +738,8 @@ export function MembershipTab({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm text-muted max-w-2xl">
-          Le cas par cas : ce qui demande une décision ou une saisie à la main, dans l’appli, sur la fiche VPDive ou sur Mon Club. Un cas réglé ou sans suite se coche
-          «{' '}Validation manuelle{' '}» : il ne compte plus pour la saison {seasonLabel(season)}.
+          Le cas par cas : ce qui demande une décision ou une saisie à la main, dans l’appli, sur la fiche VPDive ou sur Mon Club. Un cas réglé ou sans suite se coche
+          «{' '}Validation manuelle{' '}» : il ne compte plus pour la saison {seasonLabel(season)}.
         </p>
         {search}
       </div>
@@ -746,7 +753,7 @@ export function MembershipTab({
         caseGroups.map(({ kind, list }) => (
           <section key={kind} className="card overflow-hidden">
             <header className="flex items-center gap-2 px-4 py-2.5 bg-raised border-b border-line">
-              <span className="font-semibold text-brand">{CASE_TITLE[kind]}</span>
+              <h3 className="font-semibold text-brand">{CASE_TITLE[kind]}</h3>
               <span className="text-sm text-muted tabular-nums">
                 · {list.filter((r) => !isChecked(r, kind)).length}
                 {list.some((r) => isChecked(r, kind)) && ` (+ ${list.filter((r) => isChecked(r, kind)).length} validé${list.filter((r) => isChecked(r, kind)).length > 1 ? 's' : ''} à la main)`}
@@ -760,7 +767,7 @@ export function MembershipTab({
                   <li key={r.p.key} className={`px-4 py-3 grid gap-x-4 gap-y-2 lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_minmax(0,16rem)_minmax(0,15rem)] items-start ${check ? 'bg-raised/50' : ''}`}>
                     <div className={`min-w-0 ${check ? 'opacity-60' : ''}`}>
                       <p className="font-semibold text-ink break-words">{r.p.name}</p>
-                      <p className="text-sm text-muted">{r.p.birthDate ? `né(e) le ${frDay(r.p.birthDate)}` : ''}</p>
+                      <p className="text-sm text-muted">{r.p.birthDate ? `né le ${frDay(r.p.birthDate)}` : ''}</p>
                     </div>
                     <p className={`text-sm text-ink ${check ? 'opacity-60' : ''}`}>{c.text}</p>
                     <div className={`min-w-0 ${check ? 'opacity-60' : ''}`}>
@@ -819,19 +826,19 @@ function WriteLog({ catalog, onClose, onSessionLost }: { catalog: Capacity[] | n
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start gap-3">
-        <button type="button" onClick={onClose} className="btn btn-quiet h-9 text-sm">
+        <button type="button" onClick={onClose} className="btn btn-quiet sm:h-9 text-sm">
           <ArrowLeft className="w-4 h-4" /> Retour
         </button>
         <div className="min-w-0 flex-1">
           <h3 className="text-lg font-semibold text-brand">Journal des écritures</h3>
           <p className="text-sm text-muted max-w-3xl">
-            Les fiches VPDive écrites par les corrections rapides, les plus récentes d’abord. La fiche d’avant est gardée : de quoi remettre une valeur à la main si besoin.
+            Les fiches VPDive écrites par les corrections rapides, les plus récentes d’abord. La fiche d’avant est gardée : de quoi remettre une valeur à la main si besoin.
           </p>
         </div>
       </div>
       {error ? (
         <p role="alert" className="text-sm text-danger">
-          Journal illisible : {error}
+          Journal illisible : {error}
         </p>
       ) : !writes ? (
         <GabianLoader label="Lecture du journal…" />
@@ -879,7 +886,7 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
     return (
       <div className="space-y-2">
         <MemberSearch onPick={(m) => onPick(m.id)} />
-        <button type="button" onClick={() => setSearching(false)} className="btn btn-quiet h-8 text-sm">
+        <button type="button" onClick={() => setSearching(false)} className="btn btn-quiet sm:h-8 text-sm">
           Annuler
         </button>
       </div>
@@ -888,7 +895,7 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
   return (
     <div className="space-y-1.5 text-sm">
       {family.map((m) => (
-        <button key={m.id} type="button" onClick={() => onPick(m.id)} className="w-full flex items-center gap-2 px-2 py-1 rounded-lg border border-field-border hover:bg-tint text-left">
+        <button key={m.id} type="button" onClick={() => onPick(m.id)} className="w-full flex items-center gap-2 px-2 py-2 sm:py-1 rounded-lg border border-field-border hover:bg-tint text-left">
           <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
           <span className="flex-1 min-w-0 leading-tight">
             <span className="block text-ink break-words">{m.name}</span>
@@ -897,7 +904,7 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
           <span className="text-brand font-medium shrink-0">Associer</span>
         </button>
       ))}
-      <button type="button" onClick={() => setSearching(true)} className="underline text-muted hover:text-brand">
+      <button type="button" onClick={() => setSearching(true)} className="max-sm:min-h-11 underline text-muted hover:text-brand">
         Autre compte
       </button>
     </div>
@@ -911,10 +918,15 @@ function FamilyPicker({ family, payer, onPick }: { family: VpMember[]; payer?: s
  */
 function CheckBox({ check, onSave }: { check?: CaseCheck; onSave: (checked: boolean | undefined, comment: string) => void }) {
   const [comment, setComment] = useState(check?.comment ?? '');
-  useEffect(() => setComment(check?.comment ?? ''), [check?.comment]);
+  // Commentaire changé ailleurs (autre admin, enregistrement) : le champ le reprend, pendant le rendu.
+  const [shown, setShown] = useState(check?.comment);
+  if (check?.comment !== shown) {
+    setShown(check?.comment);
+    setComment(check?.comment ?? '');
+  }
   return (
     <div className="min-w-0 space-y-1.5">
-      <label className="inline-flex items-center gap-2 cursor-pointer text-sm font-medium text-ink">
+      <label className="inline-flex items-center gap-2 max-sm:min-h-11 cursor-pointer text-sm font-medium text-ink">
         <input type="checkbox" checked={!!check} onChange={(e) => onSave(e.target.checked, comment)} className="w-5 h-5 accent-[var(--fill)]" />
         Validation manuelle
       </label>
@@ -930,7 +942,7 @@ function CheckBox({ check, onSave }: { check?: CaseCheck; onSave: (checked: bool
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
             placeholder="Commentaire (facultatif)"
             aria-label="Commentaire de la validation manuelle"
-            className="field h-8 w-full text-sm"
+            className="field sm:h-8 w-full text-sm"
           />
         </>
       )}
@@ -954,7 +966,7 @@ function PersonRow({ row, season }: { row: Row; season: number }) {
       <div className="min-w-0">
         <p className="font-semibold text-ink break-words">{p.name}</p>
         <p className="text-sm text-muted">
-          {p.birthDate ? `né(e) le ${frDay(p.birthDate)}` : 'naissance inconnue'}
+          {p.birthDate ? `né le ${frDay(p.birthDate)}` : 'naissance inconnue'}
           {p.email && <span className="block truncate">{p.email}</span>}
         </p>
       </div>
@@ -965,7 +977,7 @@ function PersonRow({ row, season }: { row: Row; season: number }) {
         <Item view={view.licence} pending={pending} />
         {[view.insurance.helloasso, view.insurance.ffessm, view.insurance.vpdive].some((c) => c.text !== '—') && (
           <>
-            <span className="mt-1.5 mb-0.5 block text-xs font-medium text-muted">Assurance</span>
+            <h4 className="mt-1.5 mb-0.5 text-xs font-medium text-muted">Assurance</h4>
             <Item view={view.insurance} pending={pending} />
           </>
         )}
@@ -995,9 +1007,15 @@ function Item({ view, pending }: { view: ItemView; pending: boolean }) {
       {lines.map(([source, c]) => (
         <li key={source} className="flex items-baseline gap-1.5 min-w-0">
           <span className="w-16 shrink-0 text-muted">{source}</span>
-          <span aria-label={EMOJI[c.mark].label} title={EMOJI[c.mark].label} className={`shrink-0 w-4 text-center ${c.mark === 'na' ? 'text-muted' : ''}`}>
-            {source === 'VPDive' && pending && c.mark === 'na' ? '…' : EMOJI[c.mark].sign}
-          </span>
+          {source === 'VPDive' && pending && c.mark === 'na' ? (
+            <span role="img" aria-label="lecture en cours" title="lecture en cours" className="shrink-0 w-4 text-center text-muted">
+              …
+            </span>
+          ) : (
+            <span role="img" aria-label={EMOJI[c.mark].label} title={EMOJI[c.mark].label} className={`shrink-0 w-4 text-center ${c.mark === 'na' ? 'text-muted' : ''}`}>
+              {EMOJI[c.mark].sign}
+            </span>
+          )}
           <span className={`min-w-0 break-words ${c.mark === 'missing' ? 'text-danger font-medium' : c.mark === 'diff' ? 'text-warn font-medium' : c.mark === 'ok' ? 'text-ink' : 'text-muted'}`}>{c.text}</span>
         </li>
       ))}
@@ -1008,7 +1026,7 @@ function Item({ view, pending }: { view: ItemView; pending: boolean }) {
 function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <span className="label block mb-1 lg:hidden">{title}</span>
+      <h4 className="label mb-1 lg:hidden">{title}</h4>
       {children}
     </div>
   );
@@ -1033,7 +1051,7 @@ function VpdiveStatus({ match, pending }: { match: Match; pending: boolean }) {
     <div className="text-sm">
       {match.obsolete && <p className="text-warn">{match.obsolete}</p>}
       <p className="text-warn font-medium inline-flex items-center gap-1.5">
-        <UserX className="w-4 h-4" /> {match.status === 'confirm' ? 'Homonymes : à trancher (étape 4)' : match.why || 'Pas de fiche VPDive (étape 4)'}
+        <UserX className="w-4 h-4" /> {match.status === 'confirm' ? 'Homonymes : à trancher (étape 4)' : match.why || 'Pas de fiche VPDive (étape 4)'}
       </p>
     </div>
   );
@@ -1046,7 +1064,7 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
     return (
       <div className="space-y-2">
         <MemberSearch onPick={(m) => onChoose(m.id)} />
-        <button type="button" onClick={() => setSearching(false)} className="btn btn-quiet h-8 text-sm">
+        <button type="button" onClick={() => setSearching(false)} className="btn btn-quiet sm:h-8 text-sm">
           Annuler
         </button>
       </div>
@@ -1078,17 +1096,17 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
         {match.obsolete && <p className="text-warn">{match.obsolete}</p>}
         <p className="text-warn font-medium">{pending ? 'Lecture des fiches…' : 'À confirmer'}</p>
         {match.candidates.map((m) => (
-          <button key={m.id} type="button" onClick={() => onChoose(m.id)} className="w-full flex items-center gap-2 px-2 py-1 rounded-lg border border-field-border hover:bg-tint text-left">
+          <button key={m.id} type="button" onClick={() => onChoose(m.id)} className="w-full flex items-center gap-2 px-2 py-2 sm:py-1 rounded-lg border border-field-border hover:bg-tint text-left">
             <Avatar name={m.name} picture={m.picture} size="sm" initials={false} />
             <span className="flex-1 min-w-0 truncate text-ink">{m.name}</span>
             <span className="text-brand font-medium shrink-0">C’est lui</span>
           </button>
         ))}
         <div className="flex flex-wrap gap-x-3">
-          <button type="button" onClick={() => setSearching(true)} className="underline text-muted hover:text-brand">
+          <button type="button" onClick={() => setSearching(true)} className="max-sm:min-h-11 underline text-muted hover:text-brand">
             Autre membre
           </button>
-          <button type="button" onClick={() => onChoose('none')} className="underline text-muted hover:text-brand">
+          <button type="button" onClick={() => onChoose('none')} className="max-sm:min-h-11 underline text-muted hover:text-brand">
             Pas dans VPDive
           </button>
         </div>
@@ -1102,11 +1120,11 @@ function VpdiveCell({ match, pending, onChoose }: { match: Match; pending: boole
         <UserX className="w-4 h-4" /> {match.why || 'Aucun membre à ce nom'}
       </p>
       <div className="flex flex-wrap gap-x-3">
-        <button type="button" onClick={() => setSearching(true)} className="underline text-muted hover:text-brand">
+        <button type="button" onClick={() => setSearching(true)} className="max-sm:min-h-11 underline text-muted hover:text-brand">
           Chercher dans VPDive
         </button>
         {(match.why || match.obsolete) && (
-          <button type="button" onClick={() => onChoose(null)} className="underline text-muted hover:text-brand">
+          <button type="button" onClick={() => onChoose(null)} className="max-sm:min-h-11 underline text-muted hover:text-brand">
             annuler
           </button>
         )}
@@ -1145,7 +1163,7 @@ function FfessmImportBox<Row>({
     try {
       // Mon Club exporte en windows-1252 : lu en UTF-8, les accents seraient perdus.
       const { rows, period } = parse(decodeExport(await file.arrayBuffer()));
-      if (!rows.length) throw new Error(`Rien trouvé : est-ce bien l’export « Liste des ${what} » de Mon Club (CSV) ?`);
+      if (!rows.length) throw new Error(`Rien trouvé : est-ce bien l’export « Liste des ${what} » de Mon Club (CSV) ?`);
       onImported(await save(rows, period));
     } catch (e) {
       if (!onSessionLost(e)) setError(message(e));
@@ -1160,8 +1178,8 @@ function FfessmImportBox<Row>({
         {current === undefined
           ? `Export des ${what}…`
           : current
-            ? `FFESSM, ${what} : ${current.rows.length}${current.period ? `, ${current.period.toLowerCase()}` : ''} · déposé par ${current.by} le ${frDay(current.at)}`
-            : `FFESSM, ${what} : aucun export déposé`}
+            ? `FFESSM, ${what} : ${current.rows.length}${current.period ? `, ${current.period.toLowerCase()}` : ''} · déposé par ${current.by} le ${frDay(current.at)}`
+            : `FFESSM, ${what} : aucun export déposé`}
         {info && !info.warn && ` · ${info.text}`}
       </span>
       {info?.warn && (
@@ -1170,8 +1188,8 @@ function FfessmImportBox<Row>({
         </span>
       )}
       <input ref={input} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
-      <button type="button" onClick={() => input.current?.click()} disabled={busy} className="btn btn-quiet h-9 text-sm">
-        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />} {current ? 'Nouvel export' : `Déposer les ${what}`}
+      <button type="button" onClick={() => input.current?.click()} disabled={busy} aria-busy={busy} className="btn btn-quiet sm:h-9 text-sm">
+        {busy ? <Spinner /> : <FileUp className="w-4 h-4" />} {current ? 'Nouvel export' : `Déposer les ${what}`}
       </button>
       {error && (
         <span role="alert" className="basis-full text-danger inline-flex items-center gap-1.5">

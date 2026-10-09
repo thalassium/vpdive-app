@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BarChart3, FileDown, Loader2, RefreshCw, X } from 'lucide-react';
+import { BarChart3, FileDown, RefreshCw, X } from 'lucide-react';
 import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi } from '../../services/appApi';
 import { computeStats, dateFr, isDiveActivity, monthSeries, monthShort, presetRange, seasonPresetLabel, type PresetId, type StatEvent, type StatPerson, type StatStaff, type Stats } from '../../lib/stats';
 import { Avatar } from '../Avatar';
-import { ThemeToggle } from '../ThemeToggle';
+import { Spinner } from '../Spinner';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 
@@ -96,7 +96,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
             setStaff((r) => ({ ...r, [e.token]: crew }));
           } catch (err) {
             if (onSessionLost(err)) return;
-            setError(`Lecture interrompue : ${message(err)}`);
+            setError(`Lecture interrompue : ${message(err)}`);
             setStopped(true);
             return;
           }
@@ -108,8 +108,8 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     [onSessionLost],
   );
 
-  const load = useCallback(async () => {
-    const id = ++run.current;
+  /** Tout repart de zéro : nouvelle période, ou « Réessayer ». */
+  const resetStats = () => {
     setError(null);
     setEvents(null);
     setRosters({});
@@ -117,33 +117,58 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     setDpFromApp({});
     setAppMembers({});
     setProgress(null);
-    try {
-      const to = range.to < presetRange('year', new Date()).to ? range.to : presetRange('year', new Date()).to;
-      const list = (await vpdive.fetchEvents(range.from, to)).filter((e) => Date.parse(e.start) <= Date.now());
-      if (id !== run.current) return;
-      setEvents(list);
-      // Un seul appel au serveur de l'appli pour toutes les sorties ; sans réponse, VPDive seul.
-      appApi
-        .outingRoles(list.map((e) => e.token))
-        .then(({ roles, members }) => {
-          if (id !== run.current) return;
-          setDpFromApp(Object.fromEntries(Object.entries(roles).map(([k, r]) => [k, r?.dp])));
-          setAppMembers(Object.fromEntries(Object.entries(members).map(([k, list]) => [k, list.map((m) => ({ ...m, roles: [] }))])));
-        })
-        .catch((e) => onSessionLost(e));
-      await readRosters(list, id);
-    } catch (e) {
-      if (id !== run.current || onSessionLost(e)) return;
-      setError(message(e));
-    }
-  }, [range.from, range.to, readRosters, onSessionLost]);
+  };
+  // Une période valable (du ≤ au) se lit ; une autre période valable remet tout à zéro dès ce rendu,
+  // d'après la période du rendu précédent (pas dans l'effet qui lit).
+  const validRange = !!(range.from && range.to && range.from <= range.to);
+  const rangeKey = `${range.from}|${range.to}`;
+  const [readRange, setReadRange] = useState(rangeKey);
+  if (validRange && readRange !== rangeKey) {
+    setReadRange(rangeKey);
+    resetStats();
+  }
 
+  /** Lit l'agenda de la période, puis les inscrits : tout est posé par les rappels de la promesse. */
+  const fetchStats = useCallback(() => {
+    const id = ++run.current;
+    const to = range.to < presetRange('year', new Date()).to ? range.to : presetRange('year', new Date()).to;
+    return vpdive
+      .fetchEvents(range.from, to)
+      .then((all) => {
+        const list = all.filter((e) => Date.parse(e.start) <= Date.now());
+        if (id !== run.current) return;
+        setEvents(list);
+        // Un seul appel au serveur de l'appli pour toutes les sorties ; sans réponse, VPDive seul.
+        appApi
+          .outingRoles(list.map((e) => e.token))
+          .then(({ roles, members }) => {
+            if (id !== run.current) return;
+            setDpFromApp(Object.fromEntries(Object.entries(roles).map(([k, r]) => [k, r?.dp])));
+            setAppMembers(Object.fromEntries(Object.entries(members).map(([k, list]) => [k, list.map((m) => ({ ...m, roles: [] }))])));
+          })
+          .catch((e) => onSessionLost(e));
+        return readRosters(list, id);
+      })
+      .catch((e: unknown) => {
+        if (id !== run.current || onSessionLost(e)) return;
+        setError(message(e));
+      });
+  }, [range.from, range.to, readRosters, onSessionLost]);
+  /** « Réessayer » (agenda illisible) : tout repart de zéro et se relit. */
+  const load = () => {
+    resetStats();
+    void fetchStats();
+  };
+
+  /** Invalide la lecture en cours : elle s'arrête à sa prochaine étape. */
+  const cancelRun = useCallback(() => {
+    run.current++;
+  }, []);
+  // Autre période (ou fermeture) : la lecture de l'ancienne s'arrête.
   useEffect(() => {
-    if (range.from && range.to && range.from <= range.to) void load();
-    return () => {
-      run.current++;
-    };
-  }, [load, range.from, range.to]);
+    if (validRange) void fetchStats();
+    return cancelRun;
+  }, [fetchStats, cancelRun, validRange]);
 
   const stop = () => {
     run.current++;
@@ -177,7 +202,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     setPdfState('busy');
     try {
       const { downloadStatsPdf } = await import('../../lib/statsPdf');
-      const partial = stopped || progress ? (progress ? `Chiffres partiels : ${n(progress.done)} listes d’inscrits lues sur ${n(progress.total)}.` : 'Chiffres partiels.') : null;
+      const partial = stopped || progress ? (progress ? `Chiffres partiels : ${n(progress.done)} listes d’inscrits lues sur ${n(progress.total)}.` : 'Chiffres partiels.') : null;
       downloadStatsPdf(stats, { from: range.from, to: range.to, partial });
       setPdfState('idle');
     } catch {
@@ -213,12 +238,12 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
             type="button"
             onClick={() => void downloadPdf()}
             disabled={!stats || stats.outings === 0 || pdfState === 'busy'}
+            aria-busy={pdfState === 'busy'}
             title={pdfState === 'error' ? 'PDF indisponible, réessayez' : 'Télécharger les statistiques en PDF'}
-            className="btn btn-quiet h-9 text-sm"
+            className="btn btn-quiet sm:h-9 text-sm"
           >
-            {pdfState === 'busy' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} PDF
+            {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
           </button>
-          <ThemeToggle />
           <button onClick={onClose} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
           </button>
@@ -239,7 +264,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                       if (p.id === 'custom') setCustom(range);
                       setPreset(p.id);
                     }}
-                    className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${preset === p.id ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+                    className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${preset === p.id ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
                   >
                     {p.label}
                   </button>
@@ -249,11 +274,25 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <label className="inline-flex items-center gap-2">
                     du
-                    <input type="date" value={custom.from} max={custom.to} onChange={(e) => e.target.value && setCustom((c) => ({ ...c, from: e.target.value }))} className="field h-9 py-0" />
+                    <input
+                      type="date"
+                      aria-label="Date de début"
+                      value={custom.from}
+                      max={custom.to}
+                      onChange={(e) => e.target.value && setCustom((c) => ({ ...c, from: e.target.value }))}
+                      className="field sm:h-9 py-0"
+                    />
                   </label>
                   <label className="inline-flex items-center gap-2">
                     au
-                    <input type="date" value={custom.to} min={custom.from} onChange={(e) => e.target.value && setCustom((c) => ({ ...c, to: e.target.value }))} className="field h-9 py-0" />
+                    <input
+                      type="date"
+                      aria-label="Date de fin"
+                      value={custom.to}
+                      min={custom.from}
+                      onChange={(e) => e.target.value && setCustom((c) => ({ ...c, to: e.target.value }))}
+                      className="field sm:h-9 py-0"
+                    />
                   </label>
                 </div>
               )}
@@ -262,7 +301,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
             {error && (
               <div role="alert" className="flex flex-wrap items-center gap-3 text-danger">
                 <span className="flex-1 min-w-0">{error}</span>
-                <button type="button" onClick={stopped ? resume : () => void load()} className="btn btn-quiet h-9 text-sm">
+                <button type="button" onClick={stopped ? resume : () => void load()} className="btn btn-quiet sm:h-9 text-sm">
                   <RefreshCw className="w-4 h-4" /> Réessayer
                 </button>
               </div>
@@ -286,14 +325,14 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                         <span aria-hidden className="h-1 w-32 rounded-full bg-line overflow-hidden">
                           <span className="block h-full bg-fill transition-[width]" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
                         </span>
-                        <button type="button" onClick={stop} className="btn btn-quiet h-8 text-sm">
+                        <button type="button" onClick={stop} className="btn btn-quiet sm:h-8 text-sm">
                           Arrêter
                         </button>
                       </>
                     ) : (
                       <>
-                        <span>Lecture arrêtée : chiffres partiels.</span>
-                        <button type="button" onClick={resume} className="btn btn-quiet h-8 text-sm">
+                        <span>Lecture arrêtée : chiffres partiels.</span>
+                        <button type="button" onClick={resume} className="btn btn-quiet sm:h-8 text-sm">
                           <RefreshCw className="w-4 h-4" /> Reprendre
                         </button>
                       </>
@@ -340,9 +379,13 @@ function Section({ title, aside, children, className = '' }: { title: string; as
   );
 }
 
+/** Un chiffre mis en avant dans la phrase d'en-tête. */
+function B({ children }: { children: ReactNode }) {
+  return <strong className="font-semibold text-brand tabular-nums">{children}</strong>;
+}
+
 /** La saison en une phrase : les chiffres dans le texte, pas dans des cartes. */
 function Hero({ stats, from, to }: { stats: Stats; from: string; to: string }) {
-  const B = ({ children }: { children: ReactNode }) => <strong className="font-semibold text-brand tabular-nums">{children}</strong>;
   const others = stats.outings - stats.diveOutings;
   return (
     <div className="max-w-3xl">
@@ -357,7 +400,7 @@ function Hero({ stats, from, to }: { stats: Stats; from: string; to: string }) {
       </p>
       {stats.merged.length > 0 && (
         <p className="mt-1 text-sm text-muted">
-          Comptes fusionnés (même personne, plusieurs comptes VPDive) : {stats.merged.map((m) => `${m.name} (${m.accounts} comptes)`).join(', ')}.
+          Comptes fusionnés (même personne, plusieurs comptes VPDive) : {stats.merged.map((m) => `${m.name} (${m.accounts} comptes)`).join(', ')}.
         </p>
       )}
 
@@ -417,7 +460,7 @@ function LevelsSection({ stats }: { stats: Stats }) {
             ))}
           </ul>
           {stats.otherSchools.length > 0 && (
-            <p className="mt-3 text-sm text-muted">Autres écoles : {stats.otherSchools.map((x) => `${x.label} ${n(x.count)}`).join(', ')}.</p>
+            <p className="mt-3 text-sm text-muted">Autres écoles : {stats.otherSchools.map((x) => `${x.label} ${n(x.count)}`).join(', ')}.</p>
           )}
         </div>
         <div>
@@ -437,7 +480,7 @@ function LevelsSection({ stats }: { stats: Stats }) {
       </div>
       {stats.training.length > 0 && (
         <p className="mt-4 text-base text-ink">
-          En formation : {stats.training.map((t, i) => `${i ? ', ' : ''}${n(t.count)} vers le ${t.label}`).join('')}.
+          En formation : {stats.training.map((t, i) => `${i ? ', ' : ''}${n(t.count)} vers le ${t.label}`).join('')}.
         </p>
       )}
     </Section>
@@ -452,7 +495,7 @@ function SeasonSection({ stats, from, to }: { stats: Stats; from: string; to: st
   const peak = tops.length === 1 ? tops[0] : null;
   return (
     <Section title="Saison" aside="sorties par mois">
-      <div className="flex items-end gap-1.5 h-40" role="img" aria-label={months.map((m) => `${monthShort(m.key)} : ${m.outings} sorties, ${m.places} places`).join(' ; ')}>
+      <div className="flex items-end gap-1.5 h-40" role="img" aria-label={months.map((m) => `${monthShort(m.key)} : ${m.outings} sorties, ${m.places} places`).join(' ; ')}>
         {months.map((m) => (
           <div key={m.key} className="flex-1 min-w-0 h-full flex flex-col justify-end items-center gap-1" title={`${m.outings} sorties, ${m.places} places`}>
             <span className="text-sm font-semibold tabular-nums text-ink">{m.outings || ''}</span>
@@ -463,7 +506,9 @@ function SeasonSection({ stats, from, to }: { stats: Stats; from: string; to: st
       <div className="flex gap-1.5 mt-1.5 border-t border-line pt-1.5">
         {months.map((m) => (
           <span key={m.key} className="flex-1 min-w-0 text-center text-xs text-muted truncate">
-            {monthShort(m.key)}
+            {/* Sur téléphone, douze mois ne tiennent qu'en initiales (J F M A…). */}
+            <span className="sm:hidden">{monthShort(m.key).charAt(0).toUpperCase()}</span>
+            <span className="hidden sm:inline">{monthShort(m.key)}</span>
           </span>
         ))}
       </div>

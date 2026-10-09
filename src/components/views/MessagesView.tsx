@@ -448,7 +448,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
                             <span className="flex-1 min-w-0">
                               <span className={`block truncate text-ink ${c.unread ? 'font-semibold' : 'font-medium'}`}>{c.title}</span>
                               <span className={`block text-sm truncate ${c.unread ? 'text-ink font-medium' : 'text-muted'}`}>
-                                {c.last ? `${mine ? 'Vous : ' : ''}${preview(c.last.text)}` : 'Aucun message'}
+                                {c.last ? `${mine ? 'Vous : ' : ''}${preview(c.last.text)}` : 'Aucun message'}
                               </span>
                             </span>
                             <span className="shrink-0 flex flex-col items-end gap-1.5 self-start pt-0.5">
@@ -518,7 +518,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
 
                 {thread && !thread.canRespond && <p className="py-3 text-sm text-muted border-t border-line">Conversation fermée sur VPDive.</p>}
                 {thread && thread.canRespond && (
-                  <form onSubmit={send} className="sticky bottom-20 sm:bottom-0 md:static z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3">
+                  <form onSubmit={send} className="sticky bottom-[calc(5rem_+_env(safe-area-inset-bottom))] sm:bottom-0 md:static z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3">
                     <div className="flex items-end gap-2">
                       <label htmlFor="message-draft" className="sr-only">
                         Votre message
@@ -557,7 +557,7 @@ function Bubble({ message: m, mine, author, onRetry }: { message: Shown; mine: b
       {author && <span className="text-sm text-muted mb-1 px-1">{author}</span>}
       <div
         className={`max-w-[80%] px-3 py-2 text-base whitespace-pre-wrap break-words ${
-          mine ? 'bg-fill text-white rounded-xl rounded-br-md' : 'bg-raised text-ink rounded-xl rounded-bl-md'
+          mine ? 'bg-fill text-on-fill rounded-xl rounded-br-md' : 'bg-raised text-ink rounded-xl rounded-bl-md'
         } ${m.status ? 'opacity-60' : ''}`}
       >
         {m.text}
@@ -614,7 +614,7 @@ function NewChat({
     return () => {
       cancelled = true;
     };
-  }, [attempt, me.uct, lost]);
+  }, [attempt, me.uct, me.name, lost]);
 
   const results = useMemo(() => {
     const q = query.trim();
@@ -661,7 +661,7 @@ function NewChat({
                 type="button"
                 onClick={() => toggle(m)}
                 aria-label={`Retirer ${m.name}`}
-                className="inline-flex items-center gap-1.5 h-9 pl-2 pr-1.5 rounded-lg border border-field-border bg-tint text-brand text-sm font-medium"
+                className="inline-flex items-center gap-1.5 h-11 sm:h-9 pl-2 pr-1.5 rounded-lg border border-field-border bg-tint text-brand text-sm font-medium"
               >
                 {m.name}
                 <X className="w-4 h-4" />
@@ -731,7 +731,7 @@ function NewChat({
       </div>
 
       {selected.length > 0 && (
-        <div className="sticky bottom-20 sm:bottom-0 z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3 mt-4 space-y-3">
+        <div className="sticky bottom-[calc(5rem_+_env(safe-area-inset-bottom))] sm:bottom-0 z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3 mt-4 space-y-3">
           {createError && (
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-danger flex-1 min-w-0">{createError}</p>

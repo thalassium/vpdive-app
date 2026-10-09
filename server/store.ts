@@ -331,6 +331,6 @@ export function getStore(): Store {
   const redis = redisStore();
   if (redis) return (store = redis);
   // Sur Vercel sans base configurée, mieux vaut une erreur claire qu'un fichier qui s'efface.
-  if (process.env.VERCEL) throw new Error('Stockage non configuré : connectez une base Upstash Redis au projet Vercel (Storage → Create Database).');
+  if (process.env.VERCEL) throw new Error('Stockage non configuré : connectez une base Upstash Redis au projet Vercel (Storage → Create Database).');
   return (store = fileStore());
 }

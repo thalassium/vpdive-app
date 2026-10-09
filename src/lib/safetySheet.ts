@@ -70,8 +70,8 @@ export function overDepth(dive: Pick<Dive, 'plan' | 'sheets'>): { label: string;
 export function printWarnings(header: SafetyHeader, dive: Pick<Dive, 'plan' | 'sheets'>): string[] {
   const missing = missingHeader(header);
   return [
-    ...(missing.length ? [`Non renseigné : ${missing.join(', ')}.`] : []),
-    ...overDepth(dive).map((o) => `${o.label} : ${o.planned} m prévus, au-delà de sa prérogative (${o.legal} m).`),
+    ...(missing.length ? [`Non renseigné : ${missing.join(', ')}.`] : []),
+    ...overDepth(dive).map((o) => `${o.label} : ${o.planned} m prévus, au-delà de sa prérogative (${o.legal} m).`),
   ];
 }
 

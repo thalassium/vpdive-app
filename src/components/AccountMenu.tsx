@@ -209,7 +209,7 @@ function ViewAsPicker({ onBack, onPick, onSessionLost }: { onBack: () => void; o
   return (
     <div role="group" aria-labelledby={titleId}>
       <div className="flex items-center gap-1 px-2 py-2 border-b border-line">
-        <button type="button" onClick={onBack} aria-label="Retour au menu du compte" className="icon-btn w-9 h-9">
+        <button type="button" onClick={onBack} aria-label="Retour au menu du compte" className="icon-btn sm:w-9 sm:h-9">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <span id={titleId} className="font-semibold text-brand">

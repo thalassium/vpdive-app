@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, EyeOff, FileText, Mail, MessageCircle, RefreshCw, Undo2, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
-import { ThemeToggle } from '../ThemeToggle';
+import { Tab as TabItem, TabList, TabPanel } from '../Tabs';
+import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
@@ -19,7 +20,7 @@ import type { RegistrationRequest } from '../../services/appApi';
  */
 type Tab = 'todo' | MembershipStep | 'relance';
 const SUBTITLE: Record<Exclude<Tab, 'relance'>, string> = {
-  todo: 'À valider avant les vérifications : tant qu’elles ne sont pas traitées, VPDive ignore ces personnes et ces documents.',
+  todo: 'À valider avant les vérifications : tant qu’elles ne sont pas traitées, VPDive ignore ces personnes et ces documents.',
   diagnostic: 'Chaque membre vu par HelloAsso (paiements), la FFESSM (licence) et VPDive (fiche).',
   quickfix: 'Les corrections sans risque à pousser dans VPDive, puis relire les fiches.',
   arbitrage: 'Le cas par cas, à décider à la main.',
@@ -132,47 +133,51 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
    * sont pas validés, les vérifications les voient manquants). Puis les
    * vérifications : Adhésions (HelloAsso × FFESSM × VPDive) et Relance.
    */
-  const [tab, setTab] = useState<Tab>('todo');
-  const isStep = tab === 'diagnostic' || tab === 'quickfix' || tab === 'arbitrage';
-  /**
-   * L'onglet des adhésions lit beaucoup (annuaire, HelloAsso, exports, une fiche par membre) :
-   * monté à la première visite d'une étape 2 à 4, puis gardé (données lues une fois).
-   */
-  const [stepsOpened, setStepsOpened] = useState(false);
-  useEffect(() => {
-    if (isStep) setStepsOpened(true);
-  }, [isStep]);
+  /** L'onglet choisi par l'admin ; tant qu'il n'en a choisi aucun, celui de l'ouverture (plus bas). */
+  const [chosenTab, setChosenTab] = useState<Tab | null>(null);
   /** Compteurs des étapes 3 et 4, calculés par l'onglet des adhésions (une fois monté). */
   const [stepCounts, setStepCounts] = useState<{ fixes: number; cases: number } | null>(null);
   /** Écriture dans VPDive en cours (étape 3) : le panneau ne se ferme pas. */
   const membershipBusy = useRef(false);
   /** Rempli par l'onglet des adhésions : oublie la fiche d'un membre validé à l'étape 1. */
   const forgetMember = useRef<((uct: string) => void) | null>(null);
-  /** L'admin a choisi un onglet : on ne le change plus pour lui. */
-  const chosen = useRef(false);
   const [requests, setRequests] = useState<RegistrationRequest[] | null>(null);
   const [requestsError, setRequestsError] = useState<string | null>(null);
   const [pendingDocs, setPendingDocs] = useState<PendingValidation[] | null>(null);
   const [docsError, setDocsError] = useState<string | null>(null);
-  const loadRequests = useCallback(() => {
-    setRequestsError(null);
-    setRequests(null);
+  const fetchRequests = useCallback(() => {
     appApi.registrationRequests().then(setRequests, (e) => onSessionLost(e) || setRequestsError(e instanceof Error ? e.message : String(e)));
   }, [onSessionLost]);
-  const loadPendingDocs = useCallback(() => {
-    setDocsError(null);
-    setPendingDocs(null);
+  const fetchPendingDocs = useCallback(() => {
     vpdive.pendingValidations().then(setPendingDocs, (e) => onSessionLost(e) || setDocsError(e instanceof Error ? e.message : String(e)));
   }, [onSessionLost]);
+  /** « Réessayer » : la liste repasse en lecture, puis est relue. */
+  const loadRequests = () => {
+    setRequestsError(null);
+    setRequests(null);
+    fetchRequests();
+  };
+  const loadPendingDocs = () => {
+    setDocsError(null);
+    setPendingDocs(null);
+    fetchPendingDocs();
+  };
+  // À l'ouverture, les listes sont déjà en lecture (null) : il n'y a qu'à les lire.
   useEffect(() => {
-    loadRequests();
-    loadPendingDocs();
-  }, [loadRequests, loadPendingDocs]);
-  // À l'ouverture : le premier onglet qui a quelque chose à traiter, sinon les adhésions.
-  useEffect(() => {
-    if (chosen.current || requests === null || pendingDocs === null) return;
-    setTab(requests.length || pendingDocs.length ? 'todo' : 'diagnostic');
-  }, [requests, pendingDocs]);
+    fetchRequests();
+    fetchPendingDocs();
+  }, [fetchRequests, fetchPendingDocs]);
+  // Tant que l'admin n'a pas choisi d'onglet : le premier qui a quelque chose à traiter, sinon les adhésions
+  // (« À traiter » pendant la lecture des deux listes).
+  const tab: Tab = chosenTab ?? (requests !== null && pendingDocs !== null && !requests.length && !pendingDocs.length ? 'diagnostic' : 'todo');
+  const isStep = tab === 'diagnostic' || tab === 'quickfix' || tab === 'arbitrage';
+  /**
+   * L'onglet des adhésions lit beaucoup (annuaire, HelloAsso, exports, une fiche par membre) :
+   * monté à la première visite d'une étape 2 à 4, puis gardé (données lues une fois).
+   * Retenu pendant le rendu (état dérivé d'un rendu précédent), pas dans un effet.
+   */
+  const [stepsOpened, setStepsOpened] = useState(false);
+  if (isStep && !stepsOpened) setStepsOpened(true);
   /** La relance ne lit VPDive qu'une fois son onglet ouvert. */
   const [relanceOpened, setRelanceOpened] = useState(false);
   const [outings, setOutings] = useState<Outing[] | null>(null);
@@ -193,7 +198,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
       (e) => {
         if (!live || onSessionLost(e)) return;
         setIgnored({});
-        setIgnoreError(`Liste des membres ignorés illisible : ${message(e)}`);
+        setIgnoreError(`Liste des membres ignorés illisible : ${message(e)}`);
       },
     );
     return () => {
@@ -306,7 +311,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             run.current++;
             return;
           }
-          errors.push(`${ev.title} (${dayLabel(date)}) : ${message(e)}`);
+          errors.push(`${ev.title} (${dayLabel(date)}) : ${message(e)}`);
           setRosterErrors([...errors]);
         }
         setProgress({ done: i + 1, total: events.length });
@@ -320,13 +325,19 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
     }
   }, [checkStatuses]);
 
-  useEffect(() => {
-    if (!relanceOpened) return;
-    load();
-    return () => {
+  /** Première ouverture de la relance : elle lit VPDive (pas avant). */
+  const openRelance = () => {
+    if (relanceOpened) return;
+    setRelanceOpened(true);
+    void load();
+  };
+  // Fermeture du panneau : la lecture en cours s'arrête.
+  useEffect(
+    () => () => {
       run.current++;
-    };
-  }, [load, relanceOpened]);
+    },
+    [],
+  );
 
   const stop = () => {
     run.current++;
@@ -339,17 +350,31 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
 
   // Échap et le bouton Retour ferment la relance si elle est ouverte (jamais en plein envoi), sinon le panneau
   // (jamais en pleine écriture dans VPDive).
-  const reminderOpen = useRef(false);
-  reminderOpen.current = reminder !== null;
+  // useDialog relit ses fonctions à chaque appel : `reminder` y est toujours celui du dernier rendu.
   const reminderBusy = useRef(false);
+  const { confirm, confirmDialog } = useConfirm();
+  /** Identifiants des onglets et de leurs panneaux (les étapes 2 à 4 partagent un panneau). */
+  const tabsId = useId();
+  const tabId = (key: Tab) => `${tabsId}-tab-${key}`;
+  const panelId = (key: Tab) => `${tabsId}-panel-${key === 'todo' || key === 'relance' ? key : 'steps'}`;
   const { ref: dialogRef } = useDialog({
-    onClose: () => (reminderOpen.current ? setReminder(null) : onClose()),
-    canClose: () => !reminderBusy.current && (reminderOpen.current || !membershipBusy.current),
+    onClose: () => (reminder !== null ? setReminder(null) : onClose()),
+    canClose: () => {
+      if (reminderBusy.current) return false;
+      if (reminder !== null || !membershipBusy.current) return true;
+      // Écriture dans VPDive en cours : on ne ferme pas tout de suite, on pose la question (requestClose ferme si accepté).
+      void requestClose();
+      return false;
+    },
     label: 'docs',
   });
-  /** Croix et clic à côté : pendant une écriture dans VPDive, on demande d'abord (le lot s'arrête après la fiche en cours). */
-  const requestClose = () => {
-    if (membershipBusy.current && !window.confirm('Écriture dans VPDive en cours. Fermer quand même ? Le lot s’arrêtera après la fiche en cours.')) return;
+  /** Croix, clic à côté, Échap et Retour : pendant une écriture dans VPDive, on demande d'abord (le lot s'arrête après la fiche en cours). */
+  const requestClose = async () => {
+    if (
+      membershipBusy.current &&
+      !(await confirm({ title: 'Fermer quand même ?', message: 'Écriture dans VPDive en cours. Le lot s’arrêtera après la fiche en cours.', confirmLabel: 'Fermer', cancelLabel: 'Continuer' }))
+    )
+      return;
     onClose();
   };
 
@@ -439,35 +464,36 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               </p>
             </div>
             <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
-              <ThemeToggle />
               <button onClick={requestClose} aria-label="Fermer" className="icon-btn">
                 <X className="w-6 h-6" />
               </button>
             </div>
           </div>
           {/* Onglets : les quatre étapes dans l'ordre (la première, prioritaire, en teinte d'alerte), puis la relance. */}
-          <div role="tablist" aria-label="Gestion des adhésions" className="mt-3 flex items-end gap-1 border-b border-line -mb-4 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* Activation au clavier par Entrée : ouvrir une étape lit beaucoup sur VPDive, les flèches ne font que s'y déplacer. */}
+          <TabList
+            label="Gestion des adhésions"
+            activation="manual"
+            className="mt-3 flex items-end gap-1 border-b border-line -mb-4 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
             {STEPS.map(([key, text], i) => {
               const count = key === 'todo' ? (requests && pendingDocs ? requests.length + pendingDocs.length : undefined) : key === 'quickfix' ? stepCounts?.fixes : key === 'arbitrage' ? stepCounts?.cases : undefined;
               const first = key === 'todo';
               const on = tab === key;
               return (
-                <button
+                <TabItem
                   key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  onClick={() => {
-                    chosen.current = true;
-                    setTab(key);
-                  }}
+                  id={tabId(key)}
+                  controls={panelId(key)}
+                  selected={on}
+                  onSelect={() => setChosenTab(key)}
                   className={`h-10 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 inline-flex items-center gap-2 rounded-t-md transition-colors ${
                     first ? (on ? 'border-warn text-warn bg-warn-soft' : 'border-transparent text-warn bg-warn-soft/60 hover:bg-warn-soft') : on ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'
                   }`}
                 >
                   <span
                     aria-hidden
-                    className={`w-5 h-5 rounded-full text-xs font-bold inline-flex items-center justify-center ${first ? 'bg-surface text-warn border border-warn/40' : on ? 'bg-fill text-white' : 'bg-raised text-muted'}`}
+                    className={`w-5 h-5 rounded-full text-xs font-bold inline-flex items-center justify-center ${first ? 'bg-surface text-warn border border-warn/40' : on ? 'bg-fill text-on-fill' : 'bg-raised text-muted'}`}
                   >
                     {i + 1}
                   </span>
@@ -475,24 +501,23 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                   {count !== undefined && count > 0 && (
                     <span className={`min-w-5 h-5 px-1.5 rounded-full text-xs tabular-nums inline-flex items-center justify-center border ${first ? 'border-warn/40 bg-surface' : 'border-line bg-surface text-ink'}`}>{count}</span>
                   )}
-                </button>
+                </TabItem>
               );
             })}
             <span aria-hidden className="self-center w-px h-6 bg-line mx-2 shrink-0" />
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'relance'}
-              onClick={() => {
-                chosen.current = true;
-                setTab('relance');
-                setRelanceOpened(true);
+            <TabItem
+              id={tabId('relance')}
+              controls={panelId('relance')}
+              selected={tab === 'relance'}
+              onSelect={() => {
+                setChosenTab('relance');
+                openRelance();
               }}
               className={`h-10 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 transition-colors ${tab === 'relance' ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'}`}
             >
               Relance
-            </button>
-          </div>
+            </TabItem>
+          </TabList>
           {tab === 'relance' && outings && (
             <div className="mt-7 flex flex-wrap items-center gap-x-4 gap-y-2">
               <p className="text-sm text-ink flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -516,7 +541,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                     role="radio"
                     aria-checked={filter === f.key}
                     onClick={() => setFilter(f.key)}
-                    className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+                    className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${filter === f.key ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
                   >
                     {f.label}
                     {f.key === 'ignored' && ignoredList.length > 0 && <span className="ml-1 tabular-nums">{ignoredList.length}</span>}
@@ -528,7 +553,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
         </header>
 
         {tab === 'todo' && (
-          <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4 space-y-8">
+          <TabPanel id={panelId('todo')} labelledBy={tabId('todo')} className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4 space-y-8">
             <section>
               <h3 className="text-lg font-semibold text-brand mb-2">
                 Membres à valider {requests && requests.length > 0 && <span className="text-muted font-normal tabular-nums">· {requests.length}</span>}
@@ -548,11 +573,11 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                 onForget={(uct) => forgetMember.current?.(uct)}
               />
             </section>
-          </div>
+          </TabPanel>
         )}
         {/* Étapes 2 à 4 : un seul onglet des adhésions, monté à la première visite puis gardé (données lues une fois, compteurs dans les onglets). */}
         {stepsOpened && (
-          <div className={isStep ? 'flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4' : 'hidden'}>
+          <TabPanel id={panelId('diagnostic')} labelledBy={tabId(isStep ? tab : 'diagnostic')} className={isStep ? 'flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4' : 'hidden'}>
             <MembershipTab
               step={isStep ? (tab as MembershipStep) : 'diagnostic'}
               onCounts={setStepCounts}
@@ -562,10 +587,10 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               }}
               forgetRef={forgetMember}
             />
-          </div>
+          </TabPanel>
         )}
         {tab === 'relance' && (
-        <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-4 py-3 space-y-3">
+        <TabPanel id={panelId('relance')} labelledBy={tabId('relance')} className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-4 py-3 space-y-3">
           {(loading || verifying || phase === 'stopped') && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted px-1" aria-live="polite">
               {phase === 'events' && <span>Lecture des sorties sur VPDive…</span>}
@@ -579,7 +604,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                   <span>
                     Vérification des adhésions… {progress.done}/{progress.total}
                   </span>
-                  <button type="button" onClick={stop} className="btn btn-quiet h-9 text-sm">
+                  <button type="button" onClick={stop} className="btn btn-quiet sm:h-9 text-sm">
                     Arrêter
                   </button>
                 </>
@@ -587,9 +612,9 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               {phase === 'stopped' && (
                 <>
                   <span>
-                    Vérification arrêtée : {progress.done}/{progress.total} fiches lues.
+                    Vérification arrêtée : {progress.done}/{progress.total} fiches lues.
                   </span>
-                  <button type="button" onClick={resume} className="btn btn-quiet h-9 text-sm">
+                  <button type="button" onClick={resume} className="btn btn-quiet sm:h-9 text-sm">
                     <RefreshCw className="w-4 h-4" /> Reprendre
                   </button>
                 </>
@@ -601,7 +626,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             <div role="alert" className="flex flex-wrap items-start gap-x-3 gap-y-1 px-1 text-base text-danger">
               <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
               <span className="flex-1 min-w-0">{error}</span>
-              <button type="button" onClick={phase === 'stopped' ? resume : load} className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">
+              <button type="button" onClick={phase === 'stopped' ? resume : load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
                 <RefreshCw className="w-4 h-4" /> Réessayer
               </button>
             </div>
@@ -609,9 +634,9 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
           {rosterErrors.length > 0 && (
             <div role="alert" className="px-1 text-sm text-danger">
               <p className="flex flex-wrap items-center gap-x-3">
-                <span className="font-semibold">Inscrits illisibles pour {plural(rosterErrors.length, 'sortie', 'sorties')} :</span>
+                <span className="font-semibold">Inscrits illisibles pour {plural(rosterErrors.length, 'sortie', 'sorties')} :</span>
                 {!loading && (
-                  <button type="button" onClick={load} className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">
+                  <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
                     <RefreshCw className="w-4 h-4" /> Réessayer
                   </button>
                 )}
@@ -629,7 +654,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             </p>
           )}
           {statusFailures > 0 && phase !== 'stopped' && (
-            <p className="px-1 text-sm text-muted">{plural(statusFailures, 'fiche membre illisible', 'fiches membres illisibles')} : adhésion non vérifiée.</p>
+            <p className="px-1 text-sm text-muted">{plural(statusFailures, 'fiche membre illisible', 'fiches membres illisibles')} : adhésion non vérifiée.</p>
           )}
 
           {filter !== 'ignored' && outings && phase === 'done' && active.length === 0 && (
@@ -653,7 +678,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                         Ignoré par {i.by} le {new Date(i.at).toLocaleDateString('fr-FR')}
                       </span>
                     </span>
-                    <button type="button" onClick={() => void setIgnore({ uct: i.uct, name: i.name }, false)} className="btn btn-quiet h-9 text-sm shrink-0">
+                    <button type="button" onClick={() => void setIgnore({ uct: i.uct, name: i.name }, false)} className="btn btn-quiet sm:h-9 text-sm shrink-0">
                       <Undo2 className="w-4 h-4" /> Ne plus ignorer
                     </button>
                   </li>
@@ -675,13 +700,13 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               ))}
             </ul>
           )}
-        </div>
+        </TabPanel>
         )}
 
         {tab === 'relance' && filter !== 'ignored' && active.length > 0 && (
           <div className="sticky bottom-0 shrink-0 bg-surface border-t border-line px-4 sm:px-6 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="text-base text-ink font-medium">{plural(picked.length, 'sélectionné', 'sélectionnés')}</span>
-            <button type="button" onClick={toggleAll} className="btn btn-quiet h-9 text-sm">
+            <button type="button" onClick={toggleAll} className="btn btn-quiet sm:h-9 text-sm">
               {allShownPicked ? 'Tout désélectionner' : 'Tout sélectionner'}
             </button>
             <button type="button" disabled={picked.length === 0} onClick={() => setReminder({ rows: picked, bulk: true })} className="btn btn-primary ml-auto">
@@ -703,6 +728,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
           />
         )}
       </div>
+      {confirmDialog}
     </div>
   );
 }
@@ -726,15 +752,15 @@ function MemberCard({ row, checked, onToggle, onRemind, onIgnore }: { row: Row; 
               <IssueChip key={i.kind} issue={i} />
             ))}
           </span>
-          {next && <span className="mt-1 block text-sm text-muted">Prochaine sortie : {dayLabel(next.outing.date)}</span>}
+          {next && <span className="mt-1 block text-sm text-muted">Prochaine sortie : {dayLabel(next.outing.date)}</span>}
         </span>
       </label>
       <span className="flex flex-col sm:flex-row items-stretch gap-1.5 shrink-0">
-        <button type="button" onClick={onRemind} className="btn btn-quiet h-9 text-sm">
+        <button type="button" onClick={onRemind} className="btn btn-quiet sm:h-9 text-sm">
           Relancer
         </button>
         {onIgnore && (
-          <button type="button" onClick={onIgnore} title="Ne plus afficher ce membre" className="btn btn-quiet h-9 text-sm text-muted">
+          <button type="button" onClick={onIgnore} title="Ne plus afficher ce membre" className="btn btn-quiet sm:h-9 text-sm text-muted">
             <EyeOff className="w-4 h-4" /> Ignorer
           </button>
         )}
@@ -792,14 +818,14 @@ function ReminderSheet({
     for (const [i, r] of rows.entries()) {
       if (i > 0) await wait(SEND_GAP_MS);
       if (!r.uct) {
-        errors.push(`${r.name} : pas de compte d’adhérent connu`);
+        errors.push(`${r.name} : pas de compte d’adhérent connu`);
       } else {
         try {
           await messaging.writeTo(r.uct, text);
           sent++;
         } catch (e) {
           if (onSessionLost(e)) return;
-          errors.push(`${r.name} : ${message(e)}`);
+          errors.push(`${r.name} : ${message(e)}`);
         }
       }
       setSending({ done: i + 1, total: rows.length });
@@ -847,7 +873,7 @@ function ReminderSheet({
 
         {noEmail.length > 0 && (
           <p className="text-sm text-muted">
-            Sans e-mail : <span className="text-ink">{noEmail.map((r) => r.name).join(', ')}</span>
+            Sans e-mail : <span className="text-ink">{noEmail.map((r) => r.name).join(', ')}</span>
           </p>
         )}
 

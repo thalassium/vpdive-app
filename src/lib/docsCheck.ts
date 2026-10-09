@@ -132,18 +132,18 @@ export function reminderText(p: { firstName: string; date: string; title: string
   const it = items.length === 1 ? items[0]!.it : 'les';
   const hello = p.firstName.trim() ? `Bonjour ${p.firstName.trim()},` : 'Bonjour,';
   return (
-    `${hello}\n\nPour la sortie du ${p.date} (${p.title}), il manque dans ton dossier VPDive : ${joinFr(items.map((i) => i.text))}.\n` +
-    `Peux-tu ${it} mettre à jour sur ${PROFILE_URL} ?\n\nMerci,\n${p.from}`
+    `${hello}\n\nPour la sortie du ${p.date} (${p.title}), il manque dans ton dossier VPDive : ${joinFr(items.map((i) => i.text))}.\n` +
+    `Peux-tu ${it} mettre à jour sur ${PROFILE_URL} ?\n\nMerci,\n${p.from}`
   );
 }
 
 /** Relance groupée : un seul texte pour tous, qui rappelle les trois documents. */
 export function bulkReminderText(p: { year: string; from: string }): string {
   return (
-    'Bonjour,\n\nPour tes prochaines sorties avec le club, ton dossier VPDive n’est pas complet. Il doit contenir, valables le jour de la sortie :\n' +
-    `- ${WHAT.caci(p.year).text.replace(' valable le jour de la sortie', '')} ;\n` +
-    `- ${WHAT.licence(p.year).text} ;\n` +
+    'Bonjour,\n\nPour tes prochaines sorties avec le club, ton dossier VPDive n’est pas complet. Il doit contenir, valables le jour de la sortie :\n' +
+    `- ${WHAT.caci(p.year).text.replace(' valable le jour de la sortie', '')} ;\n` +
+    `- ${WHAT.licence(p.year).text} ;\n` +
     `- ${WHAT.adhesion(p.year).text}.\n\n` +
-    `Peux-tu les mettre à jour sur ${PROFILE_URL} ?\n\nMerci,\n${p.from}`
+    `Peux-tu les mettre à jour sur ${PROFILE_URL} ?\n\nMerci,\n${p.from}`
   );
 }

@@ -43,7 +43,7 @@ function vpdiveUrl(next: string): string {
   } catch {
     throw new HttpError(502, 'VPDive a renvoyé une adresse illisible.');
   }
-  if (url.origin !== new URL(ORIGIN).origin) throw new HttpError(502, 'VPDive a renvoyé vers un autre site : session non ouverte.');
+  if (url.origin !== new URL(ORIGIN).origin) throw new HttpError(502, 'VPDive a renvoyé vers un autre site : session non ouverte.');
   return url.href;
 }
 
@@ -106,7 +106,7 @@ async function readRequests(cookie: string, call: Fetcher): Promise<Registration
     headers: { 'User-Agent': UA, Cookie: cookie, Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     redirect: 'manual',
   });
-  if (r.status !== 200) throw new HttpError(403, 'VPDive refuse la liste des demandes d’inscription (droits « member_edit » requis).');
+  if (r.status !== 200) throw new HttpError(403, 'VPDive refuse la liste des demandes d’inscription (droits « member_edit » requis).');
   const json = (await r.json().catch(() => null)) as { data?: Record<string, unknown>[] } | null;
   if (!json || !Array.isArray(json.data)) throw new HttpError(502, 'Liste des demandes d’inscription illisible.');
   return json.data
@@ -136,11 +136,11 @@ export async function decideRegistration(caller: Caller, token: string, decision
   const call = pacedFetch();
   const cookie = await legacySession(caller, call);
   const before = await readRequests(cookie, call);
-  if (!before.some((x) => x.token === token)) throw new HttpError(409, 'Cette demande n’est plus en attente : rechargez la liste.');
+  if (!before.some((x) => x.token === token)) throw new HttpError(409, 'Cette demande n’est plus en attente : rechargez la liste.');
   const path = decision === 'refuse' ? `/f/user/refuse/${token}` : `/f/user/accept/${token}/${decision === 'member' ? 1 : 0}`;
   const r = await call(`${ORIGIN}${path}`, { headers: { 'User-Agent': UA, Cookie: cookie }, redirect: 'manual' });
   if (r.status >= 400) throw new HttpError(502, `VPDive a refusé l’opération (HTTP ${r.status}).`);
   const after = await readRequests(cookie, call);
-  if (after.some((x) => x.token === token)) throw new HttpError(502, 'VPDive n’a pas pris en compte la décision : la demande est toujours en attente.');
+  if (after.some((x) => x.token === token)) throw new HttpError(502, 'VPDive n’a pas pris en compte la décision : la demande est toujours en attente.');
   return after;
 }

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, Pencil, Users } from 'lucide-react';
 import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption, type RoleOption } from '../services/vpdiveApi';
-import { ThemeToggle } from './ThemeToggle';
 import { BuddyField } from './BuddyField';
+import { useConfirm } from '../hooks/useConfirm';
 import { useDialog } from '../hooks/useDialog';
 import { GabianLoader } from './Gabian';
 import { BOTTLES, DEFAULT_BOTTLE, SIZES, SIZED_KINDS, SIZED_LABEL, composeComment, parseComment, sizedKinds, type Bottle, type Size, type SizedKind } from '../lib/gear';
@@ -87,15 +87,16 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 
   const cls = useMemo(() => classifyRoles(detail?.roles ?? []), [detail]);
 
-  const load = useCallback(async () => {
+  /**
+   * Reads the outing into the form (no state reset first: see `load`). The form is
+   * filled in the promise's callbacks, never synchronously by the caller.
+   */
+  const fetchDetail = useCallback(() => {
     // Only the latest load may touch the form. Otherwise an earlier answer shows
     // the form, the member starts ticking items, and a later answer (React dev
     // mode runs effects twice; a reload after booking does too) wipes the ticks.
     const id = ++loadRequest.current;
-    setLoadError(null);
-    setDetail(null);
-    try {
-      const d = await vpdive.fetchEventDetail(event.token);
+    const fill = (d: EventDetail) => {
       if (id !== loadRequest.current) return;
       setDetail(d);
       setPrices(Object.fromEntries(d.tariffs.map((t) => [t.token, t.price])));
@@ -122,18 +123,31 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
       setBottle(DEFAULT_BOTTLE);
       setPeople(1);
       setEditing(false);
-    } catch (e) {
-      if (id !== loadRequest.current || onSessionLost(e)) return;
-      setLoadError(e instanceof Error ? e.message : 'Impossible de charger la sortie.');
-    }
+    };
+    // .catch after .then: a failure while filling the form shows as a load error too.
+    return vpdive
+      .fetchEventDetail(event.token)
+      .then(fill)
+      .catch((e: unknown) => {
+        if (id !== loadRequest.current || onSessionLost(e)) return;
+        setLoadError(e instanceof Error ? e.message : 'Impossible de charger la sortie.');
+      });
   }, [event.token, onSessionLost]);
+  /** Reload (retry, after booking): back to the loading state, then read again. */
+  const load = useCallback(async () => {
+    setLoadError(null);
+    setDetail(null);
+    await fetchDetail();
+  }, [fetchDetail]);
 
+  // On opening, the form is already in its loading state: just read.
   useEffect(() => {
-    load();
-  }, [load]);
+    void fetchDetail();
+  }, [fetchDetail]);
 
   // Échap, bouton Retour, focus et verrou de défilement : hooks/useDialog. Pas de fermeture pendant un envoi.
   const { ref: dialogRef } = useDialog({ onClose, canClose: () => !busy, label: 'inscription' });
+  const { confirm, confirmDialog } = useConfirm();
 
   /** Opens the form on the member's current registration, as VPDive recorded it. */
   const startEdit = () => {
@@ -190,7 +204,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
    * the wetsuit size once), sent in the message to the club.
    */
   const choiceGear = checkedGear.filter((m) => m.choices.length > 0);
-  const neededKinds = SIZED_KINDS.filter((k) => checkedGear.some((m) => m.choices.length === 0 && sizedKinds(m.name).includes(k)));
+  const neededKinds = useMemo(() => SIZED_KINDS.filter((k) => checkedGear.some((m) => m.choices.length === 0 && sizedKinds(m.name).includes(k))), [checkedGear]);
   const sizeMissing =
     choiceGear.find((m) => !choiceOf[m.id])?.name ?? (neededKinds.find((k) => !kindSize[k]) ? SIZED_LABEL[neededKinds.find((k) => !kindSize[k])!].toLowerCase() : null);
 
@@ -246,7 +260,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           if (onSessionLost(e)) return;
           quotedKey.current = null;
           if (id === priceRequest.current) {
-            setStatus({ kind: 'error', text: `${PRICE_ERROR} : ${e instanceof Error ? e.message : e}` });
+            setStatus({ kind: 'error', text: `${PRICE_ERROR} : ${e instanceof Error ? e.message : e}` });
           }
         },
       )
@@ -280,7 +294,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
         text: res.waitingList
           ? editing
             ? 'Votre inscription est modifiée. Vous êtes toujours sur liste d’attente.'
-            : 'Vous êtes sur liste d’attente : le club vous préviendra si une place se libère.'
+            : 'Vous êtes sur liste d’attente : le club vous préviendra si une place se libère.'
           : editing
             ? 'Votre inscription est modifiée sur VPDive.'
             : res.message,
@@ -298,7 +312,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
 
   const cancel = async () => {
     if (!detail) return;
-    if (!window.confirm(`Confirmer la désinscription de « ${detail.title} » ?`)) return;
+    if (!(await confirm({ title: 'Confirmer la désinscription ?', message: `« ${detail.title} »`, confirmLabel: 'Me désinscrire', danger: true }))) return;
     setBusy(true);
     setStatus({ kind: 'idle' });
     try {
@@ -319,7 +333,8 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const start = detail?.start || event.start;
   const end = detail?.end || event.end;
   const location = detail?.location || event.location;
-  let step = 0;
+  /** Section numbers, in the order the sections show (some are conditional). */
+  const nextStep = stepCounter();
 
   return (
     <div
@@ -343,7 +358,6 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
               </h2>
             </div>
             <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
-              <ThemeToggle />
               <button onClick={onClose} disabled={busy} aria-label="Fermer" className="icon-btn">
                 <X className="w-6 h-6" />
               </button>
@@ -360,7 +374,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
             </p>
           </div>
           {onOpenPalanquees && (
-            <button type="button" onClick={onOpenPalanquees} disabled={busy} className="btn btn-quiet h-9 text-sm mt-3.5">
+            <button type="button" onClick={onOpenPalanquees} disabled={busy} className="btn btn-quiet sm:h-9 text-sm mt-3.5">
               <Users className="w-4 h-4" /> Palanquées
             </button>
           )}
@@ -377,7 +391,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                   <span className="font-semibold block">Impossible de charger cette sortie</span>
                   <span>{loadError}</span>
                 </div>
-                <button type="button" onClick={load} className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">
+                <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
                   <RefreshCw className="w-4 h-4" /> Réessayer
                 </button>
               </div>
@@ -393,7 +407,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                   <Notice tone="warn" title="Sortie annulée">
                     {detail.alreadyRegistered
                       ? 'Le club a annulé cette sortie. Vous pouvez vous désinscrire ci-dessous.'
-                      : 'Le club a annulé cette sortie : les inscriptions sont fermées.'}
+                      : 'Le club a annulé cette sortie : les inscriptions sont fermées.'}
                   </Notice>
                 )}
                 {detail.alreadyRegistered && !editing ? (
@@ -420,7 +434,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                           type="button"
                           onClick={() => void load()}
                           disabled={busy}
-                          className="font-semibold text-muted hover:text-ink underline underline-offset-2"
+                          className="max-sm:min-h-11 font-semibold text-muted hover:text-ink underline underline-offset-2"
                         >
                           Annuler
                         </button>
@@ -430,7 +444,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     {/* Entry: diver, instructor (N4/E1…E4 only), volunteer on a surface post. The DP is never offered. */}
                     {hasRoles && !fixedRole && (
                       <section>
-                        <SectionTitle n={++step}>Je viens comme…</SectionTitle>
+                        <SectionTitle n={nextStep()}>Je viens comme…</SectionTitle>
                         <div role="radiogroup" aria-label="Je viens comme" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <ChoiceCard role="radio" selected={entry === 'diver'} onClick={() => pick('diver')}>
                             <span className="text-base font-medium">Plongeur</span>
@@ -465,7 +479,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     )}
                     {fixedRole && (
                       <section>
-                        <SectionTitle n={++step}>Votre rôle</SectionTitle>
+                        <SectionTitle n={nextStep()}>Votre rôle</SectionTitle>
                         <p className="text-base text-ink">
                           {cleanRoleLabel(fixedRole.label) || 'Rôle'} <span className="text-muted">(attribué par le club)</span>
                         </p>
@@ -475,7 +489,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     {/* Tariff */}
                     {asks.tariff && detail.tariffs.length > 0 && (
                       <section>
-                        <SectionTitle n={++step} hint={pricesLoading ? 'Mise à jour des tarifs…' : undefined}>
+                        <SectionTitle n={nextStep()} hint={pricesLoading ? 'Mise à jour des tarifs…' : undefined}>
                           Formule
                         </SectionTitle>
                         <div className={`rounded-xl border border-line divide-y divide-line ${pricesLoading ? 'opacity-60' : ''}`}>
@@ -512,7 +526,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     {asks.gear && (
                       <section>
                         <SectionTitle
-                          n={++step}
+                          n={nextStep()}
                           hint={
                             detail.materials.length === 0
                               ? undefined
@@ -550,7 +564,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                         {choiceGear.map((m) => (
                           <SizePicker
                             key={m.id}
-                            label={sizedKinds(m.name).length ? `${m.name} : votre taille` : `${m.name} : votre choix`}
+                            label={sizedKinds(m.name).length ? `${m.name} : votre taille` : `${m.name} : votre choix`}
                             options={m.choices.map((c) => ({ value: c.id, label: c.name }))}
                             value={choiceOf[m.id] ?? null}
                             onChange={(v) => setChoiceOf((prev) => ({ ...prev, [m.id]: v }))}
@@ -677,7 +691,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     : roleRequired
                       ? 'Choisissez votre rôle'
                       : sizeMissing
-                        ? `Choisir la taille : ${sizeMissing}`
+                        ? `Choisir la taille : ${sizeMissing}`
                         : pricesLoading
                           ? 'Calcul du tarif…'
                           : editing
@@ -689,6 +703,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           )}
         </form>
       </div>
+      {confirmDialog}
     </div>
   );
 }
@@ -726,7 +741,7 @@ function SizePicker({
               role="radio"
               aria-checked={selected}
               onClick={() => onChange(o.value)}
-              className={`min-w-12 h-10 px-3 rounded-lg text-sm font-semibold tabular-nums transition-colors ${
+              className={`min-w-12 h-11 sm:h-10 px-3 rounded-lg text-sm font-semibold tabular-nums transition-colors ${
                 selected ? 'border-2 border-brand bg-tint text-brand' : 'border border-field-border bg-field text-ink hover:border-brand/40'
               }`}
             >
@@ -752,7 +767,7 @@ function Chips({ label, options, value, onChange }: { label: string; options: { 
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(o.value)}
-            className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${selected ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
+            className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${selected ? 'bg-tint text-brand' : 'text-muted hover:text-brand'}`}
           >
             {o.label}
           </button>
@@ -797,7 +812,7 @@ function ChoiceCard({
       <span className="block pr-6">{children}</span>
       <span
         className={`absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
-          selected ? 'bg-fill text-white' : 'border-2 border-line'
+          selected ? 'bg-fill text-on-fill' : 'border-2 border-line'
         }`}
       >
         {selected && <Check className="w-3 h-3" strokeWidth={3} />}
@@ -835,14 +850,14 @@ function RegisteredPanel({
   const canEdit = detail.canModify && !detail.requiresExtraForm && !!r && !cancelled;
   const waiting = detail.onWaitingList;
   return (
-    <div className={`p-4 rounded-xl border text-base space-y-3 ${waiting ? 'bg-warn-soft border-warn/40' : 'bg-ok-soft border-green/40'}`}>
+    <div className={`p-4 rounded-xl border text-base space-y-3 ${waiting ? 'bg-warn-soft border-warn/40' : 'bg-ok-soft border-ok/40'}`}>
       {waiting ? (
         <div className="text-warn">
           <p className="flex items-center gap-2 font-semibold text-base">
             <Clock className="w-5 h-5" />
             Sur liste d’attente
           </p>
-          <p className="text-ink mt-1">La sortie est complète : le club vous préviendra si une place se libère.</p>
+          <p className="text-ink mt-1">La sortie est complète : le club vous préviendra si une place se libère.</p>
         </div>
       ) : (
         <p className="flex items-center gap-2 font-semibold text-base text-ok">
@@ -865,7 +880,7 @@ function RegisteredPanel({
       )}
       {detail.myCart && (
         <p className="text-ink">
-          Montant : <strong className="tabular-nums">{formatEuro(detail.myCart.amount)}</strong> ·{' '}
+          Montant : <strong className="tabular-nums">{formatEuro(detail.myCart.amount)}</strong> ·{' '}
           {detail.myCart.paid ? 'réglé' : 'à régler sur VPDive'}
         </p>
       )}
@@ -894,7 +909,7 @@ function RegisteredPanel({
         </div>
       )}
       {!canEdit && !cancelled && <p className="text-muted">Le club n’a pas ouvert la modification d’inscription pour cette sortie.</p>}
-      {!detail.canUnregister && <p className="text-muted">La désinscription n’est plus possible en ligne : contactez le club.</p>}
+      {!detail.canUnregister && <p className="text-muted">La désinscription n’est plus possible en ligne : contactez le club.</p>}
     </div>
   );
 }
@@ -933,7 +948,7 @@ function Description({ text }: { text: string }) {
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="mt-1 text-sm font-semibold text-brand underline underline-offset-2"
+          className="mt-1 max-sm:min-h-11 text-sm font-semibold text-brand underline underline-offset-2"
         >
           {open ? 'Voir moins' : 'Voir plus…'}
         </button>
@@ -990,7 +1005,13 @@ function SectionTitle({ children, n, hint }: { children: ReactNode; n: number; h
   );
 }
 
-export function formatEuro(n: number): string {
+/** Numbers each section of the form as it renders: 1, 2, 3… */
+function stepCounter(): () => number {
+  let n = 0;
+  return () => ++n;
+}
+
+function formatEuro(n: number): string {
   if (n === 0) return 'Gratuit';
   return n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: n % 1 ? 2 : 0 });
 }

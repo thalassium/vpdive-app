@@ -3,7 +3,6 @@ import { RefreshCw, Wind, X } from 'lucide-react';
 import { vpdive, ymd, type CalendarEvent } from '../../services/vpdiveApi';
 import { SPOTS, forecastAt, type Spot } from '../../services/marineWeather';
 import { SEUILS, beaufort, compass, level, metres, windColor, worstIn, type Level, type Slot } from '../../lib/marine';
-import { ThemeToggle } from '../ThemeToggle';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 
@@ -90,7 +89,7 @@ function SlotRow({ s, active, onSelect }: { s: Slot; active: boolean; onSelect: 
         type="button"
         onClick={onSelect}
         aria-pressed={active}
-        aria-label={`${Number(s.time.slice(11, 13))} h : vent ${s.wind} nœuds de ${compass(s.windDir)}, rafales ${s.gusts}, vagues ${metres(s.waves)}`}
+        aria-label={`${Number(s.time.slice(11, 13))} h : vent ${s.wind} nœuds de ${compass(s.windDir)}, rafales ${s.gusts}, vagues ${metres(s.waves)}`}
         className={`relative w-full text-left grid grid-cols-[3.25rem_minmax(0,1.2fr)_minmax(0,1fr)] items-center gap-2 sm:gap-3 pl-2 pr-3 pt-2.5 pb-3.5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${
           active ? 'shadow-[inset_4px_0_0_var(--color-brand)]' : ''
         }`}
@@ -176,21 +175,24 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
   };
 
   // Prévision au point choisi.
-  const [slots, setSlots] = useState<Slot[] | null>(null);
-  const [forecastError, setForecastError] = useState<string | null>(null);
+  // La réponse garde la demande à laquelle elle répond : un autre point (ou « Réessayer ») remet
+  // aussitôt l'écran en lecture, sans effacer l'état dans l'effet.
   const [attempt, setAttempt] = useState(0);
+  const forecastKey = `${spot.lat},${spot.lon},${attempt}`;
+  const [forecast, setForecast] = useState<{ key: string; slots: Slot[] | null; error: string | null } | null>(null);
+  const current = forecast?.key === forecastKey ? forecast : null;
+  const slots = current?.slots ?? null;
+  const forecastError = current?.error ?? null;
   useEffect(() => {
     let live = true;
-    setSlots(null);
-    setForecastError(null);
     forecastAt(spot.lat, spot.lon).then(
-      (s) => live && setSlots(s),
-      (e) => live && setForecastError(message(e)),
+      (s) => live && setForecast({ key: forecastKey, slots: s, error: null }),
+      (e) => live && setForecast({ key: forecastKey, slots: null, error: message(e) }),
     );
     return () => {
       live = false;
     };
-  }, [spot.lat, spot.lon, attempt]);
+  }, [spot.lat, spot.lon, forecastKey]);
 
   // Sorties de la semaine : un seul appel, indépendant de la prévision.
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
@@ -283,7 +285,6 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
           <h2 id="weather-title" className="text-xl font-semibold text-brand flex-1">
             Météo
           </h2>
-          <ThemeToggle />
           <button onClick={onClose} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
           </button>
@@ -300,7 +301,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                     type="button"
                     onClick={() => setSpotId(s.id)}
                     aria-pressed={spot.id === s.id}
-                    className={`h-9 px-3 rounded-md text-sm font-medium transition-colors ${
+                    className={`h-11 sm:h-9 px-3 rounded-md text-sm font-medium transition-colors ${
                       spot.id === s.id ? 'bg-tint text-brand' : 'text-muted hover:text-ink'
                     }`}
                   >
@@ -373,7 +374,8 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                 {water !== null && <span className="text-base text-ink tabular-nums">Eau {Math.round(water)}&nbsp;°C</span>}
               </div>
 
-              <div role="tablist" aria-label="Jour" className="flex gap-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-1">
+              {/* Boutons à bascule plutôt qu'onglets : le jour choisi règle à la fois les créneaux et la carte. */}
+              <div role="group" aria-label="Jour" className="flex gap-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-1">
                 {days.map((d, i) => {
                   const date = fromLocal(d);
                   const peak = dayPeak.get(d);
@@ -381,10 +383,9 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                     <button
                       key={d}
                       type="button"
-                      role="tab"
-                      aria-selected={day === d}
+                      aria-pressed={day === d}
                       onClick={() => pickDay(d)}
-                      title={peak ? `Jusqu'à ${peak.wind} nd, rafales ${peak.gusts} nd` : undefined}
+                      title={peak ? `Jusqu’à ${peak.wind} nd, rafales ${peak.gusts} nd` : undefined}
                       className={`shrink-0 w-[4.75rem] rounded-lg border py-1.5 text-center transition-colors ${
                         day === d ? 'bg-surface border-brand shadow-lift' : 'bg-surface/60 border-line hover:bg-surface'
                       }`}
@@ -437,7 +438,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
             </section>
 
             <p className="text-sm text-muted">
-              Sources : Météo-France (AROME) et Open-Meteo pour le vent, Open-Meteo Marine pour la mer.
+              Sources : Météo-France (AROME) et Open-Meteo pour le vent, Open-Meteo Marine pour la mer.
             </p>
           </div>
         </main>

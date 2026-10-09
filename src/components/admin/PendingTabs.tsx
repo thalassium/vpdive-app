@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Check, ExternalLink, FileText, Loader2, UserCheck, UserPlus, X } from 'lucide-react';
+import { Check, ExternalLink, FileText, UserCheck, UserPlus, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
+import { Spinner } from '../Spinner';
 import { GabianLoader } from '../Gabian';
 import { vpdive, type PendingValidation } from '../../services/vpdiveApi';
 import { appApi, type RegistrationRequest } from '../../services/appApi';
-import { cacheKey } from './MembershipTab';
+import { useConfirm } from '../../hooks/useConfirm';
+import { cacheKey } from './memberCache';
 
 /*
  * Les deux onglets « à traiter d'abord » de la gestion des adhésions : tant
@@ -32,7 +34,7 @@ function Failure({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
     <div role="alert" className="p-4 rounded-xl bg-danger-soft text-danger flex flex-wrap items-center gap-3">
       <span className="flex-1 min-w-0">{error}</span>
-      <button type="button" onClick={onRetry} className="btn btn-quiet h-9 text-sm">
+      <button type="button" onClick={onRetry} className="btn btn-quiet sm:h-9 text-sm">
         Réessayer
       </button>
     </div>
@@ -60,12 +62,13 @@ export function RegistrationRequestsTab({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
+  const { confirm, confirmDialog } = useConfirm();
   if (error) return <Failure error={error} onRetry={onReload} />;
   if (!requests) return <GabianLoader label="Lecture des demandes d’inscription sur VPDive…" />;
   if (!requests.length) return <Empty>Aucune demande d’inscription en attente.</Empty>;
 
   const decide = async (r: RegistrationRequest, decision: 'member' | 'guest' | 'refuse') => {
-    if (decision === 'refuse' && !window.confirm(`Refuser l’accès au site à ${r.name} ?`)) return;
+    if (decision === 'refuse' && !(await confirm({ title: `Refuser l’accès au site à ${r.name || 'cette personne'} ?`, confirmLabel: 'Refuser', danger: true }))) return;
     setBusy(r.token);
     setRowError(({ [r.token]: _, ...rest }) => rest);
     try {
@@ -96,25 +99,26 @@ export function RegistrationRequestsTab({
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" disabled={busy !== null} onClick={() => void decide(r, 'member')} className="btn btn-primary h-9 text-sm">
-                {busy === r.token ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />} Accepter comme membre
+              <button type="button" disabled={busy !== null} aria-busy={busy === r.token} onClick={() => void decide(r, 'member')} className="btn btn-primary sm:h-9 text-sm">
+                {busy === r.token ? <Spinner /> : <UserCheck className="w-4 h-4" />} Accepter comme membre
               </button>
               <button
                 type="button"
                 disabled={busy !== null}
                 onClick={() => void decide(r, 'guest')}
-                title="Invité : pas de messagerie, n’apparaît pas aux autres membres"
-                className="btn btn-quiet h-9 text-sm"
+                title="Invité : pas de messagerie, n’apparaît pas aux autres membres"
+                className="btn btn-quiet sm:h-9 text-sm"
               >
                 <UserPlus className="w-4 h-4" /> Accepter comme invité
               </button>
-              <button type="button" disabled={busy !== null} onClick={() => void decide(r, 'refuse')} className="btn btn-quiet h-9 text-sm hover:text-danger hover:border-danger/40">
+              <button type="button" disabled={busy !== null} onClick={() => void decide(r, 'refuse')} className="btn btn-quiet sm:h-9 text-sm hover:text-danger hover:border-danger/40">
                 <X className="w-4 h-4" /> Refuser
               </button>
             </div>
           </li>
         ))}
       </ul>
+      {confirmDialog}
     </div>
   );
 }
@@ -144,6 +148,7 @@ export function PendingDocumentsTab({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
+  const { confirm, confirmDialog } = useConfirm();
   if (error) return <Failure error={error} onRetry={onReload} />;
   if (!items) return <GabianLoader label="Lecture des documents en attente sur VPDive…" />;
   if (!items.length) return <Empty>Aucun document en attente de validation.</Empty>;
@@ -155,7 +160,11 @@ export function PendingDocumentsTab({
 
   /** Valide ou refuse, un élément ou tous ceux d'un membre, l'un après l'autre. */
   const decide = async (list: PendingValidation[], decision: 'approve' | 'reject', busyKey: string) => {
-    if (decision === 'reject' && !window.confirm(`Refuser : ${list.map((v) => v.typeLabel).join(', ')} de ${list[0]!.memberName} ?`)) return;
+    if (
+      decision === 'reject' &&
+      !(await confirm({ title: `Refuser ${list.length > 1 ? 'ces documents' : 'ce document'} ?`, message: `${list.map((v) => v.typeLabel).join(', ')} de ${list[0]!.memberName}.`, confirmLabel: 'Refuser', danger: true }))
+    )
+      return;
     setBusy(busyKey);
     let left = items;
     try {
@@ -180,7 +189,7 @@ export function PendingDocumentsTab({
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted max-w-3xl">
-        Déposés par les membres eux-mêmes. Tant qu’ils ne sont pas validés, VPDive n’en tient pas compte : un membre peut paraître sans licence ou sans saison alors qu’il les a
+        Déposés par les membres eux-mêmes. Tant qu’ils ne sont pas validés, VPDive n’en tient pas compte : un membre peut paraître sans licence ou sans saison alors qu’il les a
         renseignées.
       </p>
       {members.map((list) => {
@@ -191,8 +200,8 @@ export function PendingDocumentsTab({
               <Avatar name={first.memberName} picture={first.picture} size="sm" initials={false} />
               <span className="flex-1 min-w-0 font-semibold text-ink truncate">{first.memberName}</span>
               {list.length > 1 && (
-                <button type="button" disabled={busy !== null} onClick={() => void decide(list, 'approve', first.member)} className="btn btn-quiet h-8 text-sm">
-                  {busy === first.member ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Tout valider ({list.length})
+                <button type="button" disabled={busy !== null} aria-busy={busy === first.member} onClick={() => void decide(list, 'approve', first.member)} className="btn btn-quiet sm:h-8 text-sm">
+                  {busy === first.member ? <Spinner /> : <Check className="w-4 h-4" />} Tout valider ({list.length})
                 </button>
               )}
             </header>
@@ -221,10 +230,10 @@ export function PendingDocumentsTab({
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <button type="button" disabled={busy !== null} onClick={() => void decide([v], 'approve', k)} className="btn btn-primary h-9 text-sm">
-                        {busy === k ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Valider
+                      <button type="button" disabled={busy !== null} aria-busy={busy === k} onClick={() => void decide([v], 'approve', k)} className="btn btn-primary sm:h-9 text-sm">
+                        {busy === k ? <Spinner /> : <Check className="w-4 h-4" />} Valider
                       </button>
-                      <button type="button" disabled={busy !== null} onClick={() => void decide([v], 'reject', k)} className="btn btn-quiet h-9 text-sm hover:text-danger hover:border-danger/40">
+                      <button type="button" disabled={busy !== null} onClick={() => void decide([v], 'reject', k)} className="btn btn-quiet sm:h-9 text-sm hover:text-danger hover:border-danger/40">
                         <X className="w-4 h-4" /> Refuser
                       </button>
                     </div>
@@ -235,6 +244,7 @@ export function PendingDocumentsTab({
           </article>
         );
       })}
+      {confirmDialog}
     </div>
   );
 }

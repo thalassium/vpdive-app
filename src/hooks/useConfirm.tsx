@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { ConfirmDialog, type ConfirmOptions } from '../components/ConfirmDialog';
 
 /**
@@ -22,8 +23,9 @@ import { ConfirmDialog, type ConfirmOptions } from '../components/ConfirmDialog'
  * - `confirm(options)` renvoie une promesse : true (bouton de confirmation), false (Annuler,
  *   Échap, Retour, clic sur le voile). Une seule question à la fois : une nouvelle question
  *   répond false à celle encore ouverte.
- * - `{confirmDialog}` doit être rendu quelque part dans le composant (n'importe où : la
- *   fenêtre est en position fixe, au-dessus des panneaux).
+ * - `{confirmDialog}` doit être rendu quelque part dans le composant, de préférence à la
+ *   racine de ce qu'il renvoie : la fenêtre est posée sur <body> (portail), au-dessus des
+ *   panneaux, mais ses événements remontent l'arbre React jusqu'aux parents (onClick…).
  * - Options (ConfirmOptions) : title (obligatoire), message, confirmLabel (« Confirmer »),
  *   cancelLabel (« Annuler », null = un seul bouton), danger (bouton rouge, focus sur Annuler),
  *   text (texte à copier, présélectionné : remplace window.prompt('Copiez…', texte)).
@@ -58,6 +60,7 @@ export function useConfirm(): { confirm: (options: ConfirmOptions) => Promise<bo
     setPending(null);
   };
 
-  const confirmDialog = pending ? <ConfirmDialog key={String(pending.title)} {...pending} onAnswer={answer} /> : null;
+  // Sur <body> : un parent transformé (animation d'ouverture) ou qui coupe ce qui déborde ne la gêne pas.
+  const confirmDialog = pending ? createPortal(<ConfirmDialog key={String(pending.title)} {...pending} onAnswer={answer} />, document.body) : null;
   return { confirm, confirmDialog };
 }

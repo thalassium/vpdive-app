@@ -123,7 +123,7 @@ export function safetySheetPdf(outing: OutingDoc, dive: Dive, title: string): js
         }),
       ];
       const note = dive.notes?.[p.id];
-      if (note) params.push([{ content: pdfText(`Encadrant : ${noteText(note)}`), colSpan: 5, styles: { fontSize: 7, fontStyle: 'normal', overflow: 'linebreak' } }]);
+      if (note) params.push([{ content: pdfText(`Encadrant : ${noteText(note)}`), colSpan: 5, styles: { fontSize: 7, fontStyle: 'normal', overflow: 'linebreak' } }]);
 
       const x = PAGE.margin + k * (colW + PAGE.gap);
       autoTable(pdf, {

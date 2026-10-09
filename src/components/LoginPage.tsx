@@ -35,7 +35,7 @@ export function LoginPage({ onLoginSuccess, notice }: LoginPageProps) {
           </div>
 
           <p className="mt-6 text-center text-sm text-muted">
-            Pas de compte ou mot de passe oublié ?{' '}
+            Pas de compte ou mot de passe oublié ?{' '}
             <a href="https://septentrion-env.vpdive.com/" target="_blank" rel="noreferrer" className="text-brand font-semibold underline underline-offset-2">
               Rendez-vous sur VPDive
             </a>

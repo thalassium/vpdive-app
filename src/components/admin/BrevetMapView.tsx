@@ -41,18 +41,18 @@ export function BrevetMapView({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start gap-3">
-        <button type="button" onClick={onClose} className="btn btn-quiet h-9 text-sm">
+        <button type="button" onClick={onClose} className="btn btn-quiet sm:h-9 text-sm">
           <ArrowLeft className="w-4 h-4" /> Retour
         </button>
         <div className="min-w-0 flex-1">
           <h3 className="text-lg font-semibold text-brand">Correspondance des brevets</h3>
           <p className="text-sm text-muted max-w-3xl">
-            Pour chaque brevet de l’export FFESSM, les niveaux VPDive qui le valent. Sans choix, la règle automatique s’applique (par code : Niveau 2 → P2/N2, Nitrox confirmé →
+            Pour chaque brevet de l’export FFESSM, les niveaux VPDive qui le valent. Sans choix, la règle automatique s’applique (par code : Niveau 2 → P2/N2, Nitrox confirmé →
             PNC…). Les choix sont partagés entre les admins.
           </p>
         </div>
       </div>
-      {error && <p className="text-sm text-danger">Niveaux VPDive non lus : {error}</p>}
+      {error && <p className="text-sm text-danger">Niveaux VPDive non lus : {error}</p>}
       {all.length === 0 ? (
         <p className="py-8 text-center text-muted">Déposez d’abord l’export des brevets.</p>
       ) : (
@@ -101,14 +101,14 @@ function BrevetRow({ brevet, chosen, names, inExport, onSave }: { brevet: string
       </div>
       <div className="space-y-2 min-w-0">
         {shown.length === 0 ? (
-          <p className="text-sm text-warn font-medium">{names ? 'Aucun niveau VPDive reconnu : à choisir.' : 'Lecture des niveaux VPDive…'}</p>
+          <p className="text-sm text-warn font-medium">{names ? 'Aucun niveau VPDive reconnu : à choisir.' : 'Lecture des niveaux VPDive…'}</p>
         ) : (
           <ul className="flex flex-wrap gap-1.5">
             {shown.map((n) => (
               <li key={n} className={`inline-flex items-center gap-1 max-w-full rounded-md px-2 text-sm leading-7 ${custom ? 'bg-tint text-brand font-medium' : 'border border-line text-muted'}`}>
                 <span className="truncate">{n}</span>
                 {custom && (
-                  <button type="button" disabled={busy} onClick={() => void save(chosen.filter((x) => x !== n))} aria-label={`Retirer ${n}`} className="icon-btn w-6 h-6 -mr-1 hover:text-danger">
+                  <button type="button" disabled={busy} onClick={() => void save(chosen.filter((x) => x !== n))} aria-label={`Retirer ${n}`} className="icon-btn relative w-6 h-6 -mr-1 hover:text-danger max-sm:before:absolute max-sm:before:-inset-2.5">
                     <X className="w-3.5 h-3.5" />
                   </button>
                 )}
@@ -123,13 +123,13 @@ function BrevetRow({ brevet, chosen, names, inExport, onSave }: { brevet: string
             onChange={(e) => setTyped(e.target.value)}
             placeholder="Chercher un niveau VPDive…"
             aria-label={`Niveau VPDive pour ${brevet}`}
-            className="field h-9 flex-1 min-w-[14rem]"
+            className="field sm:h-9 flex-1 min-w-[14rem]"
           />
-          <button type="button" disabled={!valid || busy} onClick={() => void save([...chosen, typed])} className="btn btn-quiet h-9 text-sm">
+          <button type="button" disabled={!valid || busy} onClick={() => void save([...chosen, typed])} className="btn btn-quiet sm:h-9 text-sm">
             <Plus className="w-4 h-4" /> Ajouter
           </button>
           {custom && (
-            <button type="button" disabled={busy} onClick={() => void save([])} className="btn btn-quiet h-9 text-sm" title="Revenir à la règle automatique">
+            <button type="button" disabled={busy} onClick={() => void save([])} className="btn btn-quiet sm:h-9 text-sm" title="Revenir à la règle automatique">
               <RotateCcw className="w-4 h-4" /> Automatique
             </button>
           )}

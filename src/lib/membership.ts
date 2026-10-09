@@ -235,7 +235,10 @@ export function parseFfessmBrevets(text: string): { rows: FfessmBrevet[]; period
 /** Brevets délivrés, par n° de licence. */
 export const brevetsByLicence = (rows: FfessmBrevet[]): Record<string, string[]> => {
   const out: Record<string, string[]> = {};
-  for (const r of rows) (out[r.licence] ??= []).includes(r.brevet) || out[r.licence]!.push(r.brevet);
+  for (const r of rows) {
+    const list = (out[r.licence] ??= []);
+    if (!list.includes(r.brevet)) list.push(r.brevet);
+  }
   return out;
 };
 
@@ -502,7 +505,7 @@ const sameEmail = (a: string, b: string) => !!a && !!b && a.trim().toLowerCase()
  */
 export function contradiction(p: Pick<Person, 'birthDate'>, r: VpRecord | undefined): string | null {
   if (!r || !p.birthDate || !r.birthday || r.birthday === p.birthDate) return null;
-  return `né(e) le ${r.birthday.split('-').reverse().join('/')} selon VPDive`;
+  return `né le ${r.birthday.split('-').reverse().join('/')} selon VPDive`;
 }
 
 /** E-mail propre différent sur la fiche (ni celui de l'adhérent, ni celui du payeur) : un doute pour un rapprochement par le nom seul. */
@@ -576,7 +579,7 @@ export function matchPerson(p: Person, directory: VpMember[], records: Record<st
     if (member) return { status: 'sure', member, why: `choisi par ${link.by}`, candidates: [] };
     // Le membre choisi n'est plus dans l'annuaire : on le dit, et le rapprochement automatique ne vaut que proposition.
     const auto = matchPerson(p, directory, records);
-    const obsolete = `choix obsolète : le membre choisi par ${link.by} n’est plus dans l’annuaire`;
+    const obsolete = `choix obsolète : le membre choisi par ${link.by} n’est plus dans l’annuaire`;
     if (auto.status === 'sure') return { status: 'confirm', member: null, why: '', candidates: [auto.member!], obsolete };
     return { ...auto, obsolete };
   }
@@ -707,7 +710,7 @@ export function brevetsView(p: Person, r: VpRecord | null, brevets: Record<strin
   const ffessm: Cell = fed.length ? { mark: 'ok', text: fed.join(', ') } : NA;
   if (!r || !fed.length) return { helloasso, ffessm, vpdive: r ? NA : { mark: 'na', text: 'fiche à trouver' } };
   const lacking = fed.filter((b) => !hasBrevet(r.levels, b, map));
-  const vpdive: Cell = !lacking.length ? { mark: 'ok', text: 'à jour' } : lacking.length === fed.length ? { mark: 'missing', text: `absents : ${lacking.join(', ')}` } : { mark: 'diff', text: `manque ${lacking.join(', ')}` };
+  const vpdive: Cell = !lacking.length ? { mark: 'ok', text: 'à jour' } : lacking.length === fed.length ? { mark: 'missing', text: `absents : ${lacking.join(', ')}` } : { mark: 'diff', text: `manque ${lacking.join(', ')}` };
   return { helloasso, ffessm, vpdive };
 }
 
@@ -857,16 +860,16 @@ export interface Case {
 
 export function arbitrageCases(p: Person, match: Match, r: VpRecord | null, v: PersonView, season: number, family: VpMember[] = []): Case[] {
   const out: Case[] = [];
-  if (match.status === 'confirm') out.push({ kind: 'homonym', text: 'Plusieurs membres VPDive possibles : choisir le bon.' });
+  if (match.status === 'confirm') out.push({ kind: 'homonym', text: 'Plusieurs membres VPDive possibles : choisir le bon.' });
   if (match.status === 'missing' && !match.why) {
     if (family.length) out.push({ kind: 'family', text: 'Pas de fiche à son nom. Un mineur dont un parent paie l’adhésion ? Rattacher au bon compte.' });
-    else out.push({ kind: 'absent', text: 'Pas de fiche VPDive à ce nom : créer ou inviter la personne, ou la chercher sous un autre nom.' });
+    else out.push({ kind: 'absent', text: 'Pas de fiche VPDive à ce nom : créer ou inviter la personne, ou la chercher sous un autre nom.' });
   }
-  if (v.licence.ffessm.mark === 'missing') out.push({ kind: 'not-taken', text: 'Licence payée sur HelloAsso, pas prise à la FFESSM : à prendre sur Mon Club.' });
-  if (v.licence.ffessm.mark === 'diff') out.push({ kind: 'unpaid', text: 'Licence prise à la FFESSM sans paiement HelloAsso : vérifier si elle n’a pas été prise dans un autre club.' });
-  if (!p.ha?.licence && !p.ha?.pass && !p.ffessm && p.ha?.adhesion) out.push({ kind: 'no-licence', text: 'Ni licence ni Pass plongée payés au club : licence prise dans un autre club ?' });
+  if (v.licence.ffessm.mark === 'missing') out.push({ kind: 'not-taken', text: 'Licence payée sur HelloAsso, pas prise à la FFESSM : à prendre sur Mon Club.' });
+  if (v.licence.ffessm.mark === 'diff') out.push({ kind: 'unpaid', text: 'Licence prise à la FFESSM sans paiement HelloAsso : vérifier si elle n’a pas été prise dans un autre club.' });
+  if (!p.ha?.licence && !p.ha?.pass && !p.ffessm && p.ha?.adhesion) out.push({ kind: 'no-licence', text: 'Ni licence ni Pass plongée payés au club : licence prise dans un autre club ?' });
   if (!r) return out;
-  if (!r.member && p.ha?.adhesion) out.push({ kind: 'guest', text: 'Statut Invité dans VPDive : à passer en Membre.' });
+  if (!r.member && p.ha?.adhesion) out.push({ kind: 'guest', text: 'Statut Invité dans VPDive : à passer en Membre.' });
   // Seulement face à une ligne FFESSM : sans elle, on ne sait pas quel numéro attendre.
   if (p.ffessm && v.licence.vpdive.mark === 'diff' && v.licence.vpdive.text.startsWith('autre n°')) {
     out.push({ kind: 'licence-other', text: `La fiche VPDive porte une autre licence FFESSM (${v.licence.vpdive.text.replace('autre n° ', '')}) que celle de la FFESSM (${p.ffessm?.licence ?? '?'}).` });
@@ -879,8 +882,8 @@ export function arbitrageCases(p: Person, match: Match, r: VpRecord | null, v: P
   const fixable = match.status === 'sure' && !!insuranceWanted(p) && (!r.insurance || isFfessmInsurance(r.insurance));
   if (p.ha?.insurance && !covered && !fixable) {
     const why = !r.insurance ? 'aucune assurance sur la fiche' : !isFfessmInsurance(r.insurance) ? `la fiche a ${r.insurance}, que l’appli ne remplace pas` : `la fiche a ${r.insurance} d’une autre saison`;
-    const fed = p.ffessm && p.ffessm.insurance === 'Aucune' ? ' Pas prise à la FFESSM non plus : à prendre sur Mon Club.' : '';
-    out.push({ kind: 'insurance-missing', text: `Assurance payée sur HelloAsso (${p.ha.insurance.tier.trim()}), absente de VPDive : ${why}.${fed}` });
+    const fed = p.ffessm && p.ffessm.insurance === 'Aucune' ? ' Pas prise à la FFESSM non plus : à prendre sur Mon Club.' : '';
+    out.push({ kind: 'insurance-missing', text: `Assurance payée sur HelloAsso (${p.ha.insurance.tier.trim()}), absente de VPDive : ${why}.${fed}` });
   }
   return out;
 }

@@ -32,7 +32,7 @@ export function ReconnectDialog({ notice, email, onReconnected, onLogout }: Prop
         <h2 id={titleId} className="text-xl font-semibold text-brand">
           Reconnexion
         </h2>
-        <p className="text-muted mt-1 mb-5">Votre écran reste tel quel : reconnectez-vous pour continuer.</p>
+        <p className="text-muted mt-1 mb-5">Votre écran reste tel quel : reconnectez-vous pour continuer.</p>
         <LoginForm notice={notice} initialEmail={email} onLoginSuccess={onReconnected} />
         <button type="button" onClick={onLogout} className="btn btn-quiet w-full mt-3">
           <LogOut aria-hidden className="w-4 h-4" /> Se connecter avec un autre compte

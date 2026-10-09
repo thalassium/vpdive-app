@@ -19,7 +19,43 @@ const TOKEN_LOCK = `${TOKEN_KEY}:lock`;
 /** Au-delà, on abandonne l'appel à HelloAsso. */
 const TIMEOUT_MS = 8_000;
 
-type Json = Record<string, any>;
+/*
+ * Réponses de HelloAsso : seuls les champs lus, tous `unknown` (l'API peut en omettre ou en
+ * changer le type) ; chacun est converti à la lecture (String(), Number()).
+ */
+interface HaTokenResponse {
+  access_token?: unknown;
+  refresh_token?: unknown;
+  expires_in?: unknown;
+}
+interface HaPage<T> {
+  data?: T[];
+  pagination?: { continuationToken?: unknown };
+}
+interface HaPerson {
+  firstName?: unknown;
+  lastName?: unknown;
+  email?: unknown;
+}
+/** Formulaire d'adhésion. */
+interface HaForm {
+  formSlug?: unknown;
+  title?: unknown;
+  startDate?: unknown;
+  endDate?: unknown;
+}
+/** Article d'un formulaire (une adhésion, une licence…), avec ses champs personnalisés. */
+interface HaItem {
+  id?: unknown;
+  name?: unknown;
+  type?: unknown;
+  amount?: unknown;
+  state?: unknown;
+  order?: { date?: unknown };
+  user?: HaPerson;
+  payer?: HaPerson;
+  customFields?: { name?: unknown; answer?: unknown }[];
+}
 interface Token {
   access: string;
   refresh: string;
@@ -52,15 +88,15 @@ async function haFetch(url: string, init: RequestInit = {}): Promise<Response> {
     return await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch (e) {
     const name = (e as { name?: string } | null)?.name;
-    if (name === 'TimeoutError' || name === 'AbortError') throw new HttpError(504, 'HelloAsso ne répond pas : réessayez dans un instant.');
+    if (name === 'TimeoutError' || name === 'AbortError') throw new HttpError(504, 'HelloAsso ne répond pas : réessayez dans un instant.');
     throw new HttpError(502, 'HelloAsso injoignable.');
   }
 }
 
 async function requestToken(params: Record<string, string>): Promise<{ token: Token; ttl: number }> {
   const res = await haFetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params) });
-  if (!res.ok) throw new HttpError(502, `HelloAsso : jeton refusé (HTTP ${res.status})`);
-  const t = (await res.json()) as Json;
+  if (!res.ok) throw new HttpError(502, `HelloAsso : jeton refusé (HTTP ${res.status})`);
+  const t = (await res.json()) as HaTokenResponse;
   const ttl = Number(t.expires_in) || 1700;
   return { token: { access: String(t.access_token), refresh: String(t.refresh_token ?? ''), expires: Date.now() + ttl * 1000 }, ttl };
 }
@@ -75,7 +111,7 @@ export async function token(store: Store): Promise<string> {
   if (!(await acquireLock(store, TOKEN_LOCK, 9_000, 200, 20_000))) {
     const again = await store.get<Token>(TOKEN_KEY);
     if (again && usable(again)) return again.access;
-    throw new HttpError(503, 'HelloAsso : renouvellement du jeton en cours, réessayez dans un instant.');
+    throw new HttpError(503, 'HelloAsso : renouvellement du jeton en cours, réessayez dans un instant.');
   }
   try {
     // Un autre appel a pu le renouveler pendant qu'on attendait le verrou.
@@ -94,17 +130,17 @@ export async function token(store: Store): Promise<string> {
 }
 
 /** Toutes les pages d'une liste HelloAsso : on suit le continuationToken jusqu'à une page vide. */
-async function all(path: string, access: string): Promise<Json[]> {
-  const out: Json[] = [];
+async function all<T>(path: string, access: string): Promise<T[]> {
+  const out: T[] = [];
   let next = '';
   for (let i = 0; i < 50; i++) {
     const sep = path.includes('?') ? '&' : '?';
     const res = await haFetch(`${API}${path}${sep}pageSize=100${next ? `&continuationToken=${encodeURIComponent(next)}` : ''}`, {
       headers: { Authorization: `Bearer ${access}`, Accept: 'application/json' },
     });
-    if (!res.ok) throw new HttpError(502, `HelloAsso : lecture refusée (HTTP ${res.status})`);
-    const page = (await res.json()) as Json;
-    const data = Array.isArray(page.data) ? (page.data as Json[]) : [];
+    if (!res.ok) throw new HttpError(502, `HelloAsso : lecture refusée (HTTP ${res.status})`);
+    const page = (await res.json()) as HaPage<T>;
+    const data = Array.isArray(page.data) ? page.data : [];
     if (!data.length) break;
     out.push(...data);
     next = String(page.pagination?.continuationToken ?? '');
@@ -113,7 +149,7 @@ async function all(path: string, access: string): Promise<Json[]> {
   return out;
 }
 
-const field = (it: Json, re: RegExp) => String((it.customFields ?? []).find((c: Json) => re.test(String(c.name ?? '')))?.answer ?? '').trim();
+const field = (it: HaItem, re: RegExp) => String((it.customFields ?? []).find((c) => re.test(String(c.name ?? '')))?.answer ?? '').trim();
 const ymd = (s: string) => {
   const fr = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s);
   return fr ? `${fr[3]}-${fr[2]}-${fr[1]}` : /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : '';
@@ -125,7 +161,7 @@ const ymd = (s: string) => {
  * (« 2026-2027 », « 2026/27 ») ; sinon sa date d'ouverture (ouvert à partir
  * de juin : saison suivante). null si rien ne permet de la déduire.
  */
-export function seasonOfForm(f: Json): number | null {
+export function seasonOfForm(f: HaForm): number | null {
   const end = /^(\d{4})-\d{2}/.exec(String(f.endDate ?? ''));
   if (end) return Number(end[1]);
   for (const label of [f.title, f.formSlug]) {
@@ -140,7 +176,7 @@ export function seasonOfForm(f: Json): number | null {
   return null;
 }
 
-function itemOut(it: Json, formSeason: number): HaItemOut {
+function itemOut(it: HaItem, formSeason: number): HaItemOut {
   return {
     id: Number(it.id),
     formSeason,
@@ -154,7 +190,7 @@ function itemOut(it: Json, formSeason: number): HaItemOut {
     birthDate: ymd(field(it, /date de naissance/i)),
     email: field(it, /e-?mail/i),
     payerEmail: String(it.payer?.email ?? '').trim(),
-    payerName: `${it.payer?.firstName ?? ''} ${it.payer?.lastName ?? ''}`.trim(),
+    payerName: `${String(it.payer?.firstName ?? '')} ${String(it.payer?.lastName ?? '')}`.trim(),
   };
 }
 
@@ -167,17 +203,17 @@ function itemOut(it: Json, formSeason: number): HaItemOut {
 export async function membershipItems(store: Store, season: number): Promise<HaItemOut[]> {
   const slug = process.env.HELLOASSO_ORG_SLUG!;
   const access = await token(store);
-  const forms = await all(`/organizations/${encodeURIComponent(slug)}/forms?formTypes=Membership`, access);
+  const forms = await all<HaForm>(`/organizations/${encodeURIComponent(slug)}/forms?formTypes=Membership`, access);
   const out: HaItemOut[] = [];
   for (const f of forms) {
     const formSeason = seasonOfForm(f);
     if (formSeason === null) {
       // Plus d'oubli silencieux : le formulaire est signalé dans les journaux.
-      log('warn', { action: 'helloasso', message: 'Formulaire d’adhésion sans saison reconnaissable : ignoré', form: String(f.formSlug ?? '') });
+      log('warn', { action: 'helloasso', message: 'Formulaire d’adhésion sans saison reconnaissable : ignoré', form: String(f.formSlug ?? '') });
       continue;
     }
     if (formSeason !== season && formSeason !== season - 1) continue;
-    const items = await all(`/organizations/${encodeURIComponent(slug)}/forms/Membership/${encodeURIComponent(String(f.formSlug))}/items?withDetails=true`, access);
+    const items = await all<HaItem>(`/organizations/${encodeURIComponent(slug)}/forms/Membership/${encodeURIComponent(String(f.formSlug))}/items?withDetails=true`, access);
     for (const it of items) {
       const o = itemOut(it, formSeason);
       if (formSeason === season || o.date.slice(0, 7) === `${season - 1}-08`) out.push(o);

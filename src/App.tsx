@@ -3,7 +3,8 @@ import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, Graduation
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
-import { StandardCalendar, gridRange } from './components/StandardCalendar';
+import { StandardCalendar } from './components/StandardCalendar';
+import { gridRange } from './lib/agenda';
 import { EventBookingModal } from './components/EventBookingModal';
 import { SeaBackdrop } from './components/SeaBackdrop';
 import { CaptainHat, HeaderMenu } from './components/HeaderMenu';
@@ -283,7 +284,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
       },
       (e) => {
         if (handleSessionLost(e)) return;
-        console.warn('Rôle dans l’appli non lu :', e);
+        console.warn('Rôle dans l’appli non lu :', e);
         // Autre erreur qu'une session perdue : la messagerie propose de réessayer au lieu de charger sans fin.
         setMeError(e instanceof Error ? e.message : String(e));
       },
@@ -323,7 +324,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
       if (cancelled) return;
       writeDpCache(key, tokens);
       setDpScan(tokens);
-    })().catch((e) => handleSessionLost(e) || console.warn('Rôle DP non vérifié :', e));
+    })().catch((e) => handleSessionLost(e) || console.warn('Rôle DP non vérifié :', e));
     return () => {
       cancelled = true;
     };
@@ -333,7 +334,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
   const sessionPicture = session.picture;
   useEffect(() => {
     if (sessionPicture !== undefined) return;
-    vpdive.refreshPicture().then(setFetchedPicture, (e) => handleSessionLost(e) || console.warn('Photo non lue :', e));
+    vpdive.refreshPicture().then(setFetchedPicture, (e) => handleSessionLost(e) || console.warn('Photo non lue :', e));
   }, [sessionPicture, handleSessionLost]);
 
   /** Voir le site avec les droits d'un membre : son rôle, puis les sorties où VPDive l'inscrit DP (même fenêtre que le menu DP). */
@@ -471,7 +472,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
             <div className="flex items-center gap-1 sm:gap-2 min-w-0">
               {/* État de VPDive : la couleur pour l'œil, le texte (caché) pour les lecteurs d'écran. */}
               <span title={vpdiveStatus} className="hidden lg:inline-flex items-center mr-1">
-                <span aria-hidden className={`w-2 h-2 rounded-full ${error ? 'bg-danger' : connected ? 'bg-green' : 'bg-line'}`} />
+                <span aria-hidden className={`w-2 h-2 rounded-full ${error ? 'bg-danger' : connected ? 'bg-ok' : 'bg-line'}`} />
                 <span className="sr-only">{vpdiveStatus}</span>
               </span>
 
@@ -530,7 +531,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                       : ' · DP d’aucune sortie à venir')}
                 . Les inscriptions affichées restent les vôtres.
               </span>
-              <button type="button" onClick={stopViewAs} className="btn h-8 px-3 text-sm bg-surface border border-warn/40 text-warn hover:bg-raised">
+              <button type="button" onClick={stopViewAs} className="btn sm:h-8 px-3 text-sm bg-surface border border-warn/40 text-warn hover:bg-raised">
                 Revenir à mon compte
               </button>
             </div>
@@ -538,7 +539,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
         )}
       </header>
 
-      <main className={`flex-1 pb-20 sm:pb-0 ${printPanel}`}>
+      <main className={`flex-1 pb-[calc(5rem_+_env(safe-area-inset-bottom))] sm:pb-0 ${printPanel}`}>
         {/* Un onglet en panne n'emporte pas l'appli : message à sa place, en-tête et onglets utilisables. */}
         <ErrorBoundary key={tab} where={`onglet ${tab}`}>
           <Suspense fallback={<GabianLoader className="py-16" />}>

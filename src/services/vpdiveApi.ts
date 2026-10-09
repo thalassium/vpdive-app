@@ -664,10 +664,10 @@ class VpDiveClient {
       // Les formulaires de fiche répondent `errors: [{field, message}]`.
       const details = Array.isArray(o?.errors)
         ? o.errors
-            .map((x) => (typeof x === 'string' ? x : obj(x) ? [str(obj(x)!.field), str(obj(x)!.message)].filter(Boolean).join(' : ') : ''))
+            .map((x) => (typeof x === 'string' ? x : obj(x) ? [str(obj(x)!.field), str(obj(x)!.message)].filter(Boolean).join(' : ') : ''))
             .filter(Boolean)
         : [];
-      throw new VpDiveError(details.length ? `${base} : ${details.join(', ')}` : base, status);
+      throw new VpDiveError(details.length ? `${base} : ${details.join(', ')}` : base, status);
     }
     if (data === null) {
       throw new VpDiveError(`Réponse VPDive inattendue (HTTP ${res.status}).`, res.status);
@@ -852,7 +852,7 @@ class VpDiveClient {
     } catch (e) {
       if (e instanceof VpDiveError && e.status === 409) {
         throw new VpDiveError(
-          opts.modification ? 'VPDive refuse la modification : elle n’est peut-être plus ouverte pour cette sortie.' : 'Vous êtes déjà inscrit à cette sortie.',
+          opts.modification ? 'VPDive refuse la modification : elle n’est peut-être plus ouverte pour cette sortie.' : 'Vous êtes déjà inscrit à cette sortie.',
           409,
         );
       }

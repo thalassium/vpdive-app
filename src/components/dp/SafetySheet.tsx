@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { AlertTriangle, ChevronDown, FileDown, Loader2, MessageSquare, Printer } from 'lucide-react';
+import { AlertTriangle, ChevronDown, FileDown, MessageSquare, Printer } from 'lucide-react';
 import { Menu } from '../Menu';
+import { Spinner } from '../Spinner';
+import { useConfirm } from '../../hooks/useConfirm';
 import { chosenDepth, depthOf, kindLabel, prerogativeLabel } from '../../lib/palanquees';
 import { diversInWater, emptySheet, parseDepth, type DiveParams, type Dive, type OutingDoc, type PalanqueeSheet, type SafetyHeader } from '../../lib/outing';
 import { HEADER_FIELDS, firstNameOf, lastNameOf, missingHeader, noteText, printWarnings, sheetApt, sheetRows } from '../../lib/safetySheet';
@@ -27,19 +29,34 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
   const header = doc.header;
   const [pdfState, setPdfState] = useState<'idle' | 'busy' | 'error'>('idle');
   const missing = missingHeader(header);
+  const { confirm, confirmDialog } = useConfirm();
 
   /**
    * Avant le PDF ou l'impression : en-tête incomplet (DP, pilote, date, lieu) ou
    * profondeur prévue au-delà d'une prérogative, à confirmer explicitement.
    */
-  const confirmPrint = () => {
+  const confirmPrint = async () => {
     const warnings = printWarnings(header, dive);
-    return !warnings.length || window.confirm(`Avant d’imprimer la fiche :\n\n${warnings.map((w) => `• ${w}`).join('\n')}\n\nContinuer quand même ?`);
+    if (!warnings.length) return true;
+    return confirm({
+      title: 'Imprimer quand même ?',
+      message: (
+        <>
+          Avant d’imprimer la fiche :
+          <ul className="mt-1.5 list-disc pl-5 space-y-0.5">
+            {warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        </>
+      ),
+      confirmLabel: 'Continuer',
+    });
   };
 
   /** Le générateur de PDF n'est chargé qu'au premier clic. */
   const downloadPdf = async () => {
-    if (!confirmPrint()) return;
+    if (!(await confirmPrint())) return;
     setPdfState('busy');
     try {
       const { downloadSafetySheetPdf } = await import('../../lib/safetySheetPdf');
@@ -61,14 +78,17 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
             type="button"
             onClick={() => void downloadPdf()}
             disabled={pdfState === 'busy'}
-            className="btn btn-primary h-9 text-sm"
+            aria-busy={pdfState === 'busy'}
+            className="btn btn-primary sm:h-9 text-sm"
           >
-            {pdfState === 'busy' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} PDF
+            {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
           </button>
           <button
             type="button"
-            onClick={() => confirmPrint() && window.print()}
-            className="btn btn-quiet h-9 text-sm"
+            onClick={async () => {
+              if (await confirmPrint()) window.print();
+            }}
+            className="btn btn-quiet sm:h-9 text-sm"
           >
             <Printer className="w-4 h-4" /> Imprimer
           </button>
@@ -77,7 +97,7 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
 
       {missing.length > 0 && (
         <p role="status" className="text-sm text-warn flex items-start gap-1.5 print:hidden">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> À renseigner avant d’imprimer : {missing.join(', ')}.
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> À renseigner avant d’imprimer : {missing.join(', ')}.
         </p>
       )}
 
@@ -152,7 +172,7 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
                               onChange={(e) => onGas(r.d!.id, e.target.value)}
                               placeholder="air"
                               aria-label={`Gaz de ${r.d.name}`}
-                              className="field w-full h-9 px-2 text-sm print:border-0 print:p-0"
+                              className="field w-full sm:h-9 px-2 text-sm print:border-0 print:p-0"
                             />
                           )}
                         </td>
@@ -161,6 +181,8 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
                   </tbody>
                 </table>
               </div>
+              {/* Même chose pour les paramètres : sur un téléphone étroit, la table défile au lieu de rogner ses champs. */}
+              <div className="overflow-x-auto print:overflow-visible">
               <table className="w-full text-sm border-t-2 border-line print:border-black">
                 <thead>
                   <tr className="text-left text-sm print:text-xs text-muted">
@@ -184,16 +206,17 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
                   ))}
                 </tbody>
               </table>
+              </div>
               {tooDeep && (
                 <p role="alert" className="px-3 py-2 border-t border-line text-sm text-danger flex items-start gap-1.5 print:text-black">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {planned} m prévus : au-delà de la prérogative de la palanquée ({legal} m).
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {planned} m prévus : au-delà de la prérogative de la palanquée ({legal} m).
                 </p>
               )}
               {note && (
                 <p className="px-3 py-2 border-t border-line text-sm text-ink flex items-start gap-1.5 print:border-black/30">
                   <MessageSquare className="w-4 h-4 shrink-0 mt-0.5 text-muted print:hidden" />
                   <span>
-                    <span className="text-muted">Encadrant : </span>
+                    <span className="text-muted">Encadrant : </span>
                     {noteText(note)}
                   </span>
                 </p>
@@ -203,6 +226,7 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
         })}
       </div>
       </fieldset>
+      {confirmDialog}
     </div>
   );
 }
@@ -214,7 +238,7 @@ function ParamsCells({ value, depthHint, depthAlert = false, onChange }: { value
         value={value[key]}
         onChange={(e) => onChange({ ...value, [key]: e.target.value })}
         aria-invalid={key === 'depth' && depthAlert ? true : undefined}
-        className={`field w-full h-9 px-2 text-sm tabular-nums print:border-0 print:p-0 ${key === 'depth' && depthAlert ? 'border-danger text-danger' : ''}`}
+        className={`field w-full sm:h-9 px-2 text-sm tabular-nums print:border-0 print:p-0 ${key === 'depth' && depthAlert ? 'border-danger text-danger' : ''}`}
         {...props}
       />
     </td>

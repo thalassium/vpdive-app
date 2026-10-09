@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { dayWeather, metres, type DayWeather, type Slot } from '../lib/marine';
-import { listDaysOf } from '../lib/agenda';
+import { gridRange, listDaysOf } from '../lib/agenda';
 import { ChevronLeft, ChevronRight, Wind, RefreshCw, AlertCircle, Check } from 'lucide-react';
 import { ymd, type CalendarEvent } from '../services/vpdiveApi';
 import { SPOTS, forecastAt } from '../services/marineWeather';
@@ -15,17 +15,6 @@ interface Props {
   error: string | null;
   onRefresh: () => void;
   onOpenEvent: (ev: CalendarEvent) => void;
-}
-
-/** Visible grid for a month, Monday first: [first day shown, last day shown]. */
-export function gridRange(month: Date): [Date, Date] {
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const start = new Date(first);
-  start.setDate(1 - ((first.getDay() + 6) % 7));
-  const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-  const end = new Date(last);
-  end.setDate(last.getDate() + ((7 - ((last.getDay() + 6) % 7) - 1) % 7));
-  return [start, end];
 }
 
 const eventDay = (ev: CalendarEvent) => ymd(new Date(ev.start));
@@ -44,7 +33,7 @@ type WeatherOf = (date: string) => DayWeather | null;
 
 /** Le pire créneau de la journée, en clair (infobulles). */
 const weatherText = (w: DayWeather) =>
-  `Météo 6 h – 21 h (Pointe Rouge) : vent ${w.wind} nd (${w.dir}), rafales ${w.gusts} nd${w.waves !== null ? `, vagues ${metres(w.waves)}` : ''}${
+  `Météo 6 h – 21 h (Pointe Rouge) : vent ${w.wind} nd (${w.dir}), rafales ${w.gusts} nd${w.waves !== null ? `, vagues ${metres(w.waves)}` : ''}${
     w.level === 'rouge' ? ' : sortie très menacée' : w.level === 'jaune' ? ' : sortie menacée' : ''
   }`;
 /** Couleur du texte selon le niveau : orange en vigilance, rouge au-delà. */
@@ -81,7 +70,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
     const port = SPOTS[0];
     forecastAt(port.lat, port.lon).then(
       (s) => live && setSlots(s),
-      (e) => console.warn('Météo indisponible :', e),
+      (e) => console.warn('Météo indisponible :', e),
     );
     return () => {
       live = false;
@@ -127,14 +116,17 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
   }, [month, m]);
 
   // Jour montré sous la grille sur téléphone : aujourd'hui s'il est dans le mois, sinon la première sortie du mois.
-  useEffect(() => {
+  // Revu quand le mois, les sorties ou la date changent : pendant le rendu, d'après ce qu'avait vu le rendu précédent.
+  const [dayFor, setDayFor] = useState<{ year: number; m: number; byDay: Record<string, CalendarEvent[]>; today: string } | null>(null);
+  if (!dayFor || dayFor.year !== year || dayFor.m !== m || dayFor.byDay !== byDay || dayFor.today !== todayStr) {
+    setDayFor({ year, m, byDay, today: todayStr });
     const visible = (d: string) => Number(d.slice(5, 7)) - 1 === m && Number(d.slice(0, 4)) === year;
     setSelectedDay((cur) => {
       if (cur && visible(cur)) return cur;
       if (visible(todayStr)) return todayStr;
       return Object.keys(byDay).filter(visible).sort()[0] ?? null;
     });
-  }, [m, year, byDay, todayStr]);
+  }
 
   // Current month: the list starts the day before (older outings are history); other months show in full.
   const isCurrentMonth = inMonth(todayStr);
@@ -181,7 +173,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
                 key={mode}
                 onClick={() => setViewMode(mode)}
                 aria-pressed={viewMode === mode}
-                className={`h-9 px-3 min-[375px]:px-4 rounded-md text-sm font-medium transition-colors ${
+                className={`h-11 sm:h-9 px-3 min-[375px]:px-4 rounded-md text-sm font-medium transition-colors ${
                   viewMode === mode ? 'bg-tint text-brand' : 'text-muted hover:text-ink'
                 }`}
               >
@@ -202,11 +194,12 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
           <button
             onClick={onRefresh}
             disabled={isLoading}
+            aria-busy={isLoading}
             aria-label="Actualiser depuis VPDive"
             title="Actualiser depuis VPDive"
             className="icon-btn h-11 w-11 border border-field-border bg-surface disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw aria-hidden className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
@@ -263,7 +256,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
                     <button
                       className="sm:hidden absolute inset-0"
                       onClick={() => setSelectedDay(day.date)}
-                      aria-label={`${dayLabel(day.date)} : ${dayEvents.length} sortie${dayEvents.length > 1 ? 's' : ''}`}
+                      aria-label={`${dayLabel(day.date)} : ${dayEvents.length} sortie${dayEvents.length > 1 ? 's' : ''}`}
                       aria-pressed={isSelected}
                     />
 
@@ -289,7 +282,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
                         {dayEvents.slice(0, 3).map((ev) => (
                           <span
                             key={ev.token}
-                            className={`w-2 h-2 rounded-full ${ev.registered ? 'ring-2 ring-green ring-offset-1 ring-offset-surface' : ''} ${ev.cancelled ? 'opacity-40' : ''}`}
+                            className={`w-2 h-2 rounded-full ${ev.registered ? 'ring-2 ring-ok ring-offset-1 ring-offset-surface' : ''} ${ev.cancelled ? 'opacity-40' : ''}`}
                             style={{ backgroundColor: ev.color }}
                           />
                         ))}
@@ -347,7 +340,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="icon-btn w-9 h-9 text-brand"
+      className="icon-btn sm:w-9 sm:h-9 text-brand"
     >
       {children}
     </button>

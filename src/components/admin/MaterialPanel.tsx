@@ -7,7 +7,7 @@ import { aggregateMaterial, isUnknownSize, materialText, sortedSizes, BOTTLE_SHO
 import { adoptRegistrations, divingIds, syncWithRoster, withGuests, type OutingDoc } from '../../lib/outing';
 import { Avatar } from '../Avatar';
 import { Menu } from '../Menu';
-import { ThemeToggle } from '../ThemeToggle';
+import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 
@@ -29,24 +29,28 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
   const [listError, setListError] = useState<string | null>(null);
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
 
-  const loadList = useCallback(async () => {
-    setListError(null);
-    setEvents(null);
-    try {
-      const from = new Date();
-      from.setDate(from.getDate() - 7);
-      const to = new Date();
-      to.setDate(to.getDate() + 60);
-      setEvents(await vpdive.fetchEvents(ymd(from), ymd(to)));
-    } catch (e) {
+  /** Lit les sorties ; la liste est posée par les rappels de la promesse. */
+  const fetchList = useCallback(() => {
+    const from = new Date();
+    from.setDate(from.getDate() - 7);
+    const to = new Date();
+    to.setDate(to.getDate() + 60);
+    return vpdive.fetchEvents(ymd(from), ymd(to)).then(setEvents, (e: unknown) => {
       if (onSessionLost(e)) return;
       setListError(message(e));
-    }
+    });
   }, [onSessionLost]);
+  /** « Réessayer » : la liste repasse en lecture, puis est relue. */
+  const loadList = () => {
+    setListError(null);
+    setEvents(null);
+    void fetchList();
+  };
 
+  // À l'ouverture, la liste est déjà en lecture (null) : il n'y a qu'à la lire.
   useEffect(() => {
-    loadList();
-  }, [loadList]);
+    void fetchList();
+  }, [fetchList]);
 
   const { ref: dialogRef } = useDialog({ onClose, label: 'material' });
 
@@ -84,7 +88,6 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
           <h2 id="material-title" className="text-xl font-semibold text-brand flex-1">
             Matériel
           </h2>
-          <ThemeToggle />
           <button onClick={onClose} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
           </button>
@@ -196,13 +199,12 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
   const [outing, setOuting] = useState<OutingDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const { confirm, confirmDialog } = useConfirm();
 
-  const load = useCallback(async () => {
-    setError(null);
-    setRoster(null);
-    setOuting(null);
-    try {
-      const [r, saved] = await Promise.all([
+  /** Lit les inscrits et la fiche de sortie ; elles sont posées par les rappels de la promesse. */
+  const fetchMaterial = useCallback(
+    () =>
+      Promise.all([
         vpdive.fetchRoster(event.token),
         // Sans réponse du serveur de l'appli, on compte d'après les rôles VPDive.
         appApi.getOuting(event.token).then(
@@ -212,18 +214,29 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
             return null;
           },
         ),
-      ]);
-      setOuting(saved);
-      setRoster(r);
-    } catch (e) {
-      if (onSessionLost(e)) return;
-      setError(message(e));
-    }
-  }, [event.token, onSessionLost]);
+      ])
+        .then(([r, saved]) => {
+          setOuting(saved);
+          setRoster(r);
+        })
+        .catch((e: unknown) => {
+          if (onSessionLost(e)) return;
+          setError(message(e));
+        }),
+    [event.token, onSessionLost],
+  );
+  /** « Réessayer » : tout repasse en lecture, puis est relu. */
+  const load = () => {
+    setError(null);
+    setRoster(null);
+    setOuting(null);
+    void fetchMaterial();
+  };
 
+  // À l'ouverture (une par sortie : composant remonté à chaque sortie choisie), tout est déjà en lecture.
   useEffect(() => {
-    load();
-  }, [load]);
+    void fetchMaterial();
+  }, [fetchMaterial]);
 
   useEffect(() => {
     if (!copied) return;
@@ -251,7 +264,8 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
       await navigator.clipboard.writeText(text);
       setCopied(true);
     } catch {
-      window.prompt('Copiez la liste :', text);
+      // Presse-papiers refusé (navigateur, page non sécurisée) : la liste est affichée, sélectionnée, à copier à la main.
+      await confirm({ title: 'Copiez la liste', text, confirmLabel: 'Fermer', cancelLabel: null });
     }
   };
   const divers = summary.people.filter((p) => !p.noBottle).length;
@@ -269,7 +283,7 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
             {summary.people.length > divers && ` · ${summary.people.length - divers} à bord sans plonger`}
             {summary.waiting.length > 0 && ` · ${summary.waiting.length} en liste d’attente`}
           </p>
-          <p className="text-sm text-muted">{outing ? 'Bouteilles d’après la fiche de sortie du DP.' : 'Pas encore de fiche de sortie : bouteilles d’après les rôles VPDive.'}</p>
+          <p className="text-sm text-muted">{outing ? 'Bouteilles d’après la fiche de sortie du DP.' : 'Pas encore de fiche de sortie : bouteilles d’après les rôles VPDive.'}</p>
         </div>
         <button type="button" onClick={copy} className="btn btn-quiet">
           {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />} {copied ? 'Copiée' : 'Copier la liste'}
@@ -282,7 +296,7 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
           <p className="text-muted">
             {summary.people.length === 0
               ? 'Aucun inscrit pour cette sortie.'
-              : `Aucun matériel demandé pour cette sortie. Les bouteilles restent à prévoir : ${bottlesDue}.`}
+              : `Aucun matériel demandé pour cette sortie. Les bouteilles restent à prévoir : ${bottlesDue}.`}
           </p>
         ) : (
           <ul className="divide-y divide-line">
@@ -331,6 +345,7 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
           )}
         </section>
       )}
+      {confirmDialog}
     </>
   );
 }
@@ -347,7 +362,7 @@ function PeopleList({ people }: { people: MaterialPerson[] }) {
             <span className="block text-base text-ink">{p.name}</span>
             <span className="flex flex-wrap gap-x-4 text-sm text-muted">
               {p.lines.length ? p.lines.map((line, j) => <span key={j}>{line}</span>) : 'Rien à louer'}
-              {p.noBottle && <span className="text-warn">Pas de bouteille : {p.noBottle}</span>}
+              {p.noBottle && <span className="text-warn">Pas de bouteille : {p.noBottle}</span>}
             </span>
 
           </span>
