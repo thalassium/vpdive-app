@@ -18,6 +18,7 @@ import {
   familyCandidates,
   matchPerson,
   parseFfessmCsv,
+  decodeExport,
   seasonOf,
   seasonsCovered,
   tierKind,
@@ -75,6 +76,21 @@ test('export FFESSM : valeurs lues derrière leurs libellés, accents perdus tol
   assert.equal(period, 'Du 08/10/2025 au 08/10/2026');
   assert.equal(rows.length, 2);
   assert.deepEqual(rows[0], { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '2026-10-03', insurance: 'Loisir 1', category: '', pricing: 'Réduction Pass Plongée' });
+});
+
+test('export FFESSM en windows-1252 : accents lus (François, Loïc, Benoît…), saison « AAAA-AAAA » acceptée', () => {
+  const line = 'Liste des licences,Du 08/10/2025 au 08/10/2026,Saison,2026-2027,Licence,A-16-111111,Nom,FRAN\xc7OIS Lo\xefc,Date de naissance,02/04/1990,Assurance,Loisir 1,Tarification,R\xe9duction Pass Plong\xe9e';
+  const cp1252 = Uint8Array.from([...line].map((c) => c.charCodeAt(0)));
+  const { rows } = parseFfessmCsv(decodeExport(cp1252));
+  assert.equal(rows[0]!.name, 'FRANÇOIS Loïc');
+  assert.equal(rows[0]!.pricing, 'Réduction Pass Plongée');
+  assert.equal(rows[0]!.season, 2027);
+  // Déjà en UTF-8 (réenregistré dans un tableur) : lu tel quel.
+  const utf8 = new TextEncoder().encode('Nom,Gaël Benoît Anaïs Jérôme');
+  assert.equal(decodeExport(utf8), 'Nom,Gaël Benoît Anaïs Jérôme');
+  // Accents déjà perdus dans le fichier : le nom passe aussi par restoreAccents.
+  const lost = parseFfessmCsv('Saison,2026/2027,Licence,A-16-222222,Nom,MARTIN L�a');
+  assert.equal(lost.rows[0]!.name, 'MARTIN Léa');
 });
 
 test('personnes : bénéficiaire et non payeur, adhésion d’août, réunion avec la FFESSM par naissance', () => {

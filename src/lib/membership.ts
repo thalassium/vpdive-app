@@ -104,6 +104,21 @@ export interface FfessmRow {
   pricing: string;
 }
 
+/**
+ * Texte d'un export Mon Club. Il sort en windows-1252 (« L\xe9a ») : lu en
+ * UTF-8, chaque accent devient « � » et la jointure par nom avec HelloAsso
+ * échoue (François, Loïc, Benoît…). UTF-8 strict d'abord (un export réenregistré
+ * dans un tableur), windows-1252 sinon. Un « � » déjà écrit dans le fichier
+ * reste : restoreAccents le rattrape à l'affichage.
+ */
+export function decodeExport(bytes: ArrayBuffer | Uint8Array): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
 /** Une ligne CSV, guillemets compris. */
 function csvLine(line: string, sep: string): string[] {
   const out: string[] = [];
@@ -155,16 +170,17 @@ export function parseFfessmCsv(text: string): { rows: FfessmRow[]; period: strin
     period ||= cells.find((c) => /^du \d{2}\/\d{2}\/\d{4} au \d{2}\/\d{2}\/\d{4}$/i.test(c.trim()))?.trim() ?? '';
     const licence = after('licence');
     if (!/^[A-Z]-\d{2}-\d{4,}$/.test(licence)) continue;
-    const season = /^(\d{4})\/(\d{4})$/.exec(after('saison'));
+    // « 2026/2027 », ou « 2026-2027 » selon l'export.
+    const season = /^(\d{4})\s*[/-]\s*(\d{4})$/.exec(after('saison'));
     rows.push({
       licence,
-      name: after('nom'),
+      name: restoreAccents(after('nom')),
       birthDate: ymdOf(after('date de naissance')),
       season: season ? Number(season[2]) : 0,
       subscribedAt: ymdOf(after('souscription')),
       insurance: after('assurance') || 'Aucune',
       category: after('categorie'),
-      pricing: after('tarification').replace(/�/g, 'é'),
+      pricing: restoreAccents(after('tarification')),
     });
   }
   return { rows, period };

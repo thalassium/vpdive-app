@@ -22,6 +22,7 @@ import {
   needsVpdiveFix,
   parseFfessmBrevets,
   parseFfessmCsv,
+  decodeExport,
   seasonLabel,
   seasonOf,
   viewOf,
@@ -370,7 +371,20 @@ export function MembershipTab({
             <span className="text-muted"> · ✅ conforme · ❌ absent · ⚠️ différent</span>
           </p>
           <div className="space-y-1.5">
-            <FfessmImportBox what="licences" current={ffessm} parse={parseFfessmCsv} save={appApi.saveFfessmImport} onImported={setFfessm} onSessionLost={onSessionLost} />
+            <FfessmImportBox
+              what="licences"
+              current={ffessm}
+              parse={parseFfessmCsv}
+              save={appApi.saveFfessmImport}
+              onImported={setFfessm}
+              onSessionLost={onSessionLost}
+              note={(rows) => {
+                const n = rows.filter((r) => r.season === season).length;
+                return n
+                  ? { text: `${n} licence${n > 1 ? 's' : ''} pour ${seasonLabel(season)}`, warn: false }
+                  : { text: `Aucune licence pour ${seasonLabel(season)} : export d’une autre saison ?`, warn: true };
+              }}
+            />
             <FfessmImportBox what="brevets" current={brevetsImport} parse={parseFfessmBrevets} save={appApi.saveFfessmBrevets} onImported={setBrevetsImport} onSessionLost={onSessionLost} />
           </div>
           <button type="button" onClick={() => setConfigOpen(true)} className="icon-btn ml-auto" aria-label="Réglages : correspondance des brevets" title="Correspondance des brevets">
@@ -952,6 +966,7 @@ function FfessmImportBox<Row>({
   save,
   onImported,
   onSessionLost,
+  note,
 }: {
   what: 'licences' | 'brevets';
   current: FfessmImport<Row> | null | undefined;
@@ -959,8 +974,11 @@ function FfessmImportBox<Row>({
   save: (rows: Row[], period: string) => Promise<FfessmImport<Row>>;
   onImported: (i: FfessmImport<Row>) => void;
   onSessionLost: (e: unknown) => boolean;
+  /** Ce que l'export apporte à la saison (« 42 licences pour 2026/2027 ») ; `warn` : rien pour elle. */
+  note?: (rows: Row[]) => { text: string; warn: boolean };
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const info = current && note ? note(current.rows) : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pick = async (file: File | undefined) => {
@@ -968,7 +986,8 @@ function FfessmImportBox<Row>({
     setBusy(true);
     setError(null);
     try {
-      const { rows, period } = parse(await file.text());
+      // Mon Club exporte en windows-1252 : lu en UTF-8, les accents seraient perdus.
+      const { rows, period } = parse(decodeExport(await file.arrayBuffer()));
       if (!rows.length) throw new Error(`Rien trouvé : est-ce bien l’export « Liste des ${what} » de Mon Club (CSV) ?`);
       onImported(await save(rows, period));
     } catch (e) {
@@ -986,7 +1005,13 @@ function FfessmImportBox<Row>({
           : current
             ? `FFESSM, ${what} : ${current.rows.length}${current.period ? `, ${current.period.toLowerCase()}` : ''} · déposé par ${current.by} le ${frDay(current.at)}`
             : `FFESSM, ${what} : aucun export déposé`}
+        {info && !info.warn && ` · ${info.text}`}
       </span>
+      {info?.warn && (
+        <span role="alert" className="text-warn font-medium inline-flex items-center gap-1.5">
+          <AlertTriangle className="w-4 h-4" /> {info.text}
+        </span>
+      )}
       <input ref={input} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
       <button type="button" onClick={() => input.current?.click()} disabled={busy} className="btn btn-quiet h-9 text-sm">
         {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />} {current ? 'Nouvel export' : `Déposer les ${what}`}
