@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { vpdive, ymd, DP_ROLE, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdiveApi';
 import { appApi, AppApiError, type AppRole, type OutingLock } from '../../services/appApi';
@@ -27,6 +27,7 @@ import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
 import { useConfirm } from '../../hooks/useConfirm';
+import { Tab, TabList, TabPanel } from '../Tabs';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 
@@ -219,9 +220,9 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
       <h3 className="sticky top-0 z-10 bg-surface px-4 pt-2 pb-1 label">{label}</h3>
       {months.map((m) => (
         <div key={m.key}>
-          <div className="flex items-center gap-2 px-4 pt-3 pb-1.5" role="separator">
-            <span className="label">{m.title}</span>
-            <span className="flex-1 h-px bg-line" />
+          <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
+            <h4 className="label">{m.title}</h4>
+            <span aria-hidden className="flex-1 h-px bg-line" />
           </div>
           <ul>
             {m.list.map((e) => {
@@ -355,6 +356,7 @@ function OutingWorkspace({
   const [notice, setNotice] = useState<string | null>(null);
   const [client] = useState(editorClient);
   const { confirm, confirmDialog } = useConfirm();
+  const tabsId = useId();
 
   const docRef = useRef<OutingDoc | null>(null);
   /** La dernière version du serveur, rapprochée de la liste : ce qu'on retrouve si une saisie est refusée. */
@@ -753,6 +755,10 @@ function OutingWorkspace({
 
   const dive = doc.dives.find((d) => d.id === diveId) ?? doc.dives[0]!;
   const readOnly = !!other;
+  /** L'onglet affiché : la fiche seulement une fois les palanquées validées. */
+  const shown = tab === 'palanquees' || !dive.validated || !dive.plan ? 'palanquees' : 'fiche';
+  const tabId = (t: 'palanquees' | 'fiche') => `${tabsId}-tab-${t}`;
+  const panelId = (t: 'palanquees' | 'fiche') => `${tabsId}-panel-${t}`;
 
   return (
     <div className="px-5 sm:px-6 py-5 space-y-5">
@@ -957,16 +963,24 @@ function OutingWorkspace({
       ) : (
         <>
         {/* Palanquées / Fiche */}
-        <div className="flex border-b border-line print:hidden" role="tablist">
-          <TabButton active={tab === 'palanquees'} onClick={() => setTab('palanquees')} icon={<Users className="w-4 h-4" />}>
+        <TabList label={dive.label} className="flex border-b border-line print:hidden">
+          <TabButton id={tabId('palanquees')} controls={panelId('palanquees')} active={shown === 'palanquees'} onClick={() => setTab('palanquees')} icon={<Users className="w-4 h-4" />}>
             Palanquées
           </TabButton>
-          <TabButton active={tab === 'fiche'} disabled={!dive.validated} onClick={() => setTab('fiche')} icon={dive.validated ? <ClipboardList className="w-4 h-4" /> : <Lock className="w-4 h-4" />}>
+          <TabButton
+            id={tabId('fiche')}
+            controls={panelId('fiche')}
+            active={shown === 'fiche'}
+            disabled={!dive.validated}
+            onClick={() => setTab('fiche')}
+            icon={dive.validated ? <ClipboardList className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+          >
             Fiche de sécurité
           </TabButton>
-        </div>
+        </TabList>
 
-        {tab === 'palanquees' || !dive.validated || !dive.plan ? (
+        <TabPanel id={panelId(shown)} labelledBy={tabId(shown)}>
+        {shown === 'palanquees' ? (
           <PalanqueesEditor
             title={event.title}
             roster={people}
@@ -1008,6 +1022,7 @@ function OutingWorkspace({
             onGas={(id, gas) => updateDive((d) => ({ ...d, gas: { ...d.gas, [id]: gas } }))}
           />
         )}
+        </TabPanel>
         </>
       )}
       {confirmDialog}
@@ -1015,13 +1030,30 @@ function OutingWorkspace({
   );
 }
 
-function TabButton({ active, disabled, onClick, icon, children }: { active: boolean; disabled?: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
+function TabButton({
+  id,
+  controls,
+  active,
+  disabled,
+  onClick,
+  icon,
+  children,
+}: {
+  id: string;
+  controls: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <button
-      role="tab"
-      aria-selected={active}
+    <Tab
+      id={id}
+      controls={controls}
+      selected={active}
       disabled={disabled}
-      onClick={onClick}
+      onSelect={onClick}
       title={disabled ? 'Validez d’abord les palanquées' : undefined}
       className={`inline-flex items-center gap-2 px-4 h-11 -mb-px border-b-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
         active ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-ink'
@@ -1029,7 +1061,7 @@ function TabButton({ active, disabled, onClick, icon, children }: { active: bool
     >
       {icon}
       {children}
-    </button>
+    </Tab>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Check, ExternalLink, FileText, Loader2, UserCheck, UserPlus, X } from 'lucide-react';
+import { Check, ExternalLink, FileText, UserCheck, UserPlus, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
+import { Spinner } from '../Spinner';
 import { GabianLoader } from '../Gabian';
 import { vpdive, type PendingValidation } from '../../services/vpdiveApi';
 import { appApi, type RegistrationRequest } from '../../services/appApi';
@@ -98,8 +99,8 @@ export function RegistrationRequestsTab({
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" disabled={busy !== null} onClick={() => void decide(r, 'member')} className="btn btn-primary h-9 text-sm">
-                {busy === r.token ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />} Accepter comme membre
+              <button type="button" disabled={busy !== null} aria-busy={busy === r.token} onClick={() => void decide(r, 'member')} className="btn btn-primary h-9 text-sm">
+                {busy === r.token ? <Spinner /> : <UserCheck className="w-4 h-4" />} Accepter comme membre
               </button>
               <button
                 type="button"
@@ -199,8 +200,8 @@ export function PendingDocumentsTab({
               <Avatar name={first.memberName} picture={first.picture} size="sm" initials={false} />
               <span className="flex-1 min-w-0 font-semibold text-ink truncate">{first.memberName}</span>
               {list.length > 1 && (
-                <button type="button" disabled={busy !== null} onClick={() => void decide(list, 'approve', first.member)} className="btn btn-quiet h-8 text-sm">
-                  {busy === first.member ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Tout valider ({list.length})
+                <button type="button" disabled={busy !== null} aria-busy={busy === first.member} onClick={() => void decide(list, 'approve', first.member)} className="btn btn-quiet h-8 text-sm">
+                  {busy === first.member ? <Spinner /> : <Check className="w-4 h-4" />} Tout valider ({list.length})
                 </button>
               )}
             </header>
@@ -229,8 +230,8 @@ export function PendingDocumentsTab({
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <button type="button" disabled={busy !== null} onClick={() => void decide([v], 'approve', k)} className="btn btn-primary h-9 text-sm">
-                        {busy === k ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Valider
+                      <button type="button" disabled={busy !== null} aria-busy={busy === k} onClick={() => void decide([v], 'approve', k)} className="btn btn-primary h-9 text-sm">
+                        {busy === k ? <Spinner /> : <Check className="w-4 h-4" />} Valider
                       </button>
                       <button type="button" disabled={busy !== null} onClick={() => void decide([v], 'reject', k)} className="btn btn-quiet h-9 text-sm hover:text-danger hover:border-danger/40">
                         <X className="w-4 h-4" /> Refuser

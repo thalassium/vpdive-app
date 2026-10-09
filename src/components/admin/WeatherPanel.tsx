@@ -371,7 +371,8 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                 {water !== null && <span className="text-base text-ink tabular-nums">Eau {Math.round(water)}&nbsp;°C</span>}
               </div>
 
-              <div role="tablist" aria-label="Jour" className="flex gap-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-1">
+              {/* Boutons à bascule plutôt qu'onglets : le jour choisi règle à la fois les créneaux et la carte. */}
+              <div role="group" aria-label="Jour" className="flex gap-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-1">
                 {days.map((d, i) => {
                   const date = fromLocal(d);
                   const peak = dayPeak.get(d);
@@ -379,8 +380,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                     <button
                       key={d}
                       type="button"
-                      role="tab"
-                      aria-selected={day === d}
+                      aria-pressed={day === d}
                       onClick={() => pickDay(d)}
                       title={peak ? `Jusqu'à ${peak.wind} nd, rafales ${peak.gusts} nd` : undefined}
                       className={`shrink-0 w-[4.75rem] rounded-lg border py-1.5 text-center transition-colors ${

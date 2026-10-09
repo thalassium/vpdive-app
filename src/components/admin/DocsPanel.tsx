@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, EyeOff, FileText, Mail, MessageCircle, RefreshCw, Undo2, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
+import { Tab as TabItem, TabList, TabPanel } from '../Tabs';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
@@ -343,6 +344,10 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   reminderOpen.current = reminder !== null;
   const reminderBusy = useRef(false);
   const { confirm, confirmDialog } = useConfirm();
+  /** Identifiants des onglets et de leurs panneaux (les étapes 2 à 4 partagent un panneau). */
+  const tabsId = useId();
+  const tabId = (key: Tab) => `${tabsId}-tab-${key}`;
+  const panelId = (key: Tab) => `${tabsId}-panel-${key === 'todo' || key === 'relance' ? key : 'steps'}`;
   const { ref: dialogRef } = useDialog({
     onClose: () => (reminderOpen.current ? setReminder(null) : onClose()),
     canClose: () => {
@@ -456,18 +461,23 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             </div>
           </div>
           {/* Onglets : les quatre étapes dans l'ordre (la première, prioritaire, en teinte d'alerte), puis la relance. */}
-          <div role="tablist" aria-label="Gestion des adhésions" className="mt-3 flex items-end gap-1 border-b border-line -mb-4 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* Activation au clavier par Entrée : ouvrir une étape lit beaucoup sur VPDive, les flèches ne font que s'y déplacer. */}
+          <TabList
+            label="Gestion des adhésions"
+            activation="manual"
+            className="mt-3 flex items-end gap-1 border-b border-line -mb-4 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
             {STEPS.map(([key, text], i) => {
               const count = key === 'todo' ? (requests && pendingDocs ? requests.length + pendingDocs.length : undefined) : key === 'quickfix' ? stepCounts?.fixes : key === 'arbitrage' ? stepCounts?.cases : undefined;
               const first = key === 'todo';
               const on = tab === key;
               return (
-                <button
+                <TabItem
                   key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  onClick={() => {
+                  id={tabId(key)}
+                  controls={panelId(key)}
+                  selected={on}
+                  onSelect={() => {
                     chosen.current = true;
                     setTab(key);
                   }}
@@ -485,15 +495,15 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                   {count !== undefined && count > 0 && (
                     <span className={`min-w-5 h-5 px-1.5 rounded-full text-xs tabular-nums inline-flex items-center justify-center border ${first ? 'border-warn/40 bg-surface' : 'border-line bg-surface text-ink'}`}>{count}</span>
                   )}
-                </button>
+                </TabItem>
               );
             })}
             <span aria-hidden className="self-center w-px h-6 bg-line mx-2 shrink-0" />
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'relance'}
-              onClick={() => {
+            <TabItem
+              id={tabId('relance')}
+              controls={panelId('relance')}
+              selected={tab === 'relance'}
+              onSelect={() => {
                 chosen.current = true;
                 setTab('relance');
                 setRelanceOpened(true);
@@ -501,8 +511,8 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               className={`h-10 px-3 -mb-px border-b-2 text-sm font-semibold whitespace-nowrap shrink-0 transition-colors ${tab === 'relance' ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-brand'}`}
             >
               Relance
-            </button>
-          </div>
+            </TabItem>
+          </TabList>
           {tab === 'relance' && outings && (
             <div className="mt-7 flex flex-wrap items-center gap-x-4 gap-y-2">
               <p className="text-sm text-ink flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -538,7 +548,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
         </header>
 
         {tab === 'todo' && (
-          <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4 space-y-8">
+          <TabPanel id={panelId('todo')} labelledBy={tabId('todo')} className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4 space-y-8">
             <section>
               <h3 className="text-lg font-semibold text-brand mb-2">
                 Membres à valider {requests && requests.length > 0 && <span className="text-muted font-normal tabular-nums">· {requests.length}</span>}
@@ -558,11 +568,11 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
                 onForget={(uct) => forgetMember.current?.(uct)}
               />
             </section>
-          </div>
+          </TabPanel>
         )}
         {/* Étapes 2 à 4 : un seul onglet des adhésions, monté à la première visite puis gardé (données lues une fois, compteurs dans les onglets). */}
         {stepsOpened && (
-          <div className={isStep ? 'flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4' : 'hidden'}>
+          <TabPanel id={panelId('diagnostic')} labelledBy={tabId(isStep ? tab : 'diagnostic')} className={isStep ? 'flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-5 py-4' : 'hidden'}>
             <MembershipTab
               step={isStep ? (tab as MembershipStep) : 'diagnostic'}
               onCounts={setStepCounts}
@@ -572,10 +582,10 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               }}
               forgetRef={forgetMember}
             />
-          </div>
+          </TabPanel>
         )}
         {tab === 'relance' && (
-        <div className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-4 py-3 space-y-3">
+        <TabPanel id={panelId('relance')} labelledBy={tabId('relance')} className="flex-1 overflow-y-auto overscroll-contain bg-canvas px-3 sm:px-4 py-3 space-y-3">
           {(loading || verifying || phase === 'stopped') && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted px-1" aria-live="polite">
               {phase === 'events' && <span>Lecture des sorties sur VPDive…</span>}
@@ -685,7 +695,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               ))}
             </ul>
           )}
-        </div>
+        </TabPanel>
         )}
 
         {tab === 'relance' && filter !== 'ignored' && active.length > 0 && (

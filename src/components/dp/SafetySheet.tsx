@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { AlertTriangle, ChevronDown, FileDown, Loader2, MessageSquare, Printer } from 'lucide-react';
+import { AlertTriangle, ChevronDown, FileDown, MessageSquare, Printer } from 'lucide-react';
 import { Menu } from '../Menu';
+import { Spinner } from '../Spinner';
 import { useConfirm } from '../../hooks/useConfirm';
 import { chosenDepth, depthOf, kindLabel, prerogativeLabel } from '../../lib/palanquees';
 import { diversInWater, emptySheet, parseDepth, type DiveParams, type Dive, type OutingDoc, type PalanqueeSheet, type SafetyHeader } from '../../lib/outing';
@@ -77,9 +78,10 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
             type="button"
             onClick={() => void downloadPdf()}
             disabled={pdfState === 'busy'}
+            aria-busy={pdfState === 'busy'}
             className="btn btn-primary h-9 text-sm"
           >
-            {pdfState === 'busy' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} PDF
+            {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
           </button>
           <button
             type="button"

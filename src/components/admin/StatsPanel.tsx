@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BarChart3, FileDown, Loader2, RefreshCw, X } from 'lucide-react';
+import { BarChart3, FileDown, RefreshCw, X } from 'lucide-react';
 import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi } from '../../services/appApi';
 import { computeStats, dateFr, isDiveActivity, monthSeries, monthShort, presetRange, seasonPresetLabel, type PresetId, type StatEvent, type StatPerson, type StatStaff, type Stats } from '../../lib/stats';
 import { Avatar } from '../Avatar';
+import { Spinner } from '../Spinner';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 
@@ -212,10 +213,11 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
             type="button"
             onClick={() => void downloadPdf()}
             disabled={!stats || stats.outings === 0 || pdfState === 'busy'}
+            aria-busy={pdfState === 'busy'}
             title={pdfState === 'error' ? 'PDF indisponible, réessayez' : 'Télécharger les statistiques en PDF'}
             className="btn btn-quiet h-9 text-sm"
           >
-            {pdfState === 'busy' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} PDF
+            {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
           </button>
           <button onClick={onClose} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
@@ -247,11 +249,25 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <label className="inline-flex items-center gap-2">
                     du
-                    <input type="date" value={custom.from} max={custom.to} onChange={(e) => e.target.value && setCustom((c) => ({ ...c, from: e.target.value }))} className="field h-9 py-0" />
+                    <input
+                      type="date"
+                      aria-label="Date de début"
+                      value={custom.from}
+                      max={custom.to}
+                      onChange={(e) => e.target.value && setCustom((c) => ({ ...c, from: e.target.value }))}
+                      className="field h-9 py-0"
+                    />
                   </label>
                   <label className="inline-flex items-center gap-2">
                     au
-                    <input type="date" value={custom.to} min={custom.from} onChange={(e) => e.target.value && setCustom((c) => ({ ...c, to: e.target.value }))} className="field h-9 py-0" />
+                    <input
+                      type="date"
+                      aria-label="Date de fin"
+                      value={custom.to}
+                      min={custom.from}
+                      onChange={(e) => e.target.value && setCustom((c) => ({ ...c, to: e.target.value }))}
+                      className="field h-9 py-0"
+                    />
                   </label>
                 </div>
               )}
@@ -338,9 +354,13 @@ function Section({ title, aside, children, className = '' }: { title: string; as
   );
 }
 
+/** Un chiffre mis en avant dans la phrase d'en-tête. */
+function B({ children }: { children: ReactNode }) {
+  return <strong className="font-semibold text-brand tabular-nums">{children}</strong>;
+}
+
 /** La saison en une phrase : les chiffres dans le texte, pas dans des cartes. */
 function Hero({ stats, from, to }: { stats: Stats; from: string; to: string }) {
-  const B = ({ children }: { children: ReactNode }) => <strong className="font-semibold text-brand tabular-nums">{children}</strong>;
   const others = stats.outings - stats.diveOutings;
   return (
     <div className="max-w-3xl">
@@ -461,7 +481,9 @@ function SeasonSection({ stats, from, to }: { stats: Stats; from: string; to: st
       <div className="flex gap-1.5 mt-1.5 border-t border-line pt-1.5">
         {months.map((m) => (
           <span key={m.key} className="flex-1 min-w-0 text-center text-xs text-muted truncate">
-            {monthShort(m.key)}
+            {/* Sur téléphone, douze mois ne tiennent qu'en initiales (J F M A…). */}
+            <span className="sm:hidden">{monthShort(m.key).charAt(0).toUpperCase()}</span>
+            <span className="hidden sm:inline">{monthShort(m.key)}</span>
           </span>
         ))}
       </div>

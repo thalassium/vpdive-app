@@ -202,11 +202,12 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
           <button
             onClick={onRefresh}
             disabled={isLoading}
+            aria-busy={isLoading}
             aria-label="Actualiser depuis VPDive"
             title="Actualiser depuis VPDive"
             className="icon-btn h-11 w-11 border border-field-border bg-surface disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw aria-hidden className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>

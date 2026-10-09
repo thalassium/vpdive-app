@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowLeft, Check, ExternalLink, FileUp, Loader2, RefreshCw, ScrollText, Search, Settings, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ExternalLink, FileUp, RefreshCw, ScrollText, Search, Settings, UserX, X } from 'lucide-react';
 import { BrevetMapView } from './BrevetMapView';
 import { Avatar } from '../Avatar';
+import { Spinner } from '../Spinner';
 import { GabianLoader } from '../Gabian';
 import { MemberSearch } from '../dp/MemberSearch';
 import { vpdive, ymd } from '../../services/vpdiveApi';
@@ -448,7 +449,11 @@ export function MembershipTab({
         <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
           <p className="text-sm text-ink">
             Saison <strong className="font-semibold">{seasonLabel(season)}</strong>
-            <span className="text-muted"> · ✅ conforme · ❌ absent · ⚠️ différent</span>
+            {/* Légende : les signes sont dits par le texte qui les suit. */}
+            <span className="text-muted">
+              {' '}
+              · <span aria-hidden>✅</span> conforme · <span aria-hidden>❌</span> absent · <span aria-hidden>⚠️</span> différent
+            </span>
           </p>
           <div className="space-y-1.5">
             <FfessmImportBox
@@ -583,7 +588,7 @@ export function MembershipTab({
         {results.length > 0 && (
           <section ref={resultsRef} className="card overflow-hidden scroll-mt-4" aria-live="polite">
             <header className="flex items-center gap-2 px-4 py-2.5 bg-raised border-b border-line">
-              <span className="font-semibold text-brand">Écrit dans VPDive</span>
+              <h3 className="font-semibold text-brand">Écrit dans VPDive</h3>
               <span className="text-sm text-muted tabular-nums">
                 · {results.filter((x) => x.ok).length} fiche{results.filter((x) => x.ok).length > 1 ? 's' : ''}
                 {results.some((x) => !x.ok) && ' · arrêté au premier problème'}
@@ -620,6 +625,8 @@ export function MembershipTab({
             return (
               <section key={kind} className="card overflow-hidden">
                 <header className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 bg-raised border-b border-line">
+                  {/* Le titre du groupe porte la case « tout cocher » : un titre pour la navigation au clavier, une case pour le geste. */}
+                  <h3>
                   <label className="inline-flex items-center gap-2.5 cursor-pointer">
                     <input
                       type="checkbox"
@@ -631,6 +638,7 @@ export function MembershipTab({
                     <span className="font-semibold text-brand">{FIX_TITLE[kind].title}</span>
                     <span className="text-sm text-muted tabular-nums">· {list.length}</span>
                   </label>
+                  </h3>
                   <span className="basis-full sm:basis-auto sm:ml-auto text-sm text-muted">{FIX_TITLE[kind].help}</span>
                 </header>
                 <ul className="divide-y divide-line">
@@ -671,7 +679,7 @@ export function MembershipTab({
         <div className="sticky -bottom-4 z-10 -mx-3 sm:-mx-5 px-3 sm:px-5 py-3 bg-surface border-t border-line flex flex-wrap items-center gap-3">
           {writing ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin text-brand" />
+              <Spinner className="text-brand" />
               <span className="text-sm text-ink tabular-nums">
                 Écriture {writing.done + 1}/{writing.total} : {writing.name}…
               </span>
@@ -746,7 +754,7 @@ export function MembershipTab({
         caseGroups.map(({ kind, list }) => (
           <section key={kind} className="card overflow-hidden">
             <header className="flex items-center gap-2 px-4 py-2.5 bg-raised border-b border-line">
-              <span className="font-semibold text-brand">{CASE_TITLE[kind]}</span>
+              <h3 className="font-semibold text-brand">{CASE_TITLE[kind]}</h3>
               <span className="text-sm text-muted tabular-nums">
                 · {list.filter((r) => !isChecked(r, kind)).length}
                 {list.some((r) => isChecked(r, kind)) && ` (+ ${list.filter((r) => isChecked(r, kind)).length} validé${list.filter((r) => isChecked(r, kind)).length > 1 ? 's' : ''} à la main)`}
@@ -965,7 +973,7 @@ function PersonRow({ row, season }: { row: Row; season: number }) {
         <Item view={view.licence} pending={pending} />
         {[view.insurance.helloasso, view.insurance.ffessm, view.insurance.vpdive].some((c) => c.text !== '—') && (
           <>
-            <span className="mt-1.5 mb-0.5 block text-xs font-medium text-muted">Assurance</span>
+            <h4 className="mt-1.5 mb-0.5 text-xs font-medium text-muted">Assurance</h4>
             <Item view={view.insurance} pending={pending} />
           </>
         )}
@@ -995,9 +1003,15 @@ function Item({ view, pending }: { view: ItemView; pending: boolean }) {
       {lines.map(([source, c]) => (
         <li key={source} className="flex items-baseline gap-1.5 min-w-0">
           <span className="w-16 shrink-0 text-muted">{source}</span>
-          <span aria-label={EMOJI[c.mark].label} title={EMOJI[c.mark].label} className={`shrink-0 w-4 text-center ${c.mark === 'na' ? 'text-muted' : ''}`}>
-            {source === 'VPDive' && pending && c.mark === 'na' ? '…' : EMOJI[c.mark].sign}
-          </span>
+          {source === 'VPDive' && pending && c.mark === 'na' ? (
+            <span role="img" aria-label="lecture en cours" title="lecture en cours" className="shrink-0 w-4 text-center text-muted">
+              …
+            </span>
+          ) : (
+            <span role="img" aria-label={EMOJI[c.mark].label} title={EMOJI[c.mark].label} className={`shrink-0 w-4 text-center ${c.mark === 'na' ? 'text-muted' : ''}`}>
+              {EMOJI[c.mark].sign}
+            </span>
+          )}
           <span className={`min-w-0 break-words ${c.mark === 'missing' ? 'text-danger font-medium' : c.mark === 'diff' ? 'text-warn font-medium' : c.mark === 'ok' ? 'text-ink' : 'text-muted'}`}>{c.text}</span>
         </li>
       ))}
@@ -1008,7 +1022,7 @@ function Item({ view, pending }: { view: ItemView; pending: boolean }) {
 function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <span className="label block mb-1 lg:hidden">{title}</span>
+      <h4 className="label mb-1 lg:hidden">{title}</h4>
       {children}
     </div>
   );
@@ -1170,8 +1184,8 @@ function FfessmImportBox<Row>({
         </span>
       )}
       <input ref={input} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
-      <button type="button" onClick={() => input.current?.click()} disabled={busy} className="btn btn-quiet h-9 text-sm">
-        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />} {current ? 'Nouvel export' : `Déposer les ${what}`}
+      <button type="button" onClick={() => input.current?.click()} disabled={busy} aria-busy={busy} className="btn btn-quiet h-9 text-sm">
+        {busy ? <Spinner /> : <FileUp className="w-4 h-4" />} {current ? 'Nouvel export' : `Déposer les ${what}`}
       </button>
       {error && (
         <span role="alert" className="basis-full text-danger inline-flex items-center gap-1.5">

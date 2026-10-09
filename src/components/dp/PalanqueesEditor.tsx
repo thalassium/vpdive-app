@@ -1,8 +1,9 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Loader2, Lock, MessageSquare, Pencil, Plus, RotateCcw, Share2, ShieldCheck, Sparkles, Star, Trash2, UserMinus, UserPlus, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Lock, MessageSquare, Pencil, Plus, RotateCcw, Share2, ShieldCheck, Sparkles, Star, Trash2, UserMinus, UserPlus, UserX, X } from 'lucide-react';
 import type { MemberMatch, RosterEntry } from '../../services/vpdiveApi';
 import { MemberSearch } from './MemberSearch';
 import { Avatar } from '../Avatar';
+import { Spinner } from '../Spinner';
 import {
   TYPE_LABEL,
   acceptsExtra,
@@ -788,8 +789,8 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => void add()} disabled={!picked || busy} className="btn btn-primary h-9 text-sm">
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Ajouter
+        <button type="button" onClick={() => void add()} disabled={!picked || busy} aria-busy={busy} className="btn btn-primary h-9 text-sm">
+          {busy ? <Spinner /> : <Plus className="w-4 h-4" />} Ajouter
         </button>
         <button type="button" onClick={close} className="btn btn-quiet h-9 text-sm">
           Annuler
@@ -839,8 +840,8 @@ function UnregisterAction({ name, onConfirm }: { name: string; onConfirm: () => 
   };
   return (
     <div className="basis-full pl-[1.875rem] pt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-      <button type="button" onClick={() => void run()} disabled={busy} className="btn btn-quiet h-8 px-2.5 text-sm hover:text-danger hover:border-danger/40">
-        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserMinus className="w-4 h-4" />} Désinscrire
+      <button type="button" onClick={() => void run()} disabled={busy} aria-busy={busy} className="btn btn-quiet h-8 px-2.5 text-sm hover:text-danger hover:border-danger/40">
+        {busy ? <Spinner /> : <UserMinus className="w-4 h-4" />} Désinscrire
       </button>
       {error && (
         <span role="alert" className="text-sm text-danger">
