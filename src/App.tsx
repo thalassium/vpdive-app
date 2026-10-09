@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, Settings, UserRound, Users, Wind, BarChart3 } from 'lucide-react';
+import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, RefreshCw, Settings, UserRound, Users, Wind, BarChart3 } from 'lucide-react';
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
@@ -18,7 +18,9 @@ import { ErrorBoundary, PanelError } from './components/ErrorBoundary';
 import { ReconnectDialog } from './components/ReconnectDialog';
 import { CoursesView } from './components/views/CoursesView';
 import { messaging } from './services/messaging';
-import { vpdive, ymd, SessionExpiredError, DP_ROLE, type CalendarEvent, type Session } from './services/vpdiveApi';
+import { vpdive, ymd, SessionExpiredError, type CalendarEvent, type Session } from './services/vpdiveApi';
+import { PERSIST_PREFIX } from './services/vpdive/transport';
+import { DP_SCAN_FAILED, dpWindow, findDpEvents } from './services/dpEvents';
 import { appApi, type AppRole, type Me } from './services/appApi';
 import { inBackground } from './lib/clientErrors';
 
@@ -116,8 +118,8 @@ function seedHistory() {
   history.pushState(null, '', tabUrl(tab));
 }
 
-/** Caches de session de l'appli (documents, adhésions, libellés, météo, sorties DP) : effacés à la déconnexion, le téléphone peut être partagé. */
-const SESSION_CACHE_PREFIXES = ['docs-status:', 'member-record:', 'club-member-v2:', 'my-labels:', 'meteo:', 'dp-events:'];
+/** Caches de session de l'appli (documents, adhésions, libellés, météo, sorties DP, lectures VPDive) : effacés à la déconnexion, le téléphone peut être partagé. */
+const SESSION_CACHE_PREFIXES = ['docs-status:', 'member-record:', 'club-member-v2:', 'my-labels:', 'meteo:', 'dp-events:', PERSIST_PREFIX];
 function clearSessionCaches() {
   try {
     const keys: string[] = [];
@@ -138,10 +140,10 @@ function clearSessionCaches() {
   }
 }
 
-/** Le pare-feu VPDive coupe les rafales : une pause entre deux lectures de liste d'inscrits. */
-const pause = () => new Promise<void>((r) => setTimeout(r, 400));
-
-/** Sorties où le membre est DP, gardées une heure dans l'onglet pour ne pas relire toutes les listes d'inscrits à chaque visite. */
+/**
+ * Sorties où le membre est DP, gardées une heure dans l'onglet pour ne pas relire toutes les listes
+ * d'inscrits à chaque visite. Seulement si toutes les listes ont été lues (services/dpEvents.ts).
+ */
 const DP_CACHE_TTL = 60 * 60 * 1000;
 const dpCacheKey = (s: Session) => `dp-events:${s.userId ?? ''}`;
 const readDpCache = (key: string): string[] | null => {
@@ -167,7 +169,7 @@ const writeDpCache = (key: string, tokens: string[]) => {
  * dans le navigateur. Son rôle dans l'appli, et les sorties où il est DP
  * (null tant qu'on les cherche, avec l'avancement de la recherche). Le serveur, lui, voit toujours le compte connecté.
  */
-type ViewAs = ViewAsPick & { dpEvents: string[] | null; progress: { done: number; total: number } | null };
+type ViewAs = ViewAsPick & { dpEvents: string[] | null; progress: { done: number; total: number } | null; failed: boolean };
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(() => vpdive.getSession());
@@ -226,6 +228,9 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
   const [meError, setMeError] = useState<string | null>(null);
   /** Sorties où le membre connecté est DP (jetons), trouvées en lisant les listes d'inscrits. */
   const [dpScan, setDpScan] = useState<string[] | null>(null);
+  /** Une liste d'inscrits (ou l'agenda) n'a pas pu être lue : le menu DP propose de réessayer. */
+  const [dpFailed, setDpFailed] = useState(false);
+  const [dpRetry, setDpRetry] = useState(0);
   /** Photo relue sur VPDive pour les sessions enregistrées avant que la session la garde. */
   const [fetchedPicture, setFetchedPicture] = useState<string | undefined>(undefined);
   // La photo relue (à l’ouverture du profil) passe avant celle gardée dans la session.
@@ -247,14 +252,17 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
   const dpEvents = dpScan ?? cachedDp;
   const isDp = (dpEvents?.length ?? 0) > 0;
   const canDp = isAdmin || (viewAs ? (viewAs.dpEvents?.length ?? 0) > 0 : isDp);
+  /** Recherche des sorties DP incomplète (simple membre, ou membre vu « en tant que ») : à réessayer. */
+  const dpUnchecked = viewAs ? viewAs.role === 'member' && viewAs.failed : me?.role === 'member' && dpFailed;
 
-  const loadEvents = useCallback(async () => {
+  /** `fresh` : relecture demandée (bouton Actualiser), sans le cache court du transport. */
+  const loadEvents = useCallback(async (fresh = false) => {
     const id = ++loadId.current; // ignore answers for a month the member already left
     const [start, end] = gridRange(month);
     setIsLoading(true);
     setError(null);
     try {
-      const list = await vpdive.fetchEvents(ymd(start), ymd(end));
+      const list = await vpdive.fetchEvents(ymd(start), ymd(end), { fresh, priority: 'high' });
       if (id === loadId.current) setEvents(list);
     } catch (e) {
       if (id !== loadId.current || handleSessionLost(e)) return;
@@ -307,28 +315,24 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
     const key = dpKey;
     let cancelled = false;
     (async () => {
-      const today = new Date();
-      const from = new Date(today);
-      from.setDate(from.getDate() - 14);
-      const to = new Date(today);
-      to.setDate(to.getDate() + 60);
-      const mine = (await vpdive.fetchEvents(ymd(from), ymd(to))).filter((e) => e.registered);
-      const tokens: string[] = [];
-      // Toutes ses sorties comme DP (le menu DP en a besoin), listes lues une à une avec une pause.
-      for (const e of mine) {
-        if (cancelled) return;
-        const roster = await vpdive.fetchRoster(e.token).catch(() => []);
-        if (roster.some((r) => r.id === String(userId) && r.roles.some((x) => DP_ROLE.test(x)))) tokens.push(e.token);
-        await pause();
-      }
-      if (cancelled) return;
-      writeDpCache(key, tokens);
-      setDpScan(tokens);
-    })().catch((e) => handleSessionLost(e) || console.warn('Rôle DP non vérifié :', e));
+      const [from, to] = dpWindow();
+      const mine = (await vpdive.fetchEvents(from, to)).filter((e) => e.registered);
+      // Toutes ses sorties comme DP (le menu DP en a besoin), listes lues une à une.
+      const scan = await findDpEvents(mine, (r) => r.id === String(userId), { cancelled: () => cancelled });
+      if (!scan) return;
+      // Gardé une heure seulement si toutes les listes ont été lues : un échec n'est pas un « pas DP ».
+      if (scan.complete) writeDpCache(key, scan.tokens);
+      setDpScan(scan.tokens);
+      setDpFailed(!scan.complete);
+    })().catch((e) => {
+      if (handleSessionLost(e) || cancelled) return;
+      console.warn('Rôle DP non vérifié :', e);
+      setDpFailed(true);
+    });
     return () => {
       cancelled = true;
     };
-  }, [isMember, cachedDp, dpKey, userId, handleSessionLost]);
+  }, [isMember, cachedDp, dpKey, userId, handleSessionLost, dpRetry]);
 
   // Photo du compte : les sessions enregistrées avant ce champ la relisent une fois sur VPDive.
   const sessionPicture = session.picture;
@@ -344,35 +348,37 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
       setActiveEvent(null);
       setPanel(null);
       // Admin simulé : le menu DP lui est acquis, inutile de lire une seule liste d'inscrits.
-      if (pick.role !== 'member') return setViewAs({ ...pick, dpEvents: [], progress: null });
-      setViewAs({ ...pick, dpEvents: null, progress: null });
+      if (pick.role !== 'member') return setViewAs({ ...pick, dpEvents: [], progress: null, failed: false });
+      setViewAs({ ...pick, dpEvents: null, progress: null, failed: false });
       const update = (patch: Partial<ViewAs>) => {
         if (id === viewAsId.current) setViewAs((v) => (v && v.uct === pick.uct ? { ...v, ...patch } : v));
       };
       try {
-        const today = new Date();
-        const from = new Date(today);
-        from.setDate(from.getDate() - 14);
-        const to = new Date(today);
-        to.setDate(to.getDate() + 60);
-        // Seulement les sorties qui ont des inscrits, une liste à la fois avec une pause : le pare-feu VPDive bloque les rafales.
-        const list = (await vpdive.fetchEvents(ymd(from), ymd(to))).filter((e) => e.registeredCount > 0);
-        const dpEvents: string[] = [];
-        for (let i = 0; i < list.length; i++) {
-          if (id !== viewAsId.current) return;
-          update({ progress: { done: i + 1, total: list.length } });
-          const roster = await vpdive.fetchRoster(list[i]!.token).catch(() => []);
-          if (roster.some((r) => sameName(r.name, pick.name) && r.roles.some((x) => DP_ROLE.test(x)))) dpEvents.push(list[i]!.token);
-          await pause();
-        }
-        update({ dpEvents, progress: null });
+        const [from, to] = dpWindow();
+        // Seulement les sorties qui ont des inscrits, une liste à la fois : le pare-feu VPDive bloque les rafales.
+        const list = (await vpdive.fetchEvents(from, to)).filter((e) => e.registeredCount > 0);
+        const scan = await findDpEvents(list, (r) => sameName(r.name, pick.name), {
+          onProgress: (done, total) => update({ progress: { done, total } }),
+          cancelled: () => id !== viewAsId.current,
+        });
+        if (scan) update({ dpEvents: scan.tokens, progress: null, failed: !scan.complete });
       } catch (e) {
         if (handleSessionLost(e)) return;
-        update({ dpEvents: [], progress: null });
+        update({ dpEvents: [], progress: null, failed: true });
       }
     },
     [handleSessionLost],
   );
+  /** « Réessayer » la recherche des sorties DP : la sienne, ou celle du membre vu « en tant que ». */
+  const retryDp = () => {
+    if (viewAs) {
+      const { dpEvents: _, progress: __, failed: ___, ...pick } = viewAs;
+      void startViewAs(pick);
+      return;
+    }
+    setDpFailed(false);
+    setDpRetry((n) => n + 1);
+  };
   const stopViewAs = () => {
     viewAsId.current++;
     setViewAs(null);
@@ -476,13 +482,19 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                 <span className="sr-only">{vpdiveStatus}</span>
               </span>
 
-              {canDp && (
+              {(canDp || dpUnchecked) && (
                 <HeaderMenu
                   icon={<CaptainHat className="w-5 h-5" />}
                   label="Gestion de sortie"
                   items={[
-                    { icon: <ClipboardList className="w-4 h-4" />, label: 'DP', hint: 'Palanquées et fiches de sécurité', onClick: () => setPanel('dp') },
-                    { icon: <Wind className="w-4 h-4" />, label: 'Météo', hint: 'Vent, rafales, vagues, houle', onClick: () => setPanel('weather') },
+                    // Une liste d'inscrits illisible : on ne sait pas si le membre est DP, on le dit ici.
+                    ...(dpUnchecked ? [{ icon: <RefreshCw className="w-4 h-4" />, label: `${DP_SCAN_FAILED}, réessayer`, onClick: retryDp }] : []),
+                    ...(canDp
+                      ? [
+                          { icon: <ClipboardList className="w-4 h-4" />, label: 'DP', hint: 'Palanquées et fiches de sécurité', onClick: () => setPanel('dp') },
+                          { icon: <Wind className="w-4 h-4" />, label: 'Météo', hint: 'Vent, rafales, vagues, houle', onClick: () => setPanel('weather') },
+                        ]
+                      : []),
                     ...(isAdmin
                       ? [{ icon: <Package className="w-4 h-4" />, label: 'Matériel', hint: 'Gilets, combinaisons, bouteilles', onClick: () => setPanel('material') }]
                       : []),
@@ -526,7 +538,9 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                 {viewAs.role === 'member' &&
                   (viewAs.dpEvents === null
                     ? ` · recherche de ses sorties comme DP…${viewAs.progress ? ` ${viewAs.progress.done}/${viewAs.progress.total}` : ''}`
-                    : viewAs.dpEvents.length
+                    : viewAs.failed
+                      ? ` · ${DP_SCAN_FAILED.charAt(0).toLowerCase()}${DP_SCAN_FAILED.slice(1)} (menu Gestion de sortie pour réessayer)`
+                      : viewAs.dpEvents.length
                       ? ` · DP de ${viewAs.dpEvents.length} sortie${viewAs.dpEvents.length > 1 ? 's' : ''}`
                       : ' · DP d’aucune sortie à venir')}
                 . Les inscriptions affichées restent les vôtres.
@@ -550,7 +564,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                 events={events}
                 isLoading={isLoading}
                 error={error}
-                onRefresh={loadEvents}
+                onRefresh={() => void loadEvents(true)}
                 onOpenEvent={setActiveEvent}
               />
             )}
@@ -601,7 +615,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
           <EventBookingModal
             event={activeEvent}
             onClose={() => setActiveEvent(null)}
-            onChanged={loadEvents}
+            onChanged={() => void loadEvents()}
             onSessionLost={handleSessionLost}
             onOpenPalanquees={
               canDp

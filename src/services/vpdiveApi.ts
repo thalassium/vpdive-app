@@ -18,6 +18,11 @@ import { fromVpdive, type VpdiveQualif } from '../lib/vpdiveLevels';
 import type { Capacity, VpRecord } from '../lib/membership';
 import type { RawMember } from '../lib/memberWrite';
 import { isCancelledTitle, isoDateTime } from '../lib/agenda';
+import { searchFragments } from '../lib/fuzzy';
+import { Transport, VpDiveError, SessionExpiredError, type CallOptions, type CallPace, type ReadOptions } from './vpdive/transport';
+
+export { VpDiveError, SessionExpiredError, FIREWALL_MESSAGE, isRateLimited, isNetwork, isSessionLost, isUnavailable, isAborted } from './vpdive/transport';
+export type { ReadOptions, CallPace } from './vpdive/transport';
 
 const API_BASE = '/api/vpdive'; // Vite proxy → https://septentrion-env.vpdive.com/api
 const SESSION_KEY = 'vpdive_session';
@@ -305,25 +310,6 @@ export interface BookingRequest {
   choices: Record<string, number>;
 }
 
-// ── Errors ───────────────────────────────────────────────────────
-
-export class VpDiveError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-    this.name = 'VpDiveError';
-  }
-}
-
-export class SessionExpiredError extends VpDiveError {
-  constructor() {
-    super('Votre session VPDive a expiré. Merci de vous reconnecter.', 401);
-    this.name = 'SessionExpiredError';
-  }
-}
-
 // ── Small parsing helpers ────────────────────────────────────────
 
 type Json = Record<string, unknown>;
@@ -418,10 +404,27 @@ function hasPermission(permissions: unknown, key: string): boolean {
  */
 const ADMIN_PERMISSION = 'member_view';
 
-type RequestInit_ = { method?: 'GET' | 'POST'; body?: unknown; auth?: boolean };
-
-/** Réponse non JSON du pare-feu devant VPDive (403, 429, 5xx). */
-export const FIREWALL_MESSAGE = 'VPDive refuse temporairement la demande (pare-feu). Réessayez dans une minute.';
+/**
+ * Durée de vie des lectures en cache (transport.ts), méthode par méthode : assez
+ * pour qu'un même écran ou deux écrans voisins ne relisent pas VPDive, assez court
+ * pour ne rien montrer de périmé. Les écritures oublient ce qu'elles touchent.
+ */
+const TTL = {
+  /** Agenda d'une période. */
+  events: 60_000,
+  /** Détail d'une sortie (inscrits compris). */
+  event: 30_000,
+  /** Fiche d'un autre membre (admins, lectures en lot). */
+  member: 5 * 60_000,
+  /** Ma fiche (« Mon profil ») : je peux la changer sur vpdive.com à côté. */
+  myFile: 30_000,
+  /** Recherche de membres, annuaire. */
+  search: 5 * 60_000,
+  /** Référentiel des niveaux du club. */
+  capacities: 3_600_000,
+} as const;
+/** Les lectures qu'une écriture sur la fiche d'un membre rend périmées. */
+const memberPaths = (uct: string) => [`/user?uct_token=${encodeURIComponent(uct)}`, `/user/member/${encodeURIComponent(uct)}`];
 
 /** Autres activités fédérales dans le nom VPDive (« A - … » apnée, « H - … » hockey…), même liste que lib/vpdiveLevels.ts. */
 const OTHER_ACTIVITY = /^(A|OS|NAP|NEV|H|PSP|PS|TIR|RS|AS|BIO|PSH|AUD|s)\s?-/;
@@ -558,6 +561,14 @@ export function documentsOf(u: Json): MemberDocument[] {
 class VpDiveClient {
   private session: Session | null = null;
   private calendarToken: string | null = null;
+  /** Tous les appels passent par la file du transport (rythme, partage, cache, erreurs typées). */
+  private readonly http = new Transport({
+    auth: () => {
+      const s = this.getSession();
+      return s ? { token: s.token, traceability: s.traceability } : null;
+    },
+    onUnauthorized: () => this.setSession(null),
+  });
 
   constructor() {
     try {
@@ -580,6 +591,8 @@ class VpDiveClient {
   }
 
   private setSession(session: Session | null) {
+    // Autre session (connexion, déconnexion) : rien de ce qui a été lu ne lui revient.
+    if (session?.token !== this.session?.token) this.http.clear();
     this.session = session;
     this.calendarToken = null;
     try {
@@ -590,88 +603,17 @@ class VpDiveClient {
     }
   }
 
-  private async request(path: string, init: RequestInit_ = {}): Promise<Json> {
-    const data = await this.call(path, init);
+  private async request(path: string, init: CallOptions = {}): Promise<Json> {
+    const data = await this.http.call(path, init);
     const o = obj(data);
     if (o === null) throw new VpDiveError('Réponse VPDive inattendue.', 0);
     return o;
   }
 
   /** Same as request(), for the few endpoints that answer with a bare JSON array. */
-  private async requestList(path: string, init: RequestInit_ = {}): Promise<unknown[]> {
-    const data = await this.call(path, init);
+  private async requestList(path: string, init: CallOptions = {}): Promise<unknown[]> {
+    const data = await this.http.call(path, init);
     if (!Array.isArray(data)) throw new VpDiveError('Réponse VPDive inattendue.', 0);
-    return data;
-  }
-
-  private async call(path: string, init: RequestInit_ = {}): Promise<unknown> {
-    const { method = 'GET', body, auth = true } = init;
-    // Les libellés VPDive (activité, type de sortie…) arrivent en anglais par défaut : on demande le français.
-    const headers: Record<string, string> = { Accept: 'application/json', 'Accept-Language': 'fr-FR,fr;q=0.9' };
-
-    if (auth) {
-      const s = this.getSession();
-      if (!s) throw new SessionExpiredError();
-      headers.Authorization = `Bearer ${s.token}`;
-      headers.userClubTraceability = s.traceability;
-    }
-
-    let payload: BodyInit | undefined;
-    if (body instanceof FormData) {
-      payload = body; // the browser sets the multipart boundary itself
-    } else if (body !== undefined) {
-      headers['Content-Type'] = 'application/json';
-      payload = JSON.stringify(body);
-    }
-
-    let res: Response;
-    try {
-      res = await fetch(`${API_BASE}${path}`, { method, headers, body: payload });
-    } catch {
-      throw new VpDiveError('Impossible de joindre VPDive. Vérifiez votre connexion internet.', 0);
-    }
-
-    const text = await res.text();
-    let data: unknown = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      // Not JSON (HTML error page from a proxy, etc.)
-    }
-    const o = obj(data);
-
-    // VPDive sometimes reports errors with HTTP 200 and the real status in the
-    // body — e.g. a wrong password is `200 {"error":"Invalid credentials","code":401}`,
-    // although codehelp/docapi.txt documents a 401. Trust the body's code.
-    const bodyCode = num(o?.code);
-    const status = res.ok && bodyCode !== null && bodyCode >= 400 ? bodyCode : res.status;
-
-    if (status === 401 && auth) {
-      this.setSession(null);
-      throw new SessionExpiredError();
-    }
-
-    // Page HTML (ou vide) au lieu du JSON de VPDive, en 403, 429 ou 5xx : c'est le pare-feu
-    // devant VPDive qui refuse (trop de requêtes rapprochées), pas VPDive qui répond. À la
-    // connexion, ce n'est surtout pas un mauvais mot de passe.
-    if (data === null && (status === 403 || status === 429 || status >= 500)) {
-      throw new VpDiveError(FIREWALL_MESSAGE, status);
-    }
-
-    if (status >= 400 || o?.success === false) {
-      const base = str(o?.message) || str(o?.error) || `Erreur VPDive (HTTP ${status})`;
-      // 400 responses list what is missing in `errors` (codehelp/docapi.txt).
-      // Les formulaires de fiche répondent `errors: [{field, message}]`.
-      const details = Array.isArray(o?.errors)
-        ? o.errors
-            .map((x) => (typeof x === 'string' ? x : obj(x) ? [str(obj(x)!.field), str(obj(x)!.message)].filter(Boolean).join(' : ') : ''))
-            .filter(Boolean)
-        : [];
-      throw new VpDiveError(details.length ? `${base} : ${details.join(', ')}` : base, status);
-    }
-    if (data === null) {
-      throw new VpDiveError(`Réponse VPDive inattendue (HTTP ${res.status}).`, res.status);
-    }
     return data;
   }
 
@@ -697,23 +639,7 @@ class VpDiveClient {
     }
 
     // These two calls need the token but not yet the traceability header.
-    const withToken = async (path: string): Promise<Json> => {
-      let res: Response;
-      try {
-        res = await fetch(`${API_BASE}${path}`, {
-          headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-        });
-      } catch {
-        throw new VpDiveError('Impossible de joindre VPDive. Vérifiez votre connexion internet.', 0);
-      }
-      const body = obj(await res.json().catch(() => null)) ?? {};
-      const code = num(body.code);
-      if (!res.ok || (code !== null && code >= 400)) {
-        const status = res.ok ? code! : res.status;
-        throw new VpDiveError(str(body.message) || str(body.error) || `Erreur VPDive (HTTP ${status}) sur ${path}`, status);
-      }
-      return body;
-    };
+    const withToken = (path: string): Promise<Json> => this.request(path, { auth: false, headers: { Authorization: `Bearer ${token}` } });
 
     // Traceability (the club the member acts in) is mandatory: calendar calls
     // answer 403 without it, so a login without it is not a usable login.
@@ -771,9 +697,9 @@ class VpDiveClient {
   }
 
   /** Events between two dates (YYYY-MM-DD, inclusive). */
-  async fetchEvents(start: string, end: string): Promise<CalendarEvent[]> {
+  async fetchEvents(start: string, end: string, opts: ReadOptions = {}): Promise<CalendarEvent[]> {
     const calToken = await this.getCalendarToken();
-    const res = await this.request(`/calendar/events_refresh/${start}/${end}/${calToken}`);
+    const res = await this.request(`/calendar/events_refresh/${start}/${end}/${calToken}`, { ...opts, ttl: TTL.events });
     if (!Array.isArray(res.data)) throw new VpDiveError('Réponse VPDive inattendue pour l’agenda.', 0);
     return res.data
       .map((raw) => mapEvent(obj(raw)))
@@ -781,8 +707,8 @@ class VpDiveClient {
       .sort((a, b) => a.start.localeCompare(b.start));
   }
 
-  async fetchEventDetail(eventToken: string): Promise<EventDetail> {
-    const res = await this.request(`/calendar/${eventToken}/event`);
+  async fetchEventDetail(eventToken: string, opts: ReadOptions = {}): Promise<EventDetail> {
+    const res = await this.request(`/calendar/${eventToken}/event`, { ...opts, ttl: TTL.event });
     const data = obj(res.data);
     const ev = obj(data?.event);
     if (!data || !ev) throw new VpDiveError('Détail de la sortie introuvable sur VPDive.', 0);
@@ -793,6 +719,9 @@ class VpDiveClient {
   async fetchPricesForRole(eventToken: string, roleKey: string | null): Promise<Record<string, number>> {
     const res = await this.request(`/calendar/event/${eventToken}/tariff-prices`, {
       method: 'POST',
+      read: true,
+      // Le formulaire d'inscription attend ce prix : devant les lectures en cours.
+      priority: 'high',
       body: roleKey ? { roles: [roleKey] } : {},
     });
     const prices = obj(res.prices) ?? {};
@@ -843,7 +772,7 @@ class VpDiveClient {
     }
 
     try {
-      const res = await this.request('/calendar/registration', { method: 'POST', body: f });
+      const res = await this.request('/calendar/registration', { method: 'POST', body: f, invalidates: ['/calendar/'] });
       const waitingList = obj(res.registration)?.inWaitingList === true;
       return {
         message: str(res.message) || (waitingList ? 'Vous êtes sur liste d’attente.' : 'Inscription enregistrée sur VPDive.'),
@@ -861,12 +790,13 @@ class VpDiveClient {
   }
 
   async unregister(eventToken: string): Promise<void> {
-    await this.request(`/calendar/unregistered/${eventToken}`);
+    // Un GET qui écrit : jamais partagé ni gardé.
+    await this.request(`/calendar/unregistered/${eventToken}`, { read: false, invalidates: ['/calendar/'] });
   }
 
   /** Passe un inscrit de la liste d'attente à la liste principale (admin), même si la sortie est complète. */
   async switchWaitingList(eventToken: string, socket: string): Promise<void> {
-    const res = await this.request('/calendar/registered/switch-list', { method: 'POST', body: { event: eventToken, user: socket } });
+    const res = await this.request('/calendar/registered/switch-list', { method: 'POST', body: { event: eventToken, user: socket }, invalidates: ['/calendar/'] });
     if (res.success === false || res.error) throw new VpDiveError(str(res.message) || str(res.error) || 'VPDive a refusé le changement de liste.', 0);
   }
 
@@ -875,7 +805,7 @@ class VpDiveClient {
    * VPDive. (`/calendar/unregistered/{event}/{user}` ne vaut que pour un compte rattaché.)
    */
   async deleteRegistration(eventToken: string, socket: string): Promise<void> {
-    const res = await this.request('/calendar/registered/delete', { method: 'POST', body: { event: eventToken, user: socket } });
+    const res = await this.request('/calendar/registered/delete', { method: 'POST', body: { event: eventToken, user: socket }, invalidates: ['/calendar/'] });
     if (res.success === false || res.error) throw new VpDiveError(str(res.message) || str(res.error) || 'VPDive a refusé la désinscription.', 0);
   }
 
@@ -890,8 +820,8 @@ class VpDiveClient {
    * route « assignment » : `id` = jeton d'adhésion (fiches, rôles) ; route « messages » :
    * `id` = jeton utilisateur, celui des destinataires de la messagerie VPDive.
    */
-  async searchMembers(query: string, route: 'assignment' | 'messages' = 'assignment'): Promise<MemberMatch[]> {
-    const list = await this.requestList('/search/user', { method: 'POST', body: { query, route } });
+  async searchMembers(query: string, route: 'assignment' | 'messages' = 'assignment', opts: ReadOptions = {}): Promise<MemberMatch[]> {
+    const list = await this.requestList('/search/user', { ...opts, method: 'POST', read: true, body: { query, route }, ttl: TTL.search });
     return list
       .map((raw) => {
         const o = obj(raw);
@@ -909,8 +839,8 @@ class VpDiveClient {
    * their club token (the `id` of searchMembers). Same call as VPDive's own
    * member profile page; needs `member_view`.
    */
-  async memberProfile(memberToken: string): Promise<MemberProfile> {
-    return profileOf(await this.request(`/user?uct_token=${encodeURIComponent(memberToken)}`));
+  async memberProfile(memberToken: string, opts: ReadOptions = {}): Promise<MemberProfile> {
+    return profileOf(await this.request(`/user?uct_token=${encodeURIComponent(memberToken)}`, { ...opts, ttl: TTL.member }));
   }
 
   /**
@@ -922,8 +852,8 @@ class VpDiveClient {
    * Compte au statut « Membre » du club (et non « Invité ») ? C'est le drapeau
    * allMembers de son adhésion : is_member_of_club vaut vrai pour les invités aussi.
    */
-  async isClubMember(uct: string): Promise<boolean> {
-    const res = await this.request(`/user/member/${encodeURIComponent(uct)}`);
+  async isClubMember(uct: string, opts: ReadOptions = {}): Promise<boolean> {
+    const res = await this.request(`/user/member/${encodeURIComponent(uct)}`, { ...opts, ttl: TTL.member });
     const data = obj(obj(res)?.data) ?? obj(res);
     return obj(data?.user_club_traceability)?.allMembers === true;
   }
@@ -984,8 +914,8 @@ class VpDiveClient {
   }
 
   /** Jeton utilisateur VPDive d'un membre, à partir de son jeton d'adhésion. */
-  async userTokenOf(uct: string): Promise<string> {
-    const res = await this.request(`/user?uct_token=${encodeURIComponent(uct)}`);
+  async userTokenOf(uct: string, opts: CallPace = {}): Promise<string> {
+    const res = await this.request(`/user?uct_token=${encodeURIComponent(uct)}`, { ...opts, ttl: TTL.member });
     const token = str((obj(res.data) ?? res).token);
     if (!token) throw new VpDiveError('Membre introuvable dans la messagerie VPDive.', 0);
     return token;
@@ -1025,6 +955,8 @@ class VpDiveClient {
   async decideValidation(v: PendingValidation, decision: 'approve' | 'reject'): Promise<void> {
     const res = await this.request(`/validation_tracking/${decision}`, {
       method: 'POST',
+      // Validé : la fiche du membre et les listes d'inscrits (certificat, licence) changent.
+      invalidates: ['/validation_tracking/', '/calendar/', ...memberPaths(v.member)],
       body: { token: v.member, type: v.type, entity_id: v.entityId, to_check: false },
     });
     if (res.success === false || res.error) throw new VpDiveError(str(res.message) || str(res.error) || 'VPDive a refusé l’opération.', 0);
@@ -1032,7 +964,7 @@ class VpDiveClient {
 
   /** Référentiel des niveaux du club, par activité et fédération (« PLONGEE SCAPHANDRE (F.F.E.S.S.M.) - Pratique » → noms). */
   async capacityNames(): Promise<{ group: string; names: string[] }[]> {
-    const res = await this.request('/user/settings/capacities');
+    const res = await this.request('/user/settings/capacities', { ttl: TTL.capacities, persist: true });
     return Object.entries(res)
       .map(([group, v]) => ({ group, names: Object.keys(obj(v) ?? {}) }))
       .filter((g) => g.names.length > 0);
@@ -1040,7 +972,7 @@ class VpDiveClient {
 
   /** Référentiel des niveaux avec leurs identifiants (« l_125 »…), ceux qu'attend le bloc niveaux d'une fiche. */
   async capacities(): Promise<Capacity[]> {
-    const res = await this.request('/user/settings/capacities');
+    const res = await this.request('/user/settings/capacities', { ttl: TTL.capacities, persist: true });
     const groups = obj(obj(res.data)?.capacities) ?? obj(res.capacities) ?? res;
     return Object.entries(groups).flatMap(([group, v]) =>
       Object.entries(obj(v) ?? {})
@@ -1049,30 +981,34 @@ class VpDiveClient {
     );
   }
 
-  /** Fiche complète telle que l'écran d'édition VPDive la lit (GET /user/member/{uct}), pour la réécrire. */
-  async memberForm(uct: string): Promise<RawMember> {
-    const res = await this.request(`/user/member/${encodeURIComponent(uct)}`);
+  /** Fiche complète telle que l'écran d'édition VPDive la lit (GET /user/member/{uct}), pour la réécrire : toujours relue. */
+  async memberForm(uct: string, opts: CallPace = {}): Promise<RawMember> {
+    const res = await this.request(`/user/member/${encodeURIComponent(uct)}`, { ...opts, fresh: true, ttl: TTL.member });
     const u = obj(res.data);
     if (!u) throw new VpDiveError('Fiche VPDive illisible.', 0);
     return u as RawMember;
   }
 
   /** Envoie un bloc de la fiche (voir lib/memberWrite : un bloc par envoi). */
-  async updateMember(uct: string, entries: [string, string][]): Promise<void> {
+  async updateMember(uct: string, entries: [string, string][], opts: CallPace = {}): Promise<void> {
     const form = new FormData();
     for (const [k, v] of entries) form.append(k, v);
-    await this.request(`/user/member/${encodeURIComponent(uct)}/update`, { method: 'POST', body: form });
+    await this.request(`/user/member/${encodeURIComponent(uct)}/update`, { ...opts, method: 'POST', body: form, invalidates: memberPaths(uct) });
   }
 
   /** Fait relire à VPDive une licence vérifiée FFESSM ; true si VPDive l'a mise à jour. */
-  async refreshFfessmLicence(uct: string, licenceId: number): Promise<boolean> {
-    const res = await this.request(`/user/licence/ffessm/refresh?user_licence_id=${licenceId}&uct_token=${encodeURIComponent(uct)}`, { method: 'POST' });
+  async refreshFfessmLicence(uct: string, licenceId: number, opts: CallPace = {}): Promise<boolean> {
+    const res = await this.request(`/user/licence/ffessm/refresh?user_licence_id=${licenceId}&uct_token=${encodeURIComponent(uct)}`, {
+      ...opts,
+      method: 'POST',
+      invalidates: memberPaths(uct),
+    });
     return res.applied === true || obj(res.data)?.applied === true;
   }
 
   /** Fiche d'un membre pour la gestion des adhésions : saisons, licences, assurance, statut Membre, e-mail, naissance. */
-  async memberRecord(uct: string): Promise<VpRecord> {
-    const res = await this.request(`/user?uct_token=${encodeURIComponent(uct)}`);
+  async memberRecord(uct: string, opts: ReadOptions = {}): Promise<VpRecord> {
+    const res = await this.request(`/user?uct_token=${encodeURIComponent(uct)}`, { ...opts, ttl: TTL.member });
     const u = obj(res.data) ?? res;
     const info = infoOf(u);
     return {
@@ -1097,8 +1033,9 @@ class VpDiveClient {
     };
   }
 
-  async memberStatus(uct: string): Promise<Pick<MemberInfo, 'seasons' | 'licences'>> {
-    const res = await this.request(`/user?uct_token=${encodeURIComponent(uct)}`);
+  /** Saisons et licences d'un membre (même lecture que memberRecord, partagée avec elle). */
+  async memberStatus(uct: string, opts: ReadOptions = {}): Promise<Pick<MemberInfo, 'seasons' | 'licences'>> {
+    const res = await this.request(`/user?uct_token=${encodeURIComponent(uct)}`, { ...opts, ttl: TTL.member });
     const { seasons, licences } = infoOf(obj(res.data) ?? res);
     return { seasons, licences };
   }
@@ -1135,7 +1072,7 @@ class VpDiveClient {
    * jeton d'adhésion>) : niveaux, et les documents que j'ai déposés.
    */
   async myFile(uct: string): Promise<{ profile: MemberProfile; documents: MemberDocument[]; info: MemberInfo }> {
-    const res = await this.request(`/user/member/${encodeURIComponent(uct)}`);
+    const res = await this.request(`/user/member/${encodeURIComponent(uct)}`, { ttl: TTL.myFile });
     const u = obj(res.data) ?? res;
     return { profile: profileOf(u), documents: documentsOf(u), info: infoOf(u) };
   }
@@ -1194,10 +1131,26 @@ class VpDiveClient {
    * returns everyone whose name has a vowel — in practice the whole club
    * (one-letter search measured at 476 members, uncapped, October 2026).
    */
-  async fetchMemberDirectory(route: 'assignment' | 'messages' = 'assignment'): Promise<MemberMatch[]> {
-    const lists = await Promise.all(['a', 'e', 'i', 'o', 'u', 'y'].map((v) => this.searchMembers(v, route)));
-    const byId = new Map(lists.flat().map((m) => [m.id, m]));
+  async fetchMemberDirectory(route: 'assignment' | 'messages' = 'assignment', opts: ReadOptions = {}): Promise<MemberMatch[]> {
+    // Une voyelle après l'autre (la file du transport les espace), pas six recherches d'un coup.
+    const byId = new Map<string, MemberMatch>();
+    for (const v of ['a', 'e', 'i', 'o', 'u', 'y']) {
+      for (const m of await this.searchMembers(v, route, opts)) byId.set(m.id, m);
+    }
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+  }
+
+  /**
+   * Membres dont le nom approche ce qui est tapé : VPDive ne trouvant que des
+   * sous-chaînes exactes, une recherche par fragment (lib/fuzzy.ts), l'une après
+   * l'autre, réponses fusionnées. Le classement est laissé à l'écran (rankByName).
+   */
+  async searchByName(typed: string, opts: ReadOptions = {}): Promise<MemberMatch[]> {
+    const byId = new Map<string, MemberMatch>();
+    for (const f of searchFragments(typed)) {
+      for (const m of await this.searchMembers(f, 'assignment', opts)) byId.set(m.id, m);
+    }
+    return [...byId.values()];
   }
 
   /**
@@ -1207,8 +1160,8 @@ class VpDiveClient {
    * surface safety) and levels grouped by family. Shapes recorded by
    * `npm run probe`, October 2026.
    */
-  async fetchRoster(eventToken: string): Promise<RosterEntry[]> {
-    return (await this.fetchRosterAndStaff(eventToken)).roster;
+  async fetchRoster(eventToken: string, opts: ReadOptions = {}): Promise<RosterEntry[]> {
+    return (await this.fetchRosterAndStaff(eventToken, opts)).roster;
   }
 
   /**
@@ -1216,8 +1169,9 @@ class VpDiveClient {
    * désigner un pilote, un DP ou un encadrant (`responsibles`) sans qu'il figure
    * dans la liste des inscrits. Ils comptent pour les rôles, pas comme plongeurs.
    */
-  async fetchRosterAndStaff(eventToken: string): Promise<{ roster: RosterEntry[]; staff: StaffEntry[] }> {
-    const res = await this.request(`/calendar/${eventToken}/event`);
+  async fetchRosterAndStaff(eventToken: string, opts: ReadOptions = {}): Promise<{ roster: RosterEntry[]; staff: StaffEntry[] }> {
+    // Même lecture que fetchEventDetail : partagée avec elle.
+    const res = await this.request(`/calendar/${eventToken}/event`, { ...opts, ttl: TTL.event });
     const roster = this.rosterFrom(res);
     const known = new Set(roster.map((r) => r.id));
     const responsibles = obj(res.data)?.responsibles;

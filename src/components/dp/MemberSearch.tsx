@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
-import { vpdive, type MemberMatch } from '../../services/vpdiveApi';
-import { rankByName, searchFragments } from '../../lib/fuzzy';
+import { vpdive, isAborted, type MemberMatch } from '../../services/vpdiveApi';
+import { rankByName } from '../../lib/fuzzy';
 import { Avatar } from '../Avatar';
 
 type State = { state: 'idle' } | { state: 'busy' } | { state: 'done'; matches: MemberMatch[] } | { state: 'unavailable' };
@@ -22,19 +22,23 @@ export function MemberSearch({ onPick, exclude = [] }: { onPick: (m: MemberMatch
     if (tooShort(typed)) return;
     const q = typed.trim();
     const id = ++requestId.current;
+    // Frappe suivante : les recherches pas encore parties sont retirées de la file.
+    const abort = new AbortController();
     const timer = setTimeout(async () => {
       setSearch({ state: 'busy' });
       try {
-        // Plusieurs fragments, car VPDive ne trouve que des sous-chaînes exactes.
-        const lists = await Promise.all(searchFragments(q).map((f) => vpdive.searchMembers(f)));
-        const unique = [...new Map(lists.flat().map((m) => [m.id, m])).values()];
+        // Plusieurs fragments, car VPDive ne trouve que des sous-chaînes exactes : l'un après l'autre.
+        const unique = await vpdive.searchByName(q, { priority: 'high', signal: abort.signal });
         if (id !== requestId.current) return;
         setSearch({ state: 'done', matches: rankByName(q, unique, (m) => m.name).slice(0, 5).map((r) => r.item) });
-      } catch {
-        if (id === requestId.current) setSearch({ state: 'unavailable' });
+      } catch (e) {
+        if (!isAborted(e) && id === requestId.current) setSearch({ state: 'unavailable' });
       }
     }, 400);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      abort.abort();
+    };
   }, [typed]);
 
   return (

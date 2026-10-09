@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Avatar } from './Avatar';
 import { AlertTriangle, ChevronDown, ExternalLink, Lock, RefreshCw, Search, ShieldCheck, Users, X } from 'lucide-react';
-import { vpdive, type MemberMatch, type MemberProfile } from '../services/vpdiveApi';
+import { vpdive, isUnavailable, type MemberMatch, type MemberProfile } from '../services/vpdiveApi';
 import { appApi, type AppRole, type Me, type RoleEntry } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
 import { findDuplicates, type DuplicateGroup } from '../lib/duplicates';
@@ -38,10 +38,10 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const canEdit = me.role === 'superadmin';
 
-  /** Annuaire et rôles ; l'état « chargement » est posé par l'appelant (null au départ). */
-  const fetchAll = useCallback(async () => {
+  /** Annuaire et rôles ; l'état « chargement » est posé par l'appelant (null au départ). `fresh` : sans le cache court de l'annuaire. */
+  const fetchAll = useCallback(async (fresh = false) => {
     try {
-      const [list, { roles: entries, seen: lastSeen }] = await Promise.all([vpdive.fetchMemberDirectory(), appApi.rolesAndSeen()]);
+      const [list, { roles: entries, seen: lastSeen }] = await Promise.all([vpdive.fetchMemberDirectory('assignment', { fresh }), appApi.rolesAndSeen()]);
       setRoles(new Map(entries.map((e) => [e.uct, e])));
       setSeen(lastSeen);
       setMembers(list);
@@ -54,7 +54,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
   const load = () => {
     setError(null);
     setMembers(null);
-    void fetchAll();
+    void fetchAll(true);
   };
 
   useEffect(() => {
@@ -107,7 +107,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
   }, [shown, query, roleOf]);
 
   // Doublons : homonymes de l'annuaire, puis seulement les comptes au statut « Membre ».
-  // Le statut se lit fiche par fiche : seuls les homonymes sont lus, espacés, gardés 6 h.
+  // Le statut se lit fiche par fiche : seuls les homonymes sont lus (la file du transport les espace), gardés 6 h.
   const candidates = useMemo(() => (members ? findDuplicates(members) : []), [members]);
   /** true : membre ; false : en attente, désinscrit… ; null : fiche illisible (gardé). */
   const [memberOk, setMemberOk] = useState<Record<string, boolean | null>>({});
@@ -126,14 +126,15 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
           continue;
         }
         try {
-          const ok = await vpdive.isClubMember(id);
+          const ok = await vpdive.isClubMember(id, { priority: 'low' });
           writeMemberCache(id, ok);
           if (live) setMemberOk((p) => ({ ...p, [id]: ok }));
         } catch (e) {
           if (onSessionLost(e)) return;
           if (live) setMemberOk((p) => ({ ...p, [id]: null }));
+          // VPDive ne répond plus (pare-feu, réseau) : les fiches suivantes restent non vérifiées (gardées).
+          if (isUnavailable(e)) break;
         }
-        await new Promise((r) => setTimeout(r, 450));
       }
       if (live) setChecking(false);
     })();

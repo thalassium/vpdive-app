@@ -126,7 +126,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
     };
     // .catch after .then: a failure while filling the form shows as a load error too.
     return vpdive
-      .fetchEventDetail(event.token)
+      .fetchEventDetail(event.token, { priority: 'high' })
       .then(fill)
       .catch((e: unknown) => {
         if (id !== loadRequest.current || onSessionLost(e)) return;

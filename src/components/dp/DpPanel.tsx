@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
-import { vpdive, ymd, DP_ROLE, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { vpdive, ymd, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { DP_SCAN_FAILED, dpWindow, findDpEvents } from '../../services/dpEvents';
 import { appApi, AppApiError, type AppRole, type OutingLock } from '../../services/appApi';
 import {
   addedMemberId,
@@ -61,24 +62,19 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
   /** Lit les sorties du DP ; la liste est posée par les rappels de la promesse. */
   const fetchList = useCallback(() => {
     const read = async () => {
-      const today = new Date();
-      const from = new Date(today);
-      from.setDate(from.getDate() - 14);
-      const to = new Date(today);
-      to.setDate(to.getDate() + 60);
-      let list = await vpdive.fetchEvents(ymd(from), ymd(to));
+      const [from, to] = dpWindow();
+      let list = await vpdive.fetchEvents(from, to);
       if (role === 'member' && dpEvents) {
         list = list.filter((e) => dpEvents.includes(e.token));
       } else if (role === 'member') {
-        // Pas admin : seulement les sorties où l'on est inscrit comme DP, listes lues une à une avec une pause (le pare-feu VPDive bloque les rafales).
-        const mine = list.filter((e) => e.registered);
-        const dp: CalendarEvent[] = [];
-        for (const e of mine) {
-          const roster = await vpdive.fetchRoster(e.token).catch(() => [] as RosterEntry[]);
-          if (roster.some((r) => r.id === String(session.userId) && r.roles.some((x) => DP_ROLE.test(x)))) dp.push(e);
-          await new Promise((r) => setTimeout(r, 400));
-        }
-        list = dp;
+        // Pas admin : seulement les sorties où l'on est inscrit comme DP (listes lues une à une, services/dpEvents.ts).
+        const scan = await findDpEvents(
+          list.filter((e) => e.registered),
+          (r) => r.id === String(session.userId),
+        );
+        // Une liste illisible : on ne sait pas, on le dit (« Réessayer ») plutôt que de cacher une sortie.
+        if (!scan?.complete) throw new Error(`${DP_SCAN_FAILED}.`);
+        list = list.filter((e) => scan.tokens.includes(e.token));
       }
       return list;
     };

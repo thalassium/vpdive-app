@@ -5,7 +5,7 @@ import { Avatar } from '../Avatar';
 import { Spinner } from '../Spinner';
 import { GabianLoader } from '../Gabian';
 import { MemberSearch } from '../dp/MemberSearch';
-import { vpdive, ymd } from '../../services/vpdiveApi';
+import { vpdive, ymd, isUnavailable } from '../../services/vpdiveApi';
 import { appApi, type FfessmImport, type MemberWriteLog } from '../../services/appApi';
 import { applyJob, type WriteJob } from '../../services/memberWriter';
 import {
@@ -58,7 +58,7 @@ import { cacheKey } from './memberCache';
  * déposé ici) et VPDive (la fiche). Voir MembershipTab plus bas.
  */
 
-const READ_GAP_MS = 500;
+/** Erreurs d'affilée avant de s'arrêter ; VPDive indisponible (pare-feu, réseau) : tout de suite. */
 const MAX_FAILURES = 3;
 const CACHE_TTL_MS = 6 * 3600_000;
 function readCache(uct: string): VpRecord | null {
@@ -76,7 +76,6 @@ function writeCache(uct: string, record: VpRecord) {
     // Stockage plein ou interdit : la fiche sera relue.
   }
 }
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const frDay = (ymd: string) => (ymd ? ymd.slice(0, 10).split('-').reverse().join('/') : '');
 
@@ -128,7 +127,7 @@ const CASE_ORDER: CaseKind[] = ['homonym', 'family', 'absent', 'guest', 'licence
  *   diagnostic  chaque personne vue par HelloAsso, la FFESSM et VPDive (✅ ❌ ⚠️)
  *   quickfix    les corrections sans risque, par type, à pousser dans VPDive
  *   arbitrage   le cas par cas, à décider à la main
- * Les fiches VPDive sont lues une à une, avec une pause (pare-feu), et gardées
+ * Les fiches VPDive sont lues une à une (la file du transport les espace), et gardées
  * 6 h dans la session ; « Relire les fiches » les relit après des corrections.
  */
 export function MembershipTab({
@@ -252,16 +251,15 @@ export function MembershipTab({
     for (const [i, u] of todo.entries()) {
       if (run.current !== id) return;
       setProgress({ done: i, total: todo.length });
-      if (i > 0) await wait(READ_GAP_MS);
       try {
-        const record = await vpdive.memberRecord(u);
+        const record = await vpdive.memberRecord(u, { fresh, priority: 'low' });
         if (run.current !== id) return;
         writeCache(u, record);
         setRecords((r) => ({ ...r, [u]: record }));
         failures = 0;
       } catch (e) {
         if (lost.current(e)) return;
-        if (++failures >= MAX_FAILURES) {
+        if (++failures >= MAX_FAILURES || isUnavailable(e)) {
           setReadError(`VPDive ne répond plus aux lectures de fiches (${message(e)}).`);
           setProgress(null);
           return;

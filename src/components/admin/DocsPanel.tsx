@@ -4,7 +4,7 @@ import { Avatar } from '../Avatar';
 import { Tab as TabItem, TabList, TabPanel } from '../Tabs';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
-import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
+import { vpdive, ymd, isUnavailable, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
 import { messaging } from '../../services/messaging';
 import { bulkReminderText, checkDocs, reminderText, seasonOfOuting, type DocIssue, type DocKind, type DocsStatus } from '../../lib/docsCheck';
@@ -77,14 +77,10 @@ type Filter = 'all' | DocKind | 'ignored';
 type Phase = 'events' | 'rosters' | 'status' | 'stopped' | 'done' | 'error';
 
 const DAYS_AHEAD = 60;
-const ROSTER_GAP_MS = 400;
-const STATUS_GAP_MS = 500;
-const SEND_GAP_MS = 400;
 const CACHE_TTL_MS = 6 * 3600_000;
-/** Erreurs d'affilée sur les fiches membres avant de s'arrêter (pare-feu de VPDive). */
+/** Erreurs d'affilée sur les fiches membres avant de s'arrêter ; VPDive indisponible (pare-feu, réseau) : tout de suite. */
 const MAX_FAILURES = 3;
 
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** « sam. 11 oct. » */
 const dayLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -124,8 +120,9 @@ const hasKind = (r: Row, kind: DocKind) => r.issues.some((i) => i.kind === kind 
  * jours dont le dossier VPDive n'est pas en règle à la date de la sortie
  * (règles dans lib/docsCheck.ts), avec relance par e-mail ou dans l'appli.
  *
- * VPDive a un pare-feu qui bloque les rafales : tout est lu l'un après l'autre,
- * avec une pause, et les fiches membres sont gardées 6 h dans la session.
+ * VPDive a un pare-feu qui bloque les rafales : tout est lu l'un après l'autre
+ * (la file du transport espace les appels), et les fiches membres sont gardées
+ * 6 h dans la session.
  */
 export function DocsPanel({ me, onClose, onSessionLost }: Props) {
   /**
@@ -252,11 +249,10 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
     setStatusFailures(0);
     setPhase('status');
     setProgress({ done, total: ucts.length });
-    for (const [i, uct] of todo.entries()) {
-      if (i > 0) await wait(STATUS_GAP_MS);
+    for (const uct of todo) {
       if (run.current !== id) return;
       try {
-        const status = await vpdive.memberStatus(uct);
+        const status = await vpdive.memberStatus(uct, { priority: 'low' });
         if (run.current !== id) return;
         writeCache(uct, status);
         setStatuses((prev) => ({ ...prev, [uct]: status }));
@@ -269,7 +265,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
         if (run.current !== id) return;
         failed++;
         setStatusFailures(failed);
-        if (++failures >= MAX_FAILURES) {
+        if (++failures >= MAX_FAILURES || isUnavailable(e)) {
           setError(`VPDive ne répond plus aux lectures de fiches (${message(e)}). Vérification interrompue.`);
           setPhase('stopped');
           return;
@@ -298,11 +294,10 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
       const list: Outing[] = [];
       const errors: string[] = [];
       for (const [i, ev] of events.entries()) {
-        if (i > 0) await wait(ROSTER_GAP_MS);
         if (run.current !== id) return;
         const date = ev.start.slice(0, 10);
         try {
-          const roster = await vpdive.fetchRoster(ev.token);
+          const roster = await vpdive.fetchRoster(ev.token, { priority: 'low' });
           if (run.current !== id) return;
           list.push({ token: ev.token, title: ev.title, date, roster });
           setOutings([...list]);
@@ -311,6 +306,8 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             run.current++;
             return;
           }
+          // VPDive ne répond plus (pare-feu, réseau) : inutile de lire les sorties suivantes.
+          if (isUnavailable(e)) throw e;
           errors.push(`${ev.title} (${dayLabel(date)}) : ${message(e)}`);
           setRosterErrors([...errors]);
         }
@@ -815,8 +812,8 @@ function ReminderSheet({
     setResult(null);
     setSending({ done: 0, total: rows.length });
     onBusy(true);
+    // Envois l'un après l'autre : la file du transport les espace.
     for (const [i, r] of rows.entries()) {
-      if (i > 0) await wait(SEND_GAP_MS);
       if (!r.uct) {
         errors.push(`${r.name} : pas de compte d’adhérent connu`);
       } else {

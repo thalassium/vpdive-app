@@ -14,16 +14,14 @@ import { GabianLoader } from '../Gabian';
  * le 1er septembre). Une personne inscrite sous plusieurs comptes VPDive
  * (même nom) compte une fois.
  * VPDive ne donne pas ses statistiques aux clubs : on relit l'agenda puis la
- * liste des inscrits de chaque sortie, une à une et espacées (pare-feu). Une
+ * liste des inscrits de chaque sortie, une à une (la file du transport les espace). Une
  * sortie terminée ne change plus : sa liste est gardée sur l'appareil.
  */
 
 type Preset = PresetId | 'custom';
 
-const GAP_MS = 400;
 // v2 : la liste garde aussi l'équipe non inscrite (pilote, DP désignés dans VPDive).
 const CACHE_PREFIX = 'stats-roster:v2:';
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const nf = new Intl.NumberFormat('fr-FR');
 const n = (x: number) => nf.format(x);
@@ -74,7 +72,6 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     async (list: CalendarEvent[], id: number) => {
       const todo = list.filter((e) => isDiveActivity(e.activity?.name ?? e.type?.name ?? '') && e.registeredCount > 0);
       let done = 0;
-      let fetched = false;
       setStopped(false);
       setProgress({ done, total: todo.length });
       for (const e of todo) {
@@ -84,18 +81,16 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
           setRosters((r) => ({ ...r, [e.token]: cached.rows }));
           setStaff((r) => ({ ...r, [e.token]: cached.staff }));
         } else {
-          if (fetched) await wait(GAP_MS);
-          if (id !== run.current) return;
           try {
-            const read = await vpdive.fetchRosterAndStaff(e.token);
+            const read = await vpdive.fetchRosterAndStaff(e.token, { priority: 'low' });
+            if (id !== run.current) return;
             const rows = read.roster.map(toPerson);
             const crew: StatStaff[] = read.staff.map((x) => ({ id: x.id, name: x.name, ...(x.picture ? { picture: x.picture } : {}), roles: x.roles }));
-            fetched = true;
             if (finished(e)) writeCache(e.token, { rows, staff: crew });
             setRosters((r) => ({ ...r, [e.token]: rows }));
             setStaff((r) => ({ ...r, [e.token]: crew }));
           } catch (err) {
-            if (onSessionLost(err)) return;
+            if (onSessionLost(err) || id !== run.current) return;
             setError(`Lecture interrompue : ${message(err)}`);
             setStopped(true);
             return;
