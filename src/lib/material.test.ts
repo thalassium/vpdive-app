@@ -51,3 +51,17 @@ test('liste à copier', () => {
   const s = aggregateMaterial([diver('A', ['1 Gilet stabilisateur - M']), diver('B', ['1 Gilet stabilisateur - L', '1 Détendeur'], 'Bouteille : 15 L')]);
   assert.equal(materialText(s, 'Sortie'), 'Sortie\n\nDétendeur : 1\nGilet stabilisateur : 2 (M × 1, L × 1)\n\nBouteilles : 12 L : 1 · 15 L : 1 · Enfant : 0');
 });
+
+test('une bouteille par plongeur : ni pilote, ni sécurité surface, ni DP qui ne plonge pas ; la fiche de sortie fait foi', () => {
+  const r = (id: string, roles: string[] = [], comment = ''): MaterialRegistrant => ({ id, name: id, roles, comment, waitingList: false, material: [] });
+  const roster = [r('a'), r('pilote', ['Pilote']), r('secu', ['Sécurité surface'], 'Bouteille : 15 L'), r('dp', ['Directeur de plongée']), r('dpe', ['Directeur de plongée', 'Enseignant/Encadrant'])];
+  const byRoles = aggregateMaterial(roster);
+  assert.deepEqual(byRoles.bottles, { '12 L': 2, '15 L': 0, 'Enfant (8/10 L)': 0 }, 'a et le DP qui encadre');
+  assert.equal(byRoles.people.find((p) => p.name === 'pilote')?.noBottle, 'pilote, ne plonge pas');
+  assert.deepEqual(byRoles.people.find((p) => p.name === 'secu')?.lines, [], 'pas de « Bouteille 15 L » pour qui ne plonge pas');
+  // Fiche de sortie : le pilote plonge finalement, le DP encadrant reste à bord.
+  const byOuting = aggregateMaterial(roster, new Set(['a', 'pilote']));
+  assert.deepEqual(byOuting.bottles, { '12 L': 2, '15 L': 0, 'Enfant (8/10 L)': 0 });
+  assert.equal(byOuting.people.find((p) => p.name === 'dpe')?.noBottle, 'ne plonge pas d’après la fiche de sortie');
+  assert.equal(byOuting.people.find((p) => p.name === 'pilote')?.noBottle, undefined);
+});

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, Copy, Package, RefreshCw, X } from 'lucide-react';
 import { vpdive, ymd, type CalendarEvent, type RosterEntry } from '../../services/vpdiveApi';
+import { appApi } from '../../services/appApi';
 import { BOTTLES } from '../../lib/gear';
 import { aggregateMaterial, isUnknownSize, materialText, sortedSizes, BOTTLE_SHORT, type MaterialPerson } from '../../lib/material';
+import { adoptRegistrations, divingIds, syncWithRoster, withGuests, type OutingDoc } from '../../lib/outing';
 import { Avatar } from '../Avatar';
 import { Menu } from '../Menu';
 import { ThemeToggle } from '../ThemeToggle';
@@ -17,7 +19,9 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /**
  * Matériel (admin) : pour une sortie, tout ce qu'il faut préparer le jour même
  * d'après les inscriptions VPDive — matériel loué compté par taille, et une
- * bouteille par plongeur inscrit (12 L sauf demande contraire). La liste
+ * bouteille par plongeur (12 L sauf demande contraire) : d'après la fiche de
+ * sortie quand elle existe (palanquées, « Qui plonge ? »), sinon tous les
+ * inscrits sauf pilote, sécurité surface et DP qui ne font que cela. La liste
  * d'attente est montrée à part, sans être comptée.
  */
 export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void; onSessionLost: (e: unknown) => boolean }) {
@@ -188,14 +192,29 @@ function Failure({ text, onRetry }: { text: string; onRetry: () => void }) {
 
 function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSessionLost: (e: unknown) => boolean }) {
   const [roster, setRoster] = useState<RosterEntry[] | null>(null);
+  /** Fiche de sortie du DP, si elle existe : elle dit qui plonge réellement. */
+  const [outing, setOuting] = useState<OutingDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
     setRoster(null);
+    setOuting(null);
     try {
-      setRoster(await vpdive.fetchRoster(event.token));
+      const [r, saved] = await Promise.all([
+        vpdive.fetchRoster(event.token),
+        // Sans réponse du serveur de l'appli, on compte d'après les rôles VPDive.
+        appApi.getOuting(event.token).then(
+          (x) => x.doc,
+          (e) => {
+            if (onSessionLost(e)) throw e;
+            return null;
+          },
+        ),
+      ]);
+      setOuting(saved);
+      setRoster(r);
     } catch (e) {
       if (onSessionLost(e)) return;
       setError(message(e));
@@ -212,7 +231,15 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
     return () => clearTimeout(t);
   }, [copied]);
 
-  const summary = useMemo(() => (roster ? aggregateMaterial(roster) : null), [roster]);
+  const summary = useMemo(() => {
+    if (!roster) return null;
+    if (!outing) return aggregateMaterial(roster);
+    // La fiche rapprochée de la liste du jour (nouveaux inscrits, désinscrits), plongeurs hors VPDive compris.
+    const adopted = adoptRegistrations(outing, roster);
+    const people = withGuests(roster, adopted);
+    const doc = syncWithRoster(adopted, people).doc;
+    return aggregateMaterial(people, divingIds(doc, people));
+  }, [roster, outing]);
 
   if (error) return <Failure text={error} onRetry={load} />;
   if (!summary) return <p className="py-10 text-center text-muted">Lecture des inscriptions sur VPDive…</p>;
@@ -227,6 +254,7 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
       window.prompt('Copiez la liste :', text);
     }
   };
+  const divers = summary.people.filter((p) => !p.noBottle).length;
   const bottlesDue = BOTTLES.filter((b) => summary.bottles[b] > 0)
     .map((b) => `${BOTTLE_SHORT[b]} × ${summary.bottles[b]}`)
     .join(', ');
@@ -237,9 +265,11 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
         <div className="flex-1 min-w-0">
           <h3 className="text-lg font-semibold text-ink truncate">{event.title}</h3>
           <p className="text-sm text-muted">
-            {dayLabel(event.start)} · {timeLabel(event)} · {summary.people.length} plongeur{summary.people.length > 1 ? 's' : ''}
+            {dayLabel(event.start)} · {timeLabel(event)} · {divers} plongeur{divers > 1 ? 's' : ''}
+            {summary.people.length > divers && ` · ${summary.people.length - divers} à bord sans plonger`}
             {summary.waiting.length > 0 && ` · ${summary.waiting.length} en liste d’attente`}
           </p>
+          <p className="text-sm text-muted">{outing ? 'Bouteilles d’après la fiche de sortie du DP.' : 'Pas encore de fiche de sortie : bouteilles d’après les rôles VPDive.'}</p>
         </div>
         <button type="button" onClick={copy} className="btn btn-quiet">
           {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />} {copied ? 'Copiée' : 'Copier la liste'}
@@ -317,7 +347,9 @@ function PeopleList({ people }: { people: MaterialPerson[] }) {
             <span className="block text-base text-ink">{p.name}</span>
             <span className="flex flex-wrap gap-x-4 text-sm text-muted">
               {p.lines.length ? p.lines.map((line, j) => <span key={j}>{line}</span>) : 'Rien à louer'}
+              {p.noBottle && <span className="text-warn">Pas de bouteille : {p.noBottle}</span>}
             </span>
+
           </span>
         </li>
       ))}

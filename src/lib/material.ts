@@ -1,7 +1,9 @@
 /**
  * Matériel à préparer pour une sortie : ce que les inscrits ont réservé sur
  * VPDive (« 1 Gilet stabilisateur », « 1 Combinaison - M »…), compté par
- * matériel et par taille, et une bouteille par plongeur inscrit.
+ * matériel et par taille, et une bouteille par plongeur : pas pour le pilote,
+ * la sécurité surface ni le DP qui ne plongent pas. Quand la fiche de sortie
+ * existe, elle dit qui plonge réellement (palanquées, « Qui plonge ? »).
  *
  * La taille vient de la déclinaison VPDive quand le club en a créé (« - M »,
  * « (Taille M) »), sinon du message au club (lib/gear.ts), sinon « taille ? ».
@@ -9,10 +11,15 @@
  */
 
 import { BOTTLES, DEFAULT_BOTTLE, SIZES, parseComment, sizedKinds, type Bottle, type Size } from './gear';
+import { DP_ROLE, SURFACE_ROLES } from '../services/vpdiveApi';
 
 /** Ce que fetchRoster donne, réduit à ce qu'il faut ici (testable sans le client VPDive). */
 export interface MaterialRegistrant {
+  /** Identifiant d'inscrit, pour savoir s'il plonge d'après la fiche de sortie. */
+  id?: string;
   name: string;
+  /** Rôles VPDive de la sortie (« Pilote », « Directeur de plongée »…). */
+  roles?: string[];
   picture?: string;
   waitingList: boolean;
   comment: string;
@@ -31,6 +38,8 @@ export interface MaterialPerson {
   picture: string;
   /** « Gilet stabilisateur · M », « 2 × Détendeur », « Bouteille 15 L ». */
   lines: string[];
+  /** Ne plonge pas, donc pas de bouteille : pourquoi (« pilote », « ne plonge pas d'après la fiche »). */
+  noBottle?: string;
 }
 
 export interface MaterialSummary {
@@ -105,7 +114,21 @@ const sizeRank = (s: string) => {
 export const sortedSizes = (bySize: Record<string, number>): [string, number][] =>
   Object.entries(bySize).sort(([a], [b]) => sizeRank(a) - sizeRank(b) || a.localeCompare(b, 'fr'));
 
-export function aggregateMaterial(roster: MaterialRegistrant[]): MaterialSummary {
+/** Rôles qui restent à bord : pilote, sécurité surface, DP. */
+const ABOARD = (role: string) => SURFACE_ROLES.test(role) || DP_ROLE.test(role);
+
+/**
+ * Pourquoi un inscrit n'a pas de bouteille, ou null s'il plonge. `diving` : qui
+ * plonge d'après la fiche de sortie (lib/outing.ts, divingIds) ; sans fiche,
+ * celui dont tous les rôles restent à bord (pilote, sécurité surface, DP) ne plonge pas.
+ */
+function noBottleReason(r: MaterialRegistrant, diving: Set<string> | null): string | null {
+  if (diving) return r.id && diving.has(r.id) ? null : 'ne plonge pas d’après la fiche de sortie';
+  const roles = r.roles ?? [];
+  return roles.length > 0 && roles.every(ABOARD) ? `${roles.map((x) => x.toLowerCase()).join(', ')}, ne plonge pas` : null;
+}
+
+export function aggregateMaterial(roster: MaterialRegistrant[], diving: Set<string> | null = null): MaterialSummary {
   const items = new Map<string, MaterialItem>();
   const bottles = Object.fromEntries(BOTTLES.map((b) => [b, 0])) as Record<Bottle, number>;
   const people: MaterialPerson[] = [];
@@ -125,14 +148,16 @@ export function aggregateMaterial(roster: MaterialRegistrant[]): MaterialSummary
       item.total += qty;
       if (size) item.bySize[size] = (item.bySize[size] ?? 0) + qty;
     }
-    if (bottle !== DEFAULT_BOTTLE) lines.push(`Bouteille ${bottle}`);
-    const person = { name: r.name, picture: r.picture ?? '', lines };
+    const noBottle = r.waitingList ? null : noBottleReason(r, diving);
+    if (bottle !== DEFAULT_BOTTLE && !noBottle) lines.push(`Bouteille ${bottle}`);
+    const person = { name: r.name, picture: r.picture ?? '', lines, ...(noBottle ? { noBottle } : {}) };
     if (r.waitingList) {
       waiting.push(person);
     } else {
       people.push(person);
-      bottles[bottle] += 1;
+      if (!noBottle) bottles[bottle] += 1;
     }
+
   }
 
   return {
