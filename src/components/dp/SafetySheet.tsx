@@ -181,6 +181,8 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
                   </tbody>
                 </table>
               </div>
+              {/* Même chose pour les paramètres : sur un téléphone étroit, la table défile au lieu de rogner ses champs. */}
+              <div className="overflow-x-auto print:overflow-visible">
               <table className="w-full text-sm border-t-2 border-line print:border-black">
                 <thead>
                   <tr className="text-left text-sm print:text-xs text-muted">
@@ -204,6 +206,7 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
                   ))}
                 </tbody>
               </table>
+              </div>
               {tooDeep && (
                 <p role="alert" className="px-3 py-2 border-t border-line text-sm text-danger flex items-start gap-1.5 print:text-black">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {planned} m prévus : au-delà de la prérogative de la palanquée ({legal} m).

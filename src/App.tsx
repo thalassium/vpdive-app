@@ -538,7 +538,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
         )}
       </header>
 
-      <main className={`flex-1 pb-20 sm:pb-0 ${printPanel}`}>
+      <main className={`flex-1 pb-[calc(5rem_+_env(safe-area-inset-bottom))] sm:pb-0 ${printPanel}`}>
         {/* Un onglet en panne n'emporte pas l'appli : message à sa place, en-tête et onglets utilisables. */}
         <ErrorBoundary key={tab} where={`onglet ${tab}`}>
           <Suspense fallback={<GabianLoader className="py-16" />}>

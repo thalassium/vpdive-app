@@ -601,7 +601,7 @@ export function MembershipTab({
               {results.map((x) => (
                 <li key={x.uct} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-4 py-2.5 text-sm">
                   {x.ok ? <Check className="w-4 h-4 mt-0.5 text-ok shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 text-danger shrink-0" />}
-                  <span className="w-52 min-w-0 font-medium text-ink truncate">{x.name}</span>
+                  <span className="flex-1 sm:flex-none sm:w-52 min-w-0 font-medium text-ink truncate">{x.name}</span>
                   <span className={`flex-1 min-w-0 ${x.ok ? 'text-muted' : 'text-danger'}`}>
                     {x.message}
                     {x.warning && <span className="block text-warn">{x.warning}</span>}
@@ -655,7 +655,7 @@ export function MembershipTab({
                             onChange={() => toggle(keyOf(r, f))}
                             className="w-5 h-5 accent-[var(--fill)] disabled:opacity-40"
                           />
-                          <span className="w-56 min-w-0 font-medium text-ink truncate">{r.match.member?.name ?? r.p.name}</span>
+                          <span className="flex-1 sm:flex-none sm:w-56 min-w-0 font-medium text-ink truncate">{r.match.member?.name ?? r.p.name}</span>
                           <span className="text-sm text-muted">{f.before}</span>
                           <span aria-hidden className="text-muted">→</span>
                           <span className="text-sm font-semibold text-ok">{f.after}</span>

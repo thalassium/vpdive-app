@@ -518,7 +518,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
 
                 {thread && !thread.canRespond && <p className="py-3 text-sm text-muted border-t border-line">Conversation fermée sur VPDive.</p>}
                 {thread && thread.canRespond && (
-                  <form onSubmit={send} className="sticky bottom-20 sm:bottom-0 md:static z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3">
+                  <form onSubmit={send} className="sticky bottom-[calc(5rem_+_env(safe-area-inset-bottom))] sm:bottom-0 md:static z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3">
                     <div className="flex items-end gap-2">
                       <label htmlFor="message-draft" className="sr-only">
                         Votre message
@@ -731,7 +731,7 @@ function NewChat({
       </div>
 
       {selected.length > 0 && (
-        <div className="sticky bottom-20 sm:bottom-0 z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3 mt-4 space-y-3">
+        <div className="sticky bottom-[calc(5rem_+_env(safe-area-inset-bottom))] sm:bottom-0 z-10 bg-surface border-t border-line -mx-4 px-4 sm:mx-0 sm:px-0 py-3 mt-4 space-y-3">
           {createError && (
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-danger flex-1 min-w-0">{createError}</p>
