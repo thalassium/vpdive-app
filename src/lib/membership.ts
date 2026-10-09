@@ -247,9 +247,12 @@ const plain = (s: string) =>
 
 /** Codes VPDive d'un brevet FFESSM (« Niveau 2 » → P2/N2, « Plongeur Nitrox confirmé » → PNC…) ; [] si inconnu. */
 export function brevetCodes(brevet: string): string[] {
-  const b = plain(brevet);
+  const b = plain(brevet).trim();
+  // « Niveau n » de plongée seulement : pas « Apnéiste Niveau 2 », ni hockey, nage, tir, photo…
+  const other = /apn|hockey|nage|handi|orientation|\btir|photo|video|bio|archeo|souterrain|peche/.test(b);
+  if (other) return [];
   const n = /niveau\s*(\d)/.exec(b);
-  if (n && !/photo|video|bio|souterrain|tir|apnee|archeo|nageur|pecheur/.test(b)) return [`P${n[1]}`, `N${n[1]}`];
+  if (n && /^(niveau|plongeur)\b/.test(b)) return [`P${n[1]}`, `N${n[1]}`];
   if (/nitrox/.test(b) && /moniteur/.test(b)) return [/confirm/.test(b) ? 'MNC' : 'MN'];
   if (/nitrox/.test(b)) return [/confirm/.test(b) ? 'PNC' : 'PN'];
   const pa = /autonomie\s*(\d+)/.exec(b);
@@ -284,6 +287,26 @@ const levelName = (s: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+/**
+ * Même niveau VPDive, l'un pouvant être le nom tronqué de l'autre : la fiche
+ * dit « P-Plongeur Niveau 4 (P4-N4) », le référentiel « P-Plongeur Niveau 4
+ * (P4-N4) (P4-ANMP) A.N.M.P. ». Le nom court doit finir sur un code entre
+ * parenthèses : « Plongeur Nitrox » n'est pas « Plongeur Nitrox confirmé ».
+ */
+export function sameLevel(a: string, b: string): boolean {
+  const x = levelName(a);
+  const y = levelName(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length < y.length ? [x, y] : [y, x];
+  return short.endsWith(')') && long.startsWith(`${short} `);
+}
+
+/** Premier code d'un niveau (« P - Plongeur(se) Niveau 2 (P2-N2) (P2) » → « P2-N2 ») ; « (se) » n'est pas un code. */
+const firstCode = (name: string) => [...name.matchAll(/\(([^()]+)\)/g)].map((m) => m[1]!.trim()).find((c) => /[A-Z0-9]/.test(c))?.toUpperCase() ?? '';
+/** Même premier code (« P4-N4 ») : moins sûr que sameLevel (deux fédérations peuvent le partager), assez pour une relecture. */
+export const sameLevelCode = (a: string, b: string) => !!firstCode(a) && firstCode(a) === firstCode(b);
+
 /** Niveaux VPDive que la règle automatique accepte pour ce brevet (pour les montrer dans la table). */
 export const automaticLevels = (brevet: string, names: string[]): string[] => {
   const codes = brevetCodes(brevet);
@@ -293,10 +316,8 @@ export const automaticLevels = (brevet: string, names: string[]): string[] => {
 /** VPDive a-t-il ce brevet FFESSM ? D'après la table des admins ; sinon par code ; sinon par les mots du brevet. */
 export function hasBrevet(levels: string[], brevet: string, map: BrevetMap = {}): boolean {
   const chosen = map[brevet];
-  if (chosen?.length) {
-    const mine = new Set(levels.map(levelName));
-    return chosen.some((n) => mine.has(levelName(n)));
-  }
+  // Les noms de la table viennent du référentiel, ceux de la fiche sont souvent tronqués.
+  if (chosen?.length) return chosen.some((n) => levels.some((l) => sameLevel(l, n)));
   const codes = brevetCodes(brevet);
   if (codes.length) {
     const mine = new Set(levels.flatMap(vpdiveCodes));

@@ -10,7 +10,7 @@
  *   - blocs licences et niveaux : VPDive remplace la liste entière. On renvoie
  *     toutes les licences (et tous les niveaux) de la fiche, plus le changement.
  */
-import { flatLicence, isFfessmLicence, latestLicence, licenceEnd, type VpRecord } from './membership';
+import { flatLicence, isFfessmLicence, latestLicence, licenceEnd, sameLevel, sameLevelCode, type VpRecord } from './membership';
 
 export type Entry = [string, string];
 
@@ -237,7 +237,8 @@ export function checkWrite(before: VpRecord, after: VpRecord, want: Expect, seas
   }
   if (want.insurance && after.insurance !== want.insurance) return { error: `assurance relue : ${after.insurance || 'aucune'}` };
   if (want.insuranceYear && after.insuranceYear !== want.insuranceYear) return { error: `année de l’assurance relue : ${after.insuranceYear ?? 'aucune'}` };
-  const missing = (want.levels ?? []).filter((n) => !after.levels.includes(n));
+  // Le nom du référentiel (envoyé) est souvent plus long que celui que la fiche relue donne.
+  const missing = (want.levels ?? []).filter((n) => !after.levels.some((l) => sameLevel(l, n) || sameLevelCode(l, n)));
   if (missing.length) return { warning: `pas encore visible : ${missing.join(', ')} (validation en attente ?)` };
   return {};
 }

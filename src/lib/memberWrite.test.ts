@@ -118,4 +118,7 @@ test('relecture : perte ou écriture non prise = erreur', () => {
   assert.match(checkWrite(before, { ...ok, levels: ['Niveau 2'] }, {}, 2027).error ?? '', /niveau perdu/);
   assert.match(checkWrite(before, before, { licence: 'A-16-733717' }, 2027).error ?? '', /31\/12\/2026/);
   assert.match(checkWrite(before, { ...ok, levels: ['Niveau 1'] }, { levels: ['Niveau 2'] }, 2027).warning ?? '', /validation/);
+  // Nom du référentiel envoyé, nom tronqué relu sur la fiche : pas de fausse alerte.
+  const n4 = { ...ok, levels: ['Niveau 1', 'P-Plongeur Niveau 4 (P4-N4)'] };
+  assert.deepEqual(checkWrite(before, n4, { levels: ['P-Plongeur Niveau 4 (P4-N4) (P4-ANMP) A.N.M.P.'] }, 2027), {});
 });

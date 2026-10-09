@@ -11,6 +11,9 @@ import {
   automaticLevels,
   brevetsByLicence,
   hasBrevet,
+  brevetCodes,
+  sameLevel,
+  sameLevelCode,
   parseFfessmBrevets,
   restoreAccents,
   quickFixes,
@@ -186,6 +189,22 @@ test('table des brevets : le choix des admins prime sur la règle automatique', 
   assert.ok(hasBrevet(['EB - Jeune plongeur bio (PBJ)'], 'Plongeur Or', map), 'nom sans la fédération en fin');
   assert.ok(!hasBrevet(['P - Plongeur Or (POR) F.F.E.S.S.M.'], 'Plongeur Or', map), 'la table remplace la règle');
   assert.ok(hasBrevet(['P - Plongeur Or (POR) F.F.E.S.S.M.'], 'Plongeur Or'), 'sans table : règle automatique');
+});
+
+test('niveaux : nom tronqué de la fiche = nom du référentiel ; « Niveau n » de plongée seulement', () => {
+  const ref = 'P-Plongeur Niveau 4 (P4-N4) (P4-ANMP) A.N.M.P.';
+  assert.ok(sameLevel('P-Plongeur Niveau 4 (P4-N4)', ref));
+  assert.ok(!sameLevel('Plongeur Nitrox', 'Plongeur Nitrox confirmé (PNC)'), 'le nom court doit finir sur un code');
+  assert.ok(!sameLevel('P-Plongeur Niveau 1 (P1-N1)', 'P-Plongeur Niveau 1 (P1-N10) A.N.M.P.'));
+  // La table des admins (noms du référentiel) reconnaît le nom tronqué de la fiche.
+  assert.ok(hasBrevet(['P-Plongeur Niveau 4 (P4-N4)'], 'Niveau 4', { 'Niveau 4': [ref] }));
+  assert.ok(sameLevelCode('P - Plongeur(se) Niveau 2 (P2-N2) (P2)', 'Niveau 2 (P2-N2)'), '« (se) » n’est pas un code');
+  // Apnée, hockey, nage, tir… : jamais P2/N2.
+  for (const b of ['Apnéiste Niveau 2', 'Hockey subaquatique Niveau 2', 'Nage avec palmes Niveau 2', 'Tireur Niveau 2', 'Handisub Niveau 2', 'Photographe Niveau 2', 'Pêcheur Niveau 2', 'Initiateur Niveau 2'])
+    assert.deepEqual(brevetCodes(b), [], b);
+  assert.deepEqual(brevetCodes('Niveau 2'), ['P2', 'N2']);
+  assert.deepEqual(brevetCodes('Plongeur Niveau 3'), ['P3', 'N3']);
+  assert.ok(!hasBrevet(['P - Plongeur(se) Niveau 2 (P2-N2) (P2) F.F.E.S.S.M.'], 'Apnéiste Niveau 2'));
 });
 
 test('rapprochement : toujours vers un compte Membre ; un invité homonyme n’est pas proposé', () => {
