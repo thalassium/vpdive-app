@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WriteError, capacityEntries, checkWrite, currentCapacities, frDate, generalEntries, insuranceEntries, licenceEntries, type RawMember } from './memberWrite';
+import { WriteError, describeSnapshot, capacityEntries, checkWrite, currentCapacities, frDate, generalEntries, insuranceEntries, licenceEntries, rawHasLicence, rawSeasons, snapshot, type RawMember } from './memberWrite';
 import { brevetTarget, type Capacity, type VpRecord } from './membership';
 
 const fiche = (over: Partial<RawMember> = {}): RawMember => ({
@@ -64,6 +64,31 @@ test('bloc licences : toutes renvoyées, date changée ou licence ajoutée', () 
   assert.throws(() => licenceEntries(fiche({ organizations: [] }), { add: { number: 'B', expires: '2027-12-31' } }), WriteError);
 });
 
+test('licence à ajouter déjà sur la fiche (même numéro aplati) : refus explicite, pas de doublon', () => {
+  assert.throws(() => licenceEntries(fiche(), { add: { number: 'A16733717', expires: '2027-12-31' } }), /déjà présente/);
+  assert.equal(rawHasLicence(fiche(), 'a-16-733717'), true);
+  assert.equal(rawHasLicence(fiche(), 'A-22-111111'), false);
+});
+
+test('saisons : réunion de yearsUserConfirmation et yearsConfirmation, les deux gardées au journal', () => {
+  const u = fiche({ user_club_traceability: { allMembers: true, yearsUserConfirmation: ['2027'], yearsConfirmation: ['2026', 2025] } });
+  assert.deepEqual(rawSeasons(u), [2027, 2026, 2025]);
+  assert.deepEqual(get(generalEntries(u, 2027), 'mobile_general_form[years][]'), ['2027', '2026', '2025']);
+  const s = snapshot(u);
+  assert.deepEqual([s.seasons, s.yearsUserConfirmation, s.yearsConfirmation], [[2027, 2026, 2025], [2027], [2026, 2025]]);
+});
+
+test('journal : la fiche d’avant en lignes lisibles, sans erreur sur une entrée incomplète', () => {
+  const lines = describeSnapshot(snapshot(fiche({ insurance_choice: 'Assurance Loisir 1', insurance_year: 2025 })), (id) => (id === 'l_125' ? 'Niveau 1 (P1-N1)' : undefined));
+  const v = Object.fromEntries(lines.map((l) => [l.label, l.value]));
+  assert.equal(v.Statut, 'Membre');
+  assert.equal(v.Saisons, '2025/2026, 2024/2025');
+  assert.equal(v.Licences, 'A-16-733717 (F.F.E.S.S.M.), jusqu’au 31/12/2026 · X-1 (PADI), jusqu’au 30/06/2028');
+  assert.equal(v.Assurance, 'Assurance Loisir 1 (2025/2026)');
+  assert.equal(v.Niveaux, 'Niveau 1 (P1-N1), t_3');
+  assert.deepEqual(describeSnapshot(null), [{ label: 'Saisons', value: 'aucune' }, { label: 'Licences', value: 'aucune' }]);
+});
+
 test('dates', () => {
   assert.equal(frDate('2027-12-31'), '31/12/2027');
   assert.equal(frDate('31/12/2027'), '31/12/2027');
@@ -104,4 +129,7 @@ test('relecture : perte ou écriture non prise = erreur', () => {
   assert.match(checkWrite(before, { ...ok, levels: ['Niveau 2'] }, {}, 2027).error ?? '', /niveau perdu/);
   assert.match(checkWrite(before, before, { licence: 'A-16-733717' }, 2027).error ?? '', /31\/12\/2026/);
   assert.match(checkWrite(before, { ...ok, levels: ['Niveau 1'] }, { levels: ['Niveau 2'] }, 2027).warning ?? '', /validation/);
+  // Nom du référentiel envoyé, nom tronqué relu sur la fiche : pas de fausse alerte.
+  const n4 = { ...ok, levels: ['Niveau 1', 'P-Plongeur Niveau 4 (P4-N4)'] };
+  assert.deepEqual(checkWrite(before, n4, { levels: ['P-Plongeur Niveau 4 (P4-N4) (P4-ANMP) A.N.M.P.'] }, 2027), {});
 });

@@ -24,6 +24,20 @@ export interface FfessmImport<Row = FfessmRow> {
   at: string;
 }
 
+/** Une fiche VPDive écrite (ou refusée) par les corrections rapides, telle que le journal du serveur la garde. */
+export interface MemberWriteLog {
+  uct: string;
+  name: string;
+  kinds: string[];
+  ok: boolean;
+  message: string;
+  /** La fiche d'avant (lib/memberWrite snapshot), de quoi tout remettre à la main. */
+  before: unknown;
+  by: string;
+  /** Date ISO. */
+  at: string;
+}
+
 export type AppRole = 'superadmin' | 'admin' | 'member';
 
 export interface Me {
@@ -114,6 +128,8 @@ export const appApi = {
   /** Journal des fiches VPDive écrites par les corrections rapides (avec la fiche d'avant). */
   logMemberWrite: (w: { uct: string; name: string; kinds: string[]; ok: boolean; message: string; before: unknown }) =>
     call<{ ok: true }>('action=member_writes', { method: 'POST', body: w }),
+  /** Le journal des écritures, dans l'ordre où elles ont été faites (les 300 dernières). */
+  memberWrites: () => call<{ writes: MemberWriteLog[] }>('action=member_writes').then((r) => r.writes),
   docsIgnored: () => call<{ ignored: IgnoredDocs }>('action=docs_ignored').then((r) => r.ignored),
   setDocsIgnored: (uct: string, name: string, ignore: boolean) =>
     call<{ ignored: IgnoredDocs }>('action=docs_ignored', { method: 'POST', body: { uct, name, ignore } }).then((r) => r.ignored),

@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
+  caseKey,
+  checkFor,
+  linkFor,
   adhesionView,
   brevetsView,
   buildPeople,
@@ -11,6 +15,9 @@ import {
   automaticLevels,
   brevetsByLicence,
   hasBrevet,
+  brevetCodes,
+  sameLevel,
+  sameLevelCode,
   parseFfessmBrevets,
   restoreAccents,
   quickFixes,
@@ -18,10 +25,15 @@ import {
   familyCandidates,
   matchPerson,
   parseFfessmCsv,
+  decodeExport,
   seasonOf,
   seasonsCovered,
   tierKind,
   vpdiveInsurance,
+  insuranceView,
+  attachedView,
+  haInsurance,
+  type Match,
   type HaItem,
   type VpMember,
   type VpRecord,
@@ -77,6 +89,21 @@ test('export FFESSM : valeurs lues derrière leurs libellés, accents perdus tol
   assert.deepEqual(rows[0], { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '2026-10-03', insurance: 'Loisir 1', category: '', pricing: 'Réduction Pass Plongée' });
 });
 
+test('export FFESSM en windows-1252 : accents lus (François, Loïc, Benoît…), saison « AAAA-AAAA » acceptée', () => {
+  const line = 'Liste des licences,Du 08/10/2025 au 08/10/2026,Saison,2026-2027,Licence,A-16-111111,Nom,FRAN\xc7OIS Lo\xefc,Date de naissance,02/04/1990,Assurance,Loisir 1,Tarification,R\xe9duction Pass Plong\xe9e';
+  const cp1252 = Uint8Array.from([...line].map((c) => c.charCodeAt(0)));
+  const { rows } = parseFfessmCsv(decodeExport(cp1252));
+  assert.equal(rows[0]!.name, 'FRANÇOIS Loïc');
+  assert.equal(rows[0]!.pricing, 'Réduction Pass Plongée');
+  assert.equal(rows[0]!.season, 2027);
+  // Déjà en UTF-8 (réenregistré dans un tableur) : lu tel quel.
+  const utf8 = new TextEncoder().encode('Nom,Gaël Benoît Anaïs Jérôme');
+  assert.equal(decodeExport(utf8), 'Nom,Gaël Benoît Anaïs Jérôme');
+  // Accents déjà perdus dans le fichier : le nom passe aussi par restoreAccents.
+  const lost = parseFfessmCsv('Saison,2026/2027,Licence,A-16-222222,Nom,MARTIN L�a');
+  assert.equal(lost.rows[0]!.name, 'MARTIN Léa');
+});
+
 test('personnes : bénéficiaire et non payeur, adhésion d’août, réunion avec la FFESSM par naissance', () => {
   const items = [
     item({ id: 1 }),
@@ -127,7 +154,7 @@ test('licence : HelloAsso fait foi ; FFESSM non prise ❌ ; VPDive absente ❌, 
   const [forgot] = buildPeople([item({ tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [], 2027);
   const v = licenceView(forgot!, null, 2027);
   assert.equal(v.ffessm.mark, 'missing');
-  assert.ok(federationIssue({ licence: v, adhesion: v, brevets: v }));
+  assert.ok(federationIssue({ licence: v, adhesion: v, brevets: v, insurance: v }));
 });
 
 test('adhésion : saison absente ❌, statut Invité ⚠️, à jour ✅ ; brevets FFESSM comparés aux niveaux VPDive', () => {
@@ -170,6 +197,22 @@ test('table des brevets : le choix des admins prime sur la règle automatique', 
   assert.ok(hasBrevet(['EB - Jeune plongeur bio (PBJ)'], 'Plongeur Or', map), 'nom sans la fédération en fin');
   assert.ok(!hasBrevet(['P - Plongeur Or (POR) F.F.E.S.S.M.'], 'Plongeur Or', map), 'la table remplace la règle');
   assert.ok(hasBrevet(['P - Plongeur Or (POR) F.F.E.S.S.M.'], 'Plongeur Or'), 'sans table : règle automatique');
+});
+
+test('niveaux : nom tronqué de la fiche = nom du référentiel ; « Niveau n » de plongée seulement', () => {
+  const ref = 'P-Plongeur Niveau 4 (P4-N4) (P4-ANMP) A.N.M.P.';
+  assert.ok(sameLevel('P-Plongeur Niveau 4 (P4-N4)', ref));
+  assert.ok(!sameLevel('Plongeur Nitrox', 'Plongeur Nitrox confirmé (PNC)'), 'le nom court doit finir sur un code');
+  assert.ok(!sameLevel('P-Plongeur Niveau 1 (P1-N1)', 'P-Plongeur Niveau 1 (P1-N10) A.N.M.P.'));
+  // La table des admins (noms du référentiel) reconnaît le nom tronqué de la fiche.
+  assert.ok(hasBrevet(['P-Plongeur Niveau 4 (P4-N4)'], 'Niveau 4', { 'Niveau 4': [ref] }));
+  assert.ok(sameLevelCode('P - Plongeur(se) Niveau 2 (P2-N2) (P2)', 'Niveau 2 (P2-N2)'), '« (se) » n’est pas un code');
+  // Apnée, hockey, nage, tir… : jamais P2/N2.
+  for (const b of ['Apnéiste Niveau 2', 'Hockey subaquatique Niveau 2', 'Nage avec palmes Niveau 2', 'Tireur Niveau 2', 'Handisub Niveau 2', 'Photographe Niveau 2', 'Pêcheur Niveau 2', 'Initiateur Niveau 2'])
+    assert.deepEqual(brevetCodes(b), [], b);
+  assert.deepEqual(brevetCodes('Niveau 2'), ['P2', 'N2']);
+  assert.deepEqual(brevetCodes('Plongeur Niveau 3'), ['P3', 'N3']);
+  assert.ok(!hasBrevet(['P - Plongeur(se) Niveau 2 (P2-N2) (P2) F.F.E.S.S.M.'], 'Apnéiste Niveau 2'));
 });
 
 test('rapprochement : toujours vers un compte Membre ; un invité homonyme n’est pas proposé', () => {
@@ -222,17 +265,169 @@ test('arbitrage : homonymes, parents, absent, invité, licence non prise, autre 
   const rec: VpRecord = { email: '', birthday: '', seasons: ['2027'], licences: [], insurance: '', insuranceYear: null, member: false, levels: [] };
   const v = viewOf(lea!, rec, 2027, null);
   const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
-  assert.deepEqual(arbitrageCases(lea!, sure, rec, v).map((c) => c.kind), ['not-taken', 'guest']);
+  assert.deepEqual(arbitrageCases(lea!, sure, rec, v, 2027).map((c) => c.kind), ['not-taken', 'guest']);
   const nobody = { status: 'missing' as const, member: null, why: '', candidates: [] };
-  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null)).map((c) => c.kind), ['absent', 'not-taken']);
+  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null), 2027).map((c) => c.kind), ['absent', 'not-taken']);
   const parent = { id: 'p1', name: 'MARTIN Paul', picture: '' };
-  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null), [parent]).map((c) => c.kind), ['family', 'not-taken']);
+  assert.deepEqual(arbitrageCases(lea!, nobody, null, viewOf(lea!, null, 2027, null), 2027, [parent]).map((c) => c.kind), ['family', 'not-taken']);
   const decided = { status: 'missing' as const, member: null, why: 'pas dans VPDive, selon Lucas', candidates: [] };
-  assert.ok(!arbitrageCases(lea!, decided, null, viewOf(lea!, null, 2027, null)).some((c) => c.kind === 'absent'), 'déjà tranché');
+  assert.ok(!arbitrageCases(lea!, decided, null, viewOf(lea!, null, 2027, null), 2027).some((c) => c.kind === 'absent'), 'déjà tranché');
   const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
   const [withLic] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [row], 2027);
   const other = { ...rec, member: true, licences: [{ number: 'A-99-000001', organization: 'F.F.E.S.S.M.', expires: '2027-12-31' }] };
-  assert.deepEqual(arbitrageCases(withLic!, sure, other, viewOf(withLic!, other, 2027, null)).map((c) => c.kind), ['licence-other']);
+  assert.deepEqual(arbitrageCases(withLic!, sure, other, viewOf(withLic!, other, 2027, null), 2027).map((c) => c.kind), ['licence-other']);
+});
+
+test('rapprochement : une naissance différente sur la fiche interdit « sûr » (Jean/Jeanne, Léa/Léa-Marie, père/fils)', () => {
+  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: [], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
+  // Seul compte Membre « à ce nom » (préfixe jean/jeanne), mais née en 2010.
+  const [jean] = buildPeople([item({ firstName: 'Jean', lastName: 'Dupont', birthDate: '1980-03-03', email: 'jean@ex.org' })], [], 2027);
+  const jeanne = [{ id: 'j', name: 'DUPONT Jeanne', picture: '' }];
+  assert.equal(matchPerson(jean!, jeanne, { j: rec({ birthday: '2010-06-06' }) }).status, 'confirm');
+  assert.equal(matchPerson(jean!, jeanne, { j: rec({}) }).status, 'sure', 'naissance vide sur la fiche : le nom seul vaut encore');
+  // Même e-mail, mais pas la même personne (le parent qui a donné son e-mail).
+  assert.equal(matchPerson(jean!, jeanne, { j: rec({ birthday: '2010-06-06', email: 'jean@ex.org' }) }).status, 'confirm');
+  // Un autre e-mail propre, sans naissance : le nom seul ne suffit plus.
+  assert.equal(matchPerson(jean!, jeanne, { j: rec({ email: 'jeanne@ex.org' }) }).status, 'confirm');
+  assert.equal(matchPerson(jean!, jeanne, { j: rec({ email: 'parent@example.org' }) }).status, 'sure', 'e-mail du payeur : pas un doute');
+  // Léa / Léa-Marie.
+  const [lea] = buildPeople([item({})], [], 2027);
+  const leaMarie = [{ id: 'lm', name: 'MARTIN Léa-Marie', picture: '' }];
+  assert.equal(matchPerson(lea!, leaMarie, { lm: rec({ birthday: '2015-01-01' }) }).status, 'confirm');
+  // Père et fils homonymes : un seul compte Membre (le père), même nom exact.
+  const [fils] = buildPeople([item({ firstName: 'Jean', lastName: 'Dupont', birthDate: '2008-02-02' })], [], 2027);
+  const dir: VpMember[] = [
+    { id: 'pere', name: 'DUPONT Jean', picture: '' },
+    { id: 'fils', name: 'Jean DUPONT', picture: '' },
+  ];
+  const m = matchPerson(fils!, dir, { pere: rec({ birthday: '1975-05-05' }), fils: rec({ member: false }) });
+  assert.equal(m.status, 'confirm');
+  assert.equal(matchPerson(fils!, dir.slice(0, 1), { pere: rec({ birthday: '1975-05-05' }) }).status, 'confirm', 'même nom (accents près) : pas sûr non plus');
+  // Même licence, mais naissance différente : à confirmer aussi (erreur de saisie à regarder).
+  const row = { licence: 'A-16-1', name: 'DUPONT Jean', birthDate: '2008-02-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
+  const [lic] = buildPeople([], [row], 2027);
+  const withLic = rec({ birthday: '1975-05-05', licences: [{ number: 'A-16-1', organization: 'F.F.E.S.S.M.', expires: '' }] });
+  assert.equal(matchPerson(lic!, dir.slice(0, 1), { pere: withLic }).status, 'confirm');
+  assert.equal(matchPerson(lic!, dir.slice(0, 1), { pere: { ...withLic, birthday: '2008-02-02' } }).why, 'même n° de licence');
+});
+
+test('rapprochement : choix mémorisé vers un membre sorti de l’annuaire = « choix obsolète », jamais sûr', () => {
+  const [lea] = buildPeople([item({})], [], 2027);
+  const dir: VpMember[] = [{ id: 'u1', name: 'MARTIN Léa', picture: '' }];
+  const rec: VpRecord = { email: '', birthday: '1990-04-02', seasons: [], licences: [], insurance: '', insuranceYear: null, member: true, levels: [] };
+  const m = matchPerson(lea!, dir, { u1: rec }, { uct: 'parti', by: 'Lucas', at: '' });
+  assert.equal(m.status, 'confirm');
+  assert.deepEqual(m.candidates.map((c) => c.id), ['u1']);
+  assert.match(m.obsolete ?? '', /choix obsolète/);
+  assert.equal(matchPerson(lea!, [], {}, { uct: 'parti', by: 'Lucas', at: '' }).status, 'missing');
+});
+
+test('licence VPDive sans ligne FFESSM : la plus récente, « expirée le … », jamais « autre n° »', () => {
+  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: ['2027'], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
+  const [lea] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [], 2027);
+  const old = rec({
+    licences: [
+      { number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2024-12-31' },
+      { number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2025-12-31' },
+    ],
+  });
+  const v = licenceView(lea!, old, 2027);
+  assert.deepEqual([v.vpdive.mark, v.vpdive.text], ['diff', 'expirée le 31/12/2025']);
+  assert.equal(licenceView(lea!, rec({ licences: [{ number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2026-12-31' }] }), 2027).vpdive.text, 'jusqu’au 31/12/2026');
+  const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
+  assert.ok(!arbitrageCases(lea!, sure, old, viewOf(lea!, old, 2027, null), 2027).some((c) => c.kind === 'licence-other'));
+});
+
+test('même numéro de licence deux fois sur la fiche : celle qui finit le plus tard', () => {
+  const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
+  const [lea] = buildPeople([item({}), item({ id: 2, tier: 'Licence FFESSM ADULTE (+ de 16ans)' })], [row], 2027);
+  const r: VpRecord = {
+    email: '', birthday: '', seasons: ['2027'], insurance: '', insuranceYear: null, member: true, levels: [],
+    licences: [
+      { number: 'A-16-733717', organization: 'F.F.E.S.S.M.', expires: '2025-12-31', id: 1 },
+      { number: 'A16733717', organization: 'F.F.E.S.S.M.', expires: '2027-12-31', id: 2 },
+    ],
+  };
+  assert.equal(licenceView(lea!, r, 2027).vpdive.mark, 'ok');
+  const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
+  assert.ok(!quickFixes(lea!, sure, r, 2027).some((f) => f.kind === 'licence'), 'la plus récente est à jour : rien à corriger');
+});
+
+test('clés : la clé HelloAsso reste connue quand la licence apparaît ; choix et validations retrouvés sous lic: puis ha:', () => {
+  const [before] = buildPeople([item({})], [], 2027);
+  const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
+  const [after] = buildPeople([item({})], [row], 2027);
+  assert.equal(after!.key, 'lic:A-16-733717');
+  assert.equal(after!.haKey, before!.key);
+  const chosen = { uct: 'u1', by: 'Lucas', at: '2026-09-20T10:00:00Z' };
+  assert.deepEqual(linkFor(after!, { [before!.key]: chosen }, 2027), { key: before!.key, link: chosen });
+  const newer = { uct: 'u2', by: 'Marie', at: '2026-10-01T10:00:00Z' };
+  assert.equal(linkFor(after!, { [before!.key]: chosen, [after!.key]: newer }, 2027)?.link.uct, 'u2', 'lic: d’abord');
+  // « Pas dans VPDive » d'une saison passée ne vaut plus ; d'un admin de cette saison, si.
+  assert.equal(linkFor(after!, { [after!.key]: { uct: 'none', by: 'Lucas', at: '2025-10-01T10:00:00Z' } }, 2027), null);
+  assert.equal(linkFor(after!, { [after!.key]: { uct: 'none', by: 'Lucas', at: '2026-10-01T10:00:00Z' } }, 2027)?.link.uct, 'none');
+  assert.equal(linkFor(after!, { [after!.key]: { uct: 'u1', by: 'Lucas', at: '2024-10-01T10:00:00Z' } }, 2027)?.link.uct, 'u1', 'un membre choisi reste choisi');
+  // Validations : par saison.
+  const check = (at: string) => ({ by: 'Lucas', at, comment: '' });
+  assert.equal(caseKey(after!, 'unpaid', 2027), 'lic:A-16-733717|2027|unpaid');
+  assert.equal(checkFor(after!, 'unpaid', 2027, { 'lic:A-16-733717|2026|unpaid': check('2025-10-01T10:00:00Z') }).check, undefined, 'autre saison');
+  assert.equal(checkFor(after!, 'unpaid', 2027, { [`${before!.key}|2027|unpaid`]: check('2026-09-20T10:00:00Z') }).key, `${before!.key}|2027|unpaid`, 'sous la clé HelloAsso');
+  // Ancienne clé sans saison : comptée si elle a été posée pendant la saison.
+  assert.ok(checkFor(after!, 'unpaid', 2027, { 'lic:A-16-733717|unpaid': check('2026-10-01T10:00:00Z') }).check);
+  assert.equal(checkFor(after!, 'unpaid', 2027, { 'lic:A-16-733717|unpaid': check('2026-03-01T10:00:00Z') }).check, undefined);
+  assert.equal(checkFor(after!, 'unpaid', 2027, {}).key, 'lic:A-16-733717|2027|unpaid');
+});
+
+test('validations par saison : la clé passe le contrôle du serveur (server/handler.ts, lu tel quel)', () => {
+  const src = readFileSync(new URL('../../server/handler.ts', import.meta.url), 'utf8');
+  const m = /action === 'arbitrage_checks'[\s\S]*?if \(!\/(.+?)\/\.test\(key\)\)/.exec(src);
+  assert.ok(m, 'contrôle de la clé introuvable dans handler.ts');
+  const re = new RegExp(m[1]!);
+  const [lea] = buildPeople([item({})], [], 2027);
+  assert.ok(re.test(caseKey({ key: 'lic:A-16-733717' }, 'unpaid', 2027)));
+  assert.ok(re.test(caseKey(lea!, 'insurance-missing', 2027)), lea!.key);
+  assert.ok(re.test(caseKey({ key: 'lic:A-16-1' }, 'licence-other', 2027)));
+});
+
+test('assurance payée sur HelloAsso ⇒ dans VPDive : correction rapide si sûre, sinon arbitrage ; DAN jamais remplacée', () => {
+  const rec = (over: Partial<VpRecord>): VpRecord => ({ email: '', birthday: '', seasons: ['2027'], licences: [], insurance: '', insuranceYear: null, member: true, levels: [], ...over });
+  const sure = { status: 'sure' as const, member: { id: 'u1', name: 'MARTIN Léa', picture: '' }, why: 'x', candidates: [] };
+  const paid = item({ id: 3, tier: 'Assurance Individuelle Accidents et Assistance Formule 2' });
+  const [lea] = buildPeople([item({}), paid], [], 2027);
+  const kinds = (r: VpRecord, m: Match = sure) => arbitrageCases(lea!, m, r, viewOf(lea!, r, 2027, null), 2027).map((c) => c.kind);
+  // Pas d'assurance sur la fiche : diagnostic ❌, correction rapide (année = début de saison), pas d'arbitrage.
+  const none = rec({});
+  assert.deepEqual([insuranceView(lea!, none, 2027).helloasso.text, insuranceView(lea!, none, 2027).vpdive.mark], ['Loisir 2', 'missing']);
+  assert.ok(needsVpdiveFix(viewOf(lea!, none, 2027, null)));
+  const fix = quickFixes(lea!, sure, none, 2027).find((f) => f.kind === 'insurance');
+  assert.deepEqual([fix?.insurance, fix?.insuranceYear], ['Assurance Loisir 2', 2026]);
+  assert.ok(!kinds(none).includes('insurance-missing'));
+  // DAN : signalée, jamais remplacée, à arbitrer.
+  const dan = rec({ insurance: 'DAN SILVER', insuranceYear: 2026 });
+  assert.equal(insuranceView(lea!, dan, 2027).vpdive.mark, 'diff');
+  assert.ok(!quickFixes(lea!, sure, dan, 2027).some((f) => f.kind === 'insurance'));
+  assert.ok(kinds(dan).includes('insurance-missing'));
+  // Une autre assurance FFESSM de la saison : présente.
+  assert.ok(!kinds(rec({ insurance: 'Assurance Loisir 1', insuranceYear: 2026 })).includes('insurance-missing'));
+  assert.equal(insuranceView(lea!, rec({ insurance: 'Assurance Loisir 2', insuranceYear: 2026 }), 2027).vpdive.mark, 'ok');
+  // Formule illisible : pas de correction rapide, arbitrage.
+  const [odd] = buildPeople([item({}), item({ id: 3, tier: 'Assurance complémentaire' })], [], 2027);
+  assert.ok(!quickFixes(odd!, sure, none, 2027).some((f) => f.kind === 'insurance'));
+  assert.deepEqual(arbitrageCases(odd!, sure, none, viewOf(odd!, none, 2027, null), 2027).map((c) => c.kind), ['no-licence', 'insurance-missing']);
+  // Ligne FFESSM « Aucune » : la FFESSM fait foi, pas d'écriture ; arbitrage (à prendre sur Mon Club).
+  const row = { licence: 'A-16-733717', name: 'MARTIN Léa', birthDate: '1990-04-02', season: 2027, subscribedAt: '', insurance: 'Aucune', category: '', pricing: 'Normal' };
+  const [taken] = buildPeople([item({}), paid], [row], 2027);
+  assert.equal(insuranceView(taken!, none, 2027).ffessm.mark, 'diff');
+  assert.ok(!quickFixes(taken!, sure, none, 2027).some((f) => f.kind === 'insurance'));
+  assert.match(arbitrageCases(taken!, sure, none, viewOf(taken!, none, 2027, null), 2027).find((c) => c.kind === 'insurance-missing')?.text ?? '', /Mon Club/);
+  assert.equal(haInsurance('Assurance Formule 3 Top'), 'Loisir 3 Top');
+});
+
+test('mineur rattaché au compte d’un parent : « rattaché au compte de … », pas un écart côté VPDive', () => {
+  const [tom] = buildPeople([item({ firstName: 'Tom', lastName: 'Petit', birthDate: '2012-05-05' })], [], 2027);
+  const v = attachedView(viewOf(tom!, null, 2027, null), 'PETIT Marc');
+  assert.equal(v.adhesion.vpdive.text, 'rattaché au compte de PETIT Marc');
+  assert.equal(needsVpdiveFix(v), false);
 });
 
 test('parents : même nom de famille ou payeur HelloAsso ; un seul compte au même nom (accents près) est sûr', () => {

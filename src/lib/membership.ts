@@ -72,10 +72,10 @@ export function tierKind(tier: string, type: string): TierKind {
 /** Payé : traité ou saisi à la main ; annulé, remboursé ou en attente ne compte pas. */
 export const isPaid = (it: Pick<HaItem, 'state'>) => it.state === 'Processed' || it.state === 'Registered';
 
-/** « Assurance … Formule 2 » → « Loisir 2 » (même nom qu'à la FFESSM). */
+/** « Assurance … Formule 2 » → « Loisir 2 » (même nom qu'à la FFESSM) ; « … Formule 3 Top » → « Loisir 3 Top ». */
 export const haInsurance = (tier: string): string | null => {
-  const m = /formule\s*(\d)/i.exec(tier);
-  return m ? `Loisir ${m[1]}` : null;
+  const m = /formule\s*(\d)(\s*top)?/i.exec(tier);
+  return m ? `Loisir ${m[1]}${m[2] ? ' Top' : ''}` : null;
 };
 
 /** « 31/12/2008 » ou « 2008-12-31… » → « 2008-12-31 » ; '' si illisible. */
@@ -102,6 +102,21 @@ export interface FfessmRow {
   category: string;
   /** « Normal », ou « Réduction Pass Plongée » (pass converti en licence). */
   pricing: string;
+}
+
+/**
+ * Texte d'un export Mon Club. Il sort en windows-1252 (« L\xe9a ») : lu en
+ * UTF-8, chaque accent devient « � » et la jointure par nom avec HelloAsso
+ * échoue (François, Loïc, Benoît…). UTF-8 strict d'abord (un export réenregistré
+ * dans un tableur), windows-1252 sinon. Un « � » déjà écrit dans le fichier
+ * reste : restoreAccents le rattrape à l'affichage.
+ */
+export function decodeExport(bytes: ArrayBuffer | Uint8Array): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
 }
 
 /** Une ligne CSV, guillemets compris. */
@@ -155,16 +170,17 @@ export function parseFfessmCsv(text: string): { rows: FfessmRow[]; period: strin
     period ||= cells.find((c) => /^du \d{2}\/\d{2}\/\d{4} au \d{2}\/\d{2}\/\d{4}$/i.test(c.trim()))?.trim() ?? '';
     const licence = after('licence');
     if (!/^[A-Z]-\d{2}-\d{4,}$/.test(licence)) continue;
-    const season = /^(\d{4})\/(\d{4})$/.exec(after('saison'));
+    // « 2026/2027 », ou « 2026-2027 » selon l'export.
+    const season = /^(\d{4})\s*[/-]\s*(\d{4})$/.exec(after('saison'));
     rows.push({
       licence,
-      name: after('nom'),
+      name: restoreAccents(after('nom')),
       birthDate: ymdOf(after('date de naissance')),
       season: season ? Number(season[2]) : 0,
       subscribedAt: ymdOf(after('souscription')),
       insurance: after('assurance') || 'Aucune',
       category: after('categorie'),
-      pricing: after('tarification').replace(/�/g, 'é'),
+      pricing: restoreAccents(after('tarification')),
     });
   }
   return { rows, period };
@@ -231,9 +247,12 @@ const plain = (s: string) =>
 
 /** Codes VPDive d'un brevet FFESSM (« Niveau 2 » → P2/N2, « Plongeur Nitrox confirmé » → PNC…) ; [] si inconnu. */
 export function brevetCodes(brevet: string): string[] {
-  const b = plain(brevet);
+  const b = plain(brevet).trim();
+  // « Niveau n » de plongée seulement : pas « Apnéiste Niveau 2 », ni hockey, nage, tir, photo…
+  const other = /apn|hockey|nage|handi|orientation|\btir|photo|video|bio|archeo|souterrain|peche/.test(b);
+  if (other) return [];
   const n = /niveau\s*(\d)/.exec(b);
-  if (n && !/photo|video|bio|souterrain|tir|apnee|archeo|nageur|pecheur/.test(b)) return [`P${n[1]}`, `N${n[1]}`];
+  if (n && /^(niveau|plongeur)\b/.test(b)) return [`P${n[1]}`, `N${n[1]}`];
   if (/nitrox/.test(b) && /moniteur/.test(b)) return [/confirm/.test(b) ? 'MNC' : 'MN'];
   if (/nitrox/.test(b)) return [/confirm/.test(b) ? 'PNC' : 'PN'];
   const pa = /autonomie\s*(\d+)/.exec(b);
@@ -268,6 +287,26 @@ const levelName = (s: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+/**
+ * Même niveau VPDive, l'un pouvant être le nom tronqué de l'autre : la fiche
+ * dit « P-Plongeur Niveau 4 (P4-N4) », le référentiel « P-Plongeur Niveau 4
+ * (P4-N4) (P4-ANMP) A.N.M.P. ». Le nom court doit finir sur un code entre
+ * parenthèses : « Plongeur Nitrox » n'est pas « Plongeur Nitrox confirmé ».
+ */
+export function sameLevel(a: string, b: string): boolean {
+  const x = levelName(a);
+  const y = levelName(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length < y.length ? [x, y] : [y, x];
+  return short.endsWith(')') && long.startsWith(`${short} `);
+}
+
+/** Premier code d'un niveau (« P - Plongeur(se) Niveau 2 (P2-N2) (P2) » → « P2-N2 ») ; « (se) » n'est pas un code. */
+const firstCode = (name: string) => [...name.matchAll(/\(([^()]+)\)/g)].map((m) => m[1]!.trim()).find((c) => /[A-Z0-9]/.test(c))?.toUpperCase() ?? '';
+/** Même premier code (« P4-N4 ») : moins sûr que sameLevel (deux fédérations peuvent le partager), assez pour une relecture. */
+export const sameLevelCode = (a: string, b: string) => !!firstCode(a) && firstCode(a) === firstCode(b);
+
 /** Niveaux VPDive que la règle automatique accepte pour ce brevet (pour les montrer dans la table). */
 export const automaticLevels = (brevet: string, names: string[]): string[] => {
   const codes = brevetCodes(brevet);
@@ -277,10 +316,8 @@ export const automaticLevels = (brevet: string, names: string[]): string[] => {
 /** VPDive a-t-il ce brevet FFESSM ? D'après la table des admins ; sinon par code ; sinon par les mots du brevet. */
 export function hasBrevet(levels: string[], brevet: string, map: BrevetMap = {}): boolean {
   const chosen = map[brevet];
-  if (chosen?.length) {
-    const mine = new Set(levels.map(levelName));
-    return chosen.some((n) => mine.has(levelName(n)));
-  }
+  // Les noms de la table viennent du référentiel, ceux de la fiche sont souvent tronqués.
+  if (chosen?.length) return chosen.some((n) => levels.some((l) => sameLevel(l, n)));
   const codes = brevetCodes(brevet);
   if (codes.length) {
     const mine = new Set(levels.flatMap(vpdiveCodes));
@@ -333,6 +370,12 @@ export function brevetTarget(brevet: string, map: BrevetMap, catalog: Capacity[]
 export interface Person {
   /** Clé stable pour mémoriser un rapprochement : licence FFESSM, sinon nom + naissance. */
   key: string;
+  /**
+   * Clé HelloAsso (nom + naissance) d'une personne retrouvée ensuite dans
+   * l'export FFESSM : sa clé devient `lic:`, mais les choix et validations
+   * faits avant l'export sont rangés sous celle-ci.
+   */
+  haKey?: string;
   name: string;
   birthDate: string;
   email: string;
@@ -403,6 +446,7 @@ export function buildPeople(items: HaItem[], rows: FfessmRow[], season: number):
     const match = sameBirth.length === 1 ? sameBirth[0] : byName.length === 1 ? byName[0] : undefined;
     if (match) {
       match.ffessm = row;
+      match.haKey = match.key;
       match.key = `lic:${row.licence}`;
       match.joinedByNameOnly = !sameBirth.length;
     } else {
@@ -451,9 +495,22 @@ export function candidatesFor(p: Pick<Person, 'name'>, directory: VpMember[], ma
 export const flatLicence = (s: string) => s.replace(/[^a-z0-9]/gi, '').toUpperCase();
 const sameEmail = (a: string, b: string) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 
-/** Ce qui prouve que ce membre VPDive est bien la personne. */
+/**
+ * Ce qui prouve que ce membre VPDive n'est PAS la personne : deux dates de
+ * naissance connues et différentes (« Jean Dupont » 1980 n'est pas « DUPONT
+ * Jeanne » 2010, ni le père homonyme). Aucune règle ne passe alors outre.
+ */
+export function contradiction(p: Pick<Person, 'birthDate'>, r: VpRecord | undefined): string | null {
+  if (!r || !p.birthDate || !r.birthday || r.birthday === p.birthDate) return null;
+  return `né(e) le ${r.birthday.split('-').reverse().join('/')} selon VPDive`;
+}
+
+/** E-mail propre différent sur la fiche (ni celui de l'adhérent, ni celui du payeur) : un doute pour un rapprochement par le nom seul. */
+const otherEmail = (p: Pick<Person, 'email' | 'payerEmail'>, r: VpRecord) => !!r.email && !!p.email && !sameEmail(r.email, p.email) && !sameEmail(r.email, p.payerEmail);
+
+/** Ce qui prouve que ce membre VPDive est bien la personne (jamais s'il y a une preuve contraire). */
 export function evidence(p: Person, m: VpMember, r: VpRecord | undefined): string | null {
-  if (!r) return null;
+  if (!r || contradiction(p, r)) return null;
   if (p.ffessm && r.licences.some((l) => flatLicence(l.number) === flatLicence(p.ffessm!.licence))) return 'même n° de licence';
   const close = nameScore(p.name, m.name);
   if (p.birthDate && r.birthday === p.birthDate && close >= 0.75) return 'même date de naissance';
@@ -473,6 +530,8 @@ export interface Match {
   candidates: VpMember[];
   /** Mineur sans fiche, rattaché par un admin au compte d'un parent. */
   parent?: VpMember;
+  /** Choix d'un admin devenu caduc (membre sorti de l'annuaire) : à refaire. */
+  obsolete?: string;
 }
 
 /**
@@ -515,6 +574,11 @@ export function matchPerson(p: Person, directory: VpMember[], records: Record<st
     const member = directory.find((m) => m.id === link.uct);
     if (member && link.relation === 'parent') return { status: 'missing', member: null, why: `rattaché à ${member.name} (parent), selon ${link.by}`, candidates: [], parent: member };
     if (member) return { status: 'sure', member, why: `choisi par ${link.by}`, candidates: [] };
+    // Le membre choisi n'est plus dans l'annuaire : on le dit, et le rapprochement automatique ne vaut que proposition.
+    const auto = matchPerson(p, directory, records);
+    const obsolete = `choix obsolète : le membre choisi par ${link.by} n’est plus dans l’annuaire`;
+    if (auto.status === 'sure') return { status: 'confirm', member: null, why: '', candidates: [auto.member!], obsolete };
+    return { ...auto, obsolete };
   }
   const found = candidatesFor(p, directory);
   if (found.length === 0) return { status: 'missing', member: null, why: '', candidates: [] };
@@ -525,12 +589,17 @@ export function matchPerson(p: Person, directory: VpMember[], records: Record<st
   const proven = candidates.map((m) => ({ m, why: evidence(p, m, records[m.id]) })).filter((x) => x.why);
   if (proven.length === 1) return { status: 'sure', member: proven[0]!.m, why: proven[0]!.why!, candidates: [] };
   const allRead = found.every((m) => records[m.id]);
-  if (!proven.length && allRead && members.length === 1 && nameScore(p.name, members[0]!.name) >= 0.9) {
+  // Par le nom seul : seulement si la fiche n'a pas de naissance (ou la même) et pas d'autre e-mail propre.
+  const nameOnly = (m: VpMember) => {
+    const r = records[m.id];
+    return !!r && !contradiction(p, r) && ((!!p.birthDate && r.birthday === p.birthDate) || !otherEmail(p, r));
+  };
+  if (!proven.length && allRead && members.length === 1 && nameScore(p.name, members[0]!.name) >= 0.9 && nameOnly(members[0]!)) {
     return { status: 'sure', member: members[0]!, why: found.length > 1 ? 'seul compte Membre à ce nom' : 'même nom, compte Membre', candidates: [] };
   }
   // Un seul compte au même nom, accents et casse mis à part : c'est la personne.
   const same = candidates.filter((m) => sameName(p.name, m.name));
-  if (!proven.length && allRead && same.length === 1) return { status: 'sure', member: same[0]!, why: 'même nom (accents près)', candidates: [] };
+  if (!proven.length && allRead && same.length === 1 && nameOnly(same[0]!)) return { status: 'sure', member: same[0]!, why: 'même nom (accents près)', candidates: [] };
   return { status: 'confirm', member: null, why: '', candidates: proven.length ? proven.map((x) => x.m) : candidates };
 }
 
@@ -593,13 +662,22 @@ export function licenceView(p: Person, r: VpRecord | null, season: number): Item
   const expected = paid || row;
   const end = licenceEnd(season);
   const ffessmOnes = r.licences.filter(isFfessmLicence);
-  const same = row ? ffessmOnes.find((l) => flatLicence(l.number) === flatLicence(row.licence)) : ffessmOnes.find((l) => l.expires >= end);
+  // Sans ligne FFESSM, on ne connaît pas le numéro attendu : la licence FFESSM la plus récente de la fiche.
+  const same = row ? latestLicence(ffessmOnes.filter((l) => flatLicence(l.number) === flatLicence(row.licence))) : latestLicence(ffessmOnes);
   let vpdive: Cell;
   if (same && same.expires >= end) vpdive = { mark: expected ? 'ok' : 'diff', text: `jusqu’au ${frDate(same.expires)}` };
-  else if (same) vpdive = { mark: 'diff', text: same.expires ? `jusqu’au ${frDate(same.expires)}` : 'sans date de fin' };
-  else if (ffessmOnes.length) vpdive = { mark: expected ? 'diff' : 'na', text: `autre n° ${ffessmOnes[0]!.number}` };
+  else if (same) {
+    // Finie avant le début de la saison : expirée ; sinon, celle de la saison passée.
+    const text = !same.expires ? 'sans date de fin' : same.expires < `${season - 1}-09-01` ? `expirée le ${frDate(same.expires)}` : `jusqu’au ${frDate(same.expires)}`;
+    vpdive = { mark: expected ? 'diff' : 'na', text };
+  } else if (ffessmOnes.length) vpdive = { mark: 'diff', text: `autre n° ${latestLicence(ffessmOnes)!.number}` };
   else vpdive = expected ? { mark: 'missing', text: 'absente' } : NA;
   return { helloasso, ffessm, vpdive };
+}
+
+/** De plusieurs licences (le même numéro saisi deux fois…), celle qui finit le plus tard ; une sans date en dernier recours. */
+export function latestLicence<L extends { expires: string }>(list: L[]): L | undefined {
+  return list.reduce<L | undefined>((best, l) => (!best || l.expires > best.expires ? l : best), undefined);
 }
 
 /** Adhésion de la saison. Fait foi : HelloAsso (geste d'août compris) ; VPDive doit avoir la saison et le statut Membre. */
@@ -633,21 +711,70 @@ export function brevetsView(p: Person, r: VpRecord | null, brevets: Record<strin
   return { helloasso, ffessm, vpdive };
 }
 
+/** Assurance de la liste FFESSM dans VPDive (« Assurance Loisir 2 », « … Piscine ») ; une autre (DAN…) n'est jamais remplacée. */
+export const isFfessmInsurance = (label: string) => /loisir|piscine/i.test(label);
+
+/**
+ * Le libellé VPDive de l'assurance à porter sur la fiche : celle prise à la
+ * FFESSM s'il y a une ligne dans l'export (« Aucune » : rien), sinon celle
+ * payée sur HelloAsso quand la formule se lit sûrement (« Formule 2 » →
+ * « Assurance Loisir 2 »). Null si rien de sûr.
+ */
+export function insuranceWanted(p: Pick<Person, 'ffessm' | 'ha'>): string | null {
+  if (p.ffessm) return vpdiveInsurance(p.ffessm.insurance);
+  const paid = p.ha?.insurance;
+  const loisir = paid ? haInsurance(paid.tier) : null;
+  return loisir ? vpdiveInsurance(loisir) : null;
+}
+
+/**
+ * Assurance. Fait foi : HelloAsso (assurance payée), puis la FFESSM (assurance
+ * prise) ; VPDive doit l'avoir, pour la saison (année de début, voir
+ * insuranceYearFor).
+ */
+export function insuranceView(p: Person, r: VpRecord | null, season: number): ItemView {
+  const paid = p.ha?.insurance;
+  const helloasso: Cell = paid ? { mark: 'ok', text: haInsurance(paid.tier) ?? paid.tier } : NA;
+  const fed = p.ffessm && p.ffessm.insurance !== 'Aucune' ? p.ffessm.insurance : null;
+  const ffessm: Cell = fed ? { mark: 'ok', text: fed } : paid && p.ffessm ? { mark: 'diff', text: 'aucune prise' } : NA;
+  if (!paid && !fed) return { helloasso, ffessm, vpdive: NA };
+  if (!r) return { helloasso, ffessm, vpdive: { mark: 'na', text: 'fiche à trouver' } };
+  const year = insuranceYearFor(season);
+  const wanted = insuranceWanted(p);
+  let vpdive: Cell;
+  if (!r.insurance) vpdive = { mark: 'missing', text: 'absente' };
+  else if (!isFfessmInsurance(r.insurance)) vpdive = { mark: 'diff', text: `${r.insurance} (autre assurance)` };
+  else if (r.insuranceYear !== year) vpdive = { mark: 'diff', text: `${r.insurance} (${r.insuranceYear ? insuranceSeason(r.insuranceYear) : 'sans année'})` };
+  else vpdive = { mark: wanted && r.insurance !== wanted ? 'diff' : 'ok', text: `${r.insurance} (${insuranceSeason(year)})` };
+  return { helloasso, ffessm, vpdive };
+}
+
 export interface PersonView {
   licence: ItemView;
   adhesion: ItemView;
   brevets: ItemView;
+  insurance: ItemView;
 }
 export const viewOf = (p: Person, r: VpRecord | null, season: number, brevets: Record<string, string[]> | null, map: BrevetMap = {}): PersonView => ({
   licence: licenceView(p, r, season),
   adhesion: adhesionView(p, r, season),
   brevets: brevetsView(p, r, brevets, map),
+  insurance: insuranceView(p, r, season),
 });
 
+/**
+ * Mineur sans fiche rattaché au compte d'un parent : rien à lire côté VPDive,
+ * ce n'est pas un écart (« rattaché au compte de X » au lieu de « fiche à trouver »).
+ */
+export function attachedView(v: PersonView, parent: string): PersonView {
+  const attach = (i: ItemView): ItemView => (i.vpdive.text === 'fiche à trouver' ? { ...i, vpdive: { mark: 'na', text: `rattaché au compte de ${parent}` } } : i);
+  return { licence: attach(v.licence), adhesion: attach(v.adhesion), brevets: attach(v.brevets), insurance: attach(v.insurance) };
+}
+
 /** À corriger dans VPDive : un élément ❌ ou ⚠️ côté VPDive. */
-export const needsVpdiveFix = (v: PersonView) => [v.licence, v.adhesion, v.brevets].some((i) => i.vpdive.mark === 'missing' || i.vpdive.mark === 'diff');
-/** Oubli probable : payé sur HelloAsso mais pas pris à la FFESSM (ou l'inverse). */
-export const federationIssue = (v: PersonView) => v.licence.ffessm.mark === 'missing' || v.licence.ffessm.mark === 'diff';
+export const needsVpdiveFix = (v: PersonView) => [v.licence, v.adhesion, v.brevets, v.insurance].some((i) => i.vpdive.mark === 'missing' || i.vpdive.mark === 'diff');
+/** Oubli probable : payé sur HelloAsso mais pas pris à la FFESSM (ou l'inverse), licence ou assurance. */
+export const federationIssue = (v: PersonView) => v.licence.ffessm.mark === 'missing' || v.licence.ffessm.mark === 'diff' || v.insurance.ffessm.mark === 'diff';
 
 // ── Corrections rapides (étape 3) et arbitrage (étape 4) ──────────
 
@@ -696,7 +823,8 @@ export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: 
   }
   if (p.ffessm) {
     const ffessmOnes = r.licences.filter(isFfessmLicence);
-    const same = ffessmOnes.find((l) => flatLicence(l.number) === flatLicence(p.ffessm!.licence));
+    // Le même numéro saisi deux fois : celle qui finit le plus tard.
+    const same = latestLicence(ffessmOnes.filter((l) => flatLicence(l.number) === flatLicence(p.ffessm!.licence)));
     if (same && (!same.expires || same.expires < licenceEnd(season))) {
       out.push({
         kind: 'licence',
@@ -708,9 +836,10 @@ export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: 
     }
     if (!ffessmOnes.length) out.push({ kind: 'licence-add', before: 'aucune licence FFESSM', after: `${p.ffessm.licence}, jusqu’au 31/12/${season}` });
   }
-  const wanted = p.ffessm ? vpdiveInsurance(p.ffessm.insurance) : null;
+  // Prise à la FFESSM, sinon payée sur HelloAsso (formule lue sûrement).
+  const wanted = insuranceWanted(p);
   // Une autre assurance (DAN…) notée dans VPDive (« Autre ») reste : on ne remplace que vide ou FFESSM.
-  const replaceable = !r.insurance || /loisir|piscine/i.test(r.insurance);
+  const replaceable = !r.insurance || isFfessmInsurance(r.insurance);
   const year = insuranceYearFor(season);
   if (wanted && replaceable && (r.insurance !== wanted || r.insuranceYear !== year)) {
     out.push({ kind: 'insurance', before: r.insurance ? `${r.insurance}${r.insuranceYear ? ` (${insuranceSeason(r.insuranceYear)})` : ''}` : 'aucune', after: `${wanted} (${insuranceSeason(year)})`, insurance: wanted, insuranceYear: year });
@@ -720,13 +849,13 @@ export function quickFixes(p: Person, match: Match, r: VpRecord | null, season: 
 }
 
 /** Ce qui se décide au cas par cas, à la main (dans l'appli, sur VPDive ou sur Mon Club). */
-export type CaseKind = 'homonym' | 'family' | 'absent' | 'guest' | 'licence-other' | 'not-taken' | 'unpaid' | 'season-unpaid' | 'no-licence';
+export type CaseKind = 'homonym' | 'family' | 'absent' | 'guest' | 'licence-other' | 'not-taken' | 'unpaid' | 'season-unpaid' | 'no-licence' | 'insurance-missing';
 export interface Case {
   kind: CaseKind;
   text: string;
 }
 
-export function arbitrageCases(p: Person, match: Match, r: VpRecord | null, v: PersonView, family: VpMember[] = []): Case[] {
+export function arbitrageCases(p: Person, match: Match, r: VpRecord | null, v: PersonView, season: number, family: VpMember[] = []): Case[] {
   const out: Case[] = [];
   if (match.status === 'confirm') out.push({ kind: 'homonym', text: 'Plusieurs membres VPDive possibles : choisir le bon.' });
   if (match.status === 'missing' && !match.why) {
@@ -738,10 +867,21 @@ export function arbitrageCases(p: Person, match: Match, r: VpRecord | null, v: P
   if (!p.ha?.licence && !p.ha?.pass && !p.ffessm && p.ha?.adhesion) out.push({ kind: 'no-licence', text: 'Ni licence ni Pass plongée payés au club : licence prise dans un autre club ?' });
   if (!r) return out;
   if (!r.member && p.ha?.adhesion) out.push({ kind: 'guest', text: 'Statut Invité dans VPDive : à passer en Membre.' });
-  if (v.licence.vpdive.mark === 'diff' && v.licence.vpdive.text.startsWith('autre n°')) {
+  // Seulement face à une ligne FFESSM : sans elle, on ne sait pas quel numéro attendre.
+  if (p.ffessm && v.licence.vpdive.mark === 'diff' && v.licence.vpdive.text.startsWith('autre n°')) {
     out.push({ kind: 'licence-other', text: `La fiche VPDive porte une autre licence FFESSM (${v.licence.vpdive.text.replace('autre n° ', '')}) que celle de la FFESSM (${p.ffessm?.licence ?? '?'}).` });
   }
   if (v.adhesion.vpdive.mark === 'diff' && r.member) out.push({ kind: 'season-unpaid', text: 'Saison présente dans VPDive sans adhésion HelloAsso.' });
+  // Assurance payée sur HelloAsso : VPDive doit en avoir une FFESSM pour la saison. Sinon, correction rapide si
+  // elle est sûre (libellé connu, fiche sans autre assurance) ; à défaut, ici.
+  const year = insuranceYearFor(season);
+  const covered = isFfessmInsurance(r.insurance) && r.insuranceYear === year;
+  const fixable = match.status === 'sure' && !!insuranceWanted(p) && (!r.insurance || isFfessmInsurance(r.insurance));
+  if (p.ha?.insurance && !covered && !fixable) {
+    const why = !r.insurance ? 'aucune assurance sur la fiche' : !isFfessmInsurance(r.insurance) ? `la fiche a ${r.insurance}, que l’appli ne remplace pas` : `la fiche a ${r.insurance} d’une autre saison`;
+    const fed = p.ffessm && p.ffessm.insurance === 'Aucune' ? ' Pas prise à la FFESSM non plus : à prendre sur Mon Club.' : '';
+    out.push({ kind: 'insurance-missing', text: `Assurance payée sur HelloAsso (${p.ha.insurance.tier.trim()}), absente de VPDive : ${why}.${fed}` });
+  }
   return out;
 }
 
@@ -751,4 +891,44 @@ export interface CaseCheck {
   at: string;
   comment: string;
 }
-export const caseKey = (p: Pick<Person, 'key'>, kind: CaseKind) => `${p.key}|${kind}`;
+/**
+ * Clé d'une validation manuelle : la personne, la saison, le cas
+ * (« lic:A-16-733717|2027|unpaid »). Une validation vaut pour une saison :
+ * l'an prochain, le même cas se revalide.
+ */
+export const caseKey = (p: Pick<Person, 'key'>, kind: CaseKind, season: number) => `${p.key}|${season}|${kind}`;
+
+/** Les clés d'une personne : `lic:` d'abord, puis la clé HelloAsso d'avant l'export FFESSM. */
+const keysOf = (p: Pick<Person, 'key' | 'haKey'>) => (p.haKey && p.haKey !== p.key ? [p.key, p.haKey] : [p.key]);
+const inSeason = (at: string, season: number) => !!at && seasonOf(at.slice(0, 10)) === season;
+
+/**
+ * La validation manuelle d'un cas, et la clé sous laquelle elle est rangée
+ * (pour la décocher ou la commenter) ; sans validation, la clé à utiliser.
+ * Lue sous `lic:` puis sous `ha:` ; une validation d'avant les saisons dans la
+ * clé (« lic:…|unpaid ») compte si elle a été faite pendant la saison.
+ */
+export function checkFor(p: Pick<Person, 'key' | 'haKey'>, kind: CaseKind, season: number, checks: Record<string, CaseCheck>): { key: string; check?: CaseCheck } {
+  for (const k of keysOf(p)) {
+    const key = `${k}|${season}|${kind}`;
+    if (checks[key]) return { key, check: checks[key] };
+    const legacy = checks[`${k}|${kind}`];
+    if (legacy && inSeason(legacy.at, season)) return { key: `${k}|${kind}`, check: legacy };
+  }
+  return { key: caseKey(p, kind, season) };
+}
+
+/**
+ * Le rapprochement choisi par un admin pour cette personne, et sa clé : sous
+ * `lic:` puis sous `ha:`. « Pas dans VPDive » ne vaut que pour la saison où il
+ * a été dit : la personne a pu créer sa fiche depuis.
+ */
+export function linkFor(p: Pick<Person, 'key' | 'haKey'>, links: Record<string, LinkChoice>, season: number): { key: string; link: LinkChoice } | null {
+  for (const key of keysOf(p)) {
+    const link = links[key];
+    if (!link) continue;
+    if (link.uct === 'none' && link.at && !inSeason(link.at, season)) continue;
+    return { key, link };
+  }
+  return null;
+}
