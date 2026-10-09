@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { aptitudesFromLabels, depthOf, proposePalanquees, validate, type Diver, type Plan } from './palanquees';
-import { NO_TRAINING, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setExtra, setType, trainingMenuFor } from './palanqueeEdit';
+import { NO_TRAINING, PREROGATIVE_OPTIONS, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setExtra, setType, trainingMenuFor } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdiveApi';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
@@ -282,4 +282,12 @@ test('encadrant : jamais en formation, ni F# choisi, ni prépa VPDive', () => {
   const [d] = rosterToDivers([r], { training: { e: 'FN4' } });
   assert.equal(d!.training, 0);
   assert.deepEqual(d!.labels, ['P4']);
+});
+
+test('aptitudes forçables : PA12 et PE60 · PA40 se lisent comme elles s’écrivent', () => {
+  assert.ok(PREROGATIVE_OPTIONS.divers.includes('PA12'));
+  assert.ok(PREROGATIVE_OPTIONS.divers.includes('PE60 · PA40'));
+  const [pa12, pe60] = rosterToDivers([entry('a', 'A A', ['P1']), entry('b', 'B B', ['P2'])], { levels: { a: 'PA12', b: 'PE60 · PA40' } });
+  assert.deepEqual([pa12!.pe, pa12!.pa], [12, 12]);
+  assert.deepEqual([pe60!.pe, pe60!.pa], [60, 40]);
 });

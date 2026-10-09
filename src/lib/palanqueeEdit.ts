@@ -13,7 +13,7 @@ import type { RosterEntry } from '../services/vpdiveApi';
  * plongeur dans les palanquées. Le niveau VPDive d'origine reste affiché.
  */
 export const PREROGATIVE_OPTIONS = {
-  divers: ['Débutant', 'PE12', 'PE20', 'PA20', 'PE40', 'PE40 · PA20', 'PA40', 'PE60', 'PA60'],
+  divers: ['Débutant', 'PE12', 'PA12', 'PE20', 'PA20', 'PE40', 'PE40 · PA20', 'PA40', 'PE60', 'PE60 · PA40', 'PA60'],
   instructors: ['GP', 'E1', 'E2', 'E3', 'E4'],
 } as const;
 

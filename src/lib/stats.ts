@@ -9,6 +9,8 @@
  * plongeurs.
  */
 import { aptitudesFromLabels, isInstructor, type Aptitudes } from './palanquees';
+import { normalizeName } from './fuzzy';
+import { seasonLabel, seasonOf } from './membership';
 import { DP_ROLE, SURFACE_ROLES } from '../services/vpdiveApi';
 
 export interface StatEvent {
@@ -92,6 +94,8 @@ export interface Stats {
   regulars: { id: string; name: string; picture?: string; count: number }[];
   /** En formation (prépa VPDive), par niveau visé. */
   training: LevelCount[];
+  /** Personnes inscrites sous plusieurs comptes VPDive (même nom), comptées une fois : nom, nombre de comptes. */
+  merged: { name: string; accounts: number }[];
 }
 
 const AGE_BINS = [
@@ -144,11 +148,48 @@ const OTHER_SCHOOL = /\b(PADI|SSI|GUE|CMAS|NAUI|BSAC|IANTD|TDI|SDI|RAID|PSAI)\b/
 const LEVEL_ORDER = ['Débutant', 'N1', 'PE20 + PA20', 'PE40', 'N2', 'N2 + PA40', 'PE60', 'PA60', 'N3'];
 
 /**
+ * Nom sans accents ni casse, mots triés : « SARTORETTO Stéphane » = « Stephane
+ * Sartoretto ». Vide pour un nom d'un seul mot (« Sans nom ») : trop peu pour réunir.
+ */
+const personKey = (name: string) => {
+  const words = normalizeName(name).split(' ').filter(Boolean);
+  return words.length >= 2 ? words.sort().join(' ') : '';
+};
+
+/**
+ * Même personne, plusieurs comptes VPDive (un compte invité puis un compte
+ * membre, cas Sartoretto ; un DP ajouté dans l'appli sans inscription, « uct:… ») :
+ * identifiant retenu pour chacun. Seuls les noms identiques sont réunis (comme
+ * findDuplicates « same ») : deux noms proches peuvent être deux personnes.
+ * L'identifiant VPDive l'emporte sur celui de l'appli, puis le premier vu.
+ */
+function canonicalIds(people: { id: string; name: string }[]): { of: (id: string) => string; merged: Map<string, Set<string>> } {
+  const byKey = new Map<string, string[]>();
+  for (const p of people) {
+    const key = personKey(p.name);
+    if (!key) continue;
+    const ids = byKey.get(key) ?? byKey.set(key, []).get(key)!;
+    if (!ids.includes(p.id)) ids.push(p.id);
+  }
+  const canonical = new Map<string, string>();
+  const merged = new Map<string, Set<string>>();
+  for (const ids of byKey.values()) {
+    if (ids.length < 2) continue;
+    const keep = ids.find((id) => !id.startsWith('uct:')) ?? ids[0]!;
+    for (const id of ids) canonical.set(id, keep);
+    merged.set(keep, new Set(ids));
+  }
+  return { of: (id) => canonical.get(id) ?? id, merged };
+}
+
+/**
  * `rosters` : liste des inscrits par sortie (jeton) ; une sortie absente (pas
  * encore lue) compte dans les sorties, ses places viennent de l'agenda, ses
  * plongeurs manquent encore.
  * `dpFromApp` : DP choisis dans l'appli (Rôles de la sortie), qui l'emportent sur
- * le rôle pris à l'inscription dans VPDive.
+ * le rôle pris à l'inscription dans VPDive. Un DP ajouté dans l'appli sans
+ * inscription (« uct:… ») doit figurer dans `crewByEvent` avec son nom.
+ * Une même personne sous plusieurs comptes (même nom) est comptée une fois.
  */
 export function computeStats(
   events: StatEvent[],
@@ -168,6 +209,8 @@ export function computeStats(
   const fills: number[] = [];
   let dpKnown = 0;
   let dpOf = 0;
+  const ids = canonicalIds([...Object.values(rosters), ...Object.values(crewByEvent)].flatMap((list) => list ?? []));
+  const usedMerges = new Set<string>();
 
   for (const e of sorted) {
     tally(activities, e.activity || 'Autre');
@@ -193,18 +236,31 @@ export function computeStats(
     const appDp = (dpFromApp[e.token] ?? []).filter((id) => crew.some((p) => p.id === id));
     const withRole = (re: RegExp) => crew.filter((p) => p.roles.some((r) => re.test(r))).map((p) => p.id);
     const vpDp = withRole(DP_ROLE);
-    const dpIds = new Set(appDp.length ? appDp : vpDp.length ? vpDp : withRole(SURFACE_ROLES));
+    const dpIds = new Set((appDp.length ? appDp : vpDp.length ? vpDp : withRole(SURFACE_ROLES)).map(ids.of));
     dpOf++;
     if (dpIds.size) dpKnown++;
+    // Une personne compte une fois par sortie, même inscrite sous deux comptes.
+    const counted = new Set<string>();
     for (const p of taken!) {
-      // La plus récente sortie fait foi pour le niveau et l'âge.
-      const seen = people.get(p.id);
-      people.set(p.id, { person: p, count: (seen?.count ?? 0) + 1 });
+      const id = ids.of(p.id);
+      if (id !== p.id || ids.merged.has(id)) usedMerges.add(id);
+      if (counted.has(id)) continue;
+      counted.add(id);
+      // La plus récente sortie fait foi pour le niveau et l'âge ; un compte sans niveau garde ceux de l'autre.
+      const seen = people.get(id);
+      const person = { ...p, id, levels: p.levels.length || !seen ? p.levels : seen.person.levels, age: p.age ?? seen?.person.age ?? null };
+      people.set(id, { person, count: (seen?.count ?? 0) + 1 });
     }
+    const bumped = new Set<string>();
     for (const p of crew) {
-      const bump = (map: typeof directors) => map.set(p.id, { person: p, count: (map.get(p.id)?.count ?? 0) + 1 });
-      if (dpIds.has(p.id)) bump(directors);
-      if (p.roles.some((r) => INSTRUCTOR_ROLE.test(r))) bump(instructors);
+      const id = ids.of(p.id);
+      const bump = (map: typeof directors, tag: string) => {
+        if (bumped.has(tag + id)) return;
+        bumped.add(tag + id);
+        map.set(id, { person: { ...(map.get(id)?.person ?? p), id }, count: (map.get(id)?.count ?? 0) + 1 });
+      };
+      if (dpIds.has(id)) bump(directors, 'dp:');
+      if (p.roles.some((r) => INSTRUCTOR_ROLE.test(r))) bump(instructors, 'e:');
     }
   }
 
@@ -276,6 +332,11 @@ export function computeStats(
     instructors: top(instructors, 8),
     regulars: top(people, 10),
     training: sortedCounts(training).sort((a, b) => a.label.localeCompare(b.label)),
+    // Comptes réunis parmi les plongeurs de la période.
+    merged: [...usedMerges]
+      .filter((id) => people.has(id) && (ids.merged.get(id)?.size ?? 0) > 1)
+      .map((id) => ({ name: people.get(id)!.person.name, accounts: ids.merged.get(id)!.size }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr')),
   };
 }
 
@@ -305,11 +366,21 @@ export function monthSeries(months: Stats['months'], from: string, to: string): 
   return out;
 }
 
-/** Période par défaut et préréglages : du 1er janvier à aujourd'hui, etc. (AAAA-MM-JJ). */
-export function presetRange(preset: 'year' | '12m' | 'last-year', today: Date): { from: string; to: string } {
+export type PresetId = 'season' | 'last-season' | 'year' | '12m' | 'last-year';
+
+/**
+ * Période des préréglages (AAAA-MM-JJ) : saison en cours (du 1er septembre à
+ * aujourd'hui), saison précédente (1er septembre – 31 août), depuis le 1er
+ * janvier, 12 derniers mois, année précédente.
+ */
+export function presetRange(preset: PresetId, today: Date): { from: string; to: string } {
   const p = (n: number) => String(n).padStart(2, '0');
   const ymd = (d: Date) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   const y = today.getFullYear();
+  // Saison désignée par son année de fin (lib/membership.ts) : 2027 va du 1er septembre 2026 au 31 août 2027.
+  const season = seasonOf(ymd(today));
+  if (preset === 'season') return { from: `${season - 1}-09-01`, to: ymd(today) };
+  if (preset === 'last-season') return { from: `${season - 2}-09-01`, to: `${season - 1}-08-31` };
   if (preset === 'last-year') return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
   if (preset === '12m') {
     const from = new Date(today);
@@ -319,3 +390,10 @@ export function presetRange(preset: 'year' | '12m' | 'last-year', today: Date): 
   }
   return { from: `${y}-01-01`, to: ymd(today) };
 }
+
+/** « Saison 2026/2027 » pour le préréglage, d'après la date du jour. */
+export const seasonPresetLabel = (preset: 'season' | 'last-season', today: Date): string => {
+  const p = (n: number) => String(n).padStart(2, '0');
+  const season = seasonOf(`${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}`);
+  return `Saison ${seasonLabel(preset === 'season' ? season : season - 1)}`;
+};

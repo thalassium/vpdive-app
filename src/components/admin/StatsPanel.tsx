@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { BarChart3, FileDown, Loader2, RefreshCw, X } from 'lucide-react';
 import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdiveApi';
 import { appApi } from '../../services/appApi';
-import { computeStats, dateFr, isDiveActivity, monthSeries, monthShort, presetRange, type StatEvent, type StatPerson, type StatStaff, type Stats } from '../../lib/stats';
+import { computeStats, dateFr, isDiveActivity, monthSeries, monthShort, presetRange, seasonPresetLabel, type PresetId, type StatEvent, type StatPerson, type StatStaff, type Stats } from '../../lib/stats';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';
 import { useDialog } from '../../hooks/useDialog';
@@ -10,13 +10,15 @@ import { GabianLoader } from '../Gabian';
 
 /**
  * Statistiques de la saison (super-admin) : sorties, plongeurs, niveaux,
- * âges, encadrement, sur une période (par défaut depuis le 1er janvier).
+ * âges, encadrement, sur une période (par défaut la saison en cours, depuis
+ * le 1er septembre). Une personne inscrite sous plusieurs comptes VPDive
+ * (même nom) compte une fois.
  * VPDive ne donne pas ses statistiques aux clubs : on relit l'agenda puis la
  * liste des inscrits de chaque sortie, une à une et espacées (pare-feu). Une
  * sortie terminée ne change plus : sa liste est gardée sur l'appareil.
  */
 
-type Preset = 'year' | '12m' | 'last-year' | 'custom';
+type Preset = PresetId | 'custom';
 
 const GAP_MS = 400;
 // v2 : la liste garde aussi l'équipe non inscrite (pilote, DP désignés dans VPDive).
@@ -51,8 +53,8 @@ function writeCache(token: string, value: Cached) {
 export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; onSessionLost: (e: unknown) => boolean }) {
   const { ref: dialogRef } = useDialog({ onClose, label: 'stats' });
   const lastYear = new Date().getFullYear() - 1;
-  const [preset, setPreset] = useState<Preset>('year');
-  const [custom, setCustom] = useState(() => presetRange('year', new Date()));
+  const [preset, setPreset] = useState<Preset>('season');
+  const [custom, setCustom] = useState(() => presetRange('season', new Date()));
   const range = preset === 'custom' ? custom : presetRange(preset, new Date());
 
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
@@ -60,6 +62,8 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
   const [staff, setStaff] = useState<Record<string, StatStaff[]>>({});
   /** DP choisis dans l'appli (Rôles de la sortie), par sortie : ils priment sur VPDive. */
   const [dpFromApp, setDpFromApp] = useState<Record<string, string[] | undefined>>({});
+  /** Membres ajoutés dans l'appli sans inscription qui tiennent un rôle (DP désigné…), par sortie. */
+  const [appMembers, setAppMembers] = useState<Record<string, StatStaff[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [stopped, setStopped] = useState(false);
@@ -111,6 +115,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     setRosters({});
     setStaff({});
     setDpFromApp({});
+    setAppMembers({});
     setProgress(null);
     try {
       const to = range.to < presetRange('year', new Date()).to ? range.to : presetRange('year', new Date()).to;
@@ -120,7 +125,11 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
       // Un seul appel au serveur de l'appli pour toutes les sorties ; sans réponse, VPDive seul.
       appApi
         .outingRoles(list.map((e) => e.token))
-        .then((roles) => id === run.current && setDpFromApp(Object.fromEntries(Object.entries(roles).map(([k, r]) => [k, r?.dp]))))
+        .then(({ roles, members }) => {
+          if (id !== run.current) return;
+          setDpFromApp(Object.fromEntries(Object.entries(roles).map(([k, r]) => [k, r?.dp])));
+          setAppMembers(Object.fromEntries(Object.entries(members).map(([k, list]) => [k, list.map((m) => ({ ...m, roles: [] }))])));
+        })
         .catch((e) => onSessionLost(e));
       await readRosters(list, id);
     } catch (e) {
@@ -156,8 +165,10 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
       registered: e.registeredCount,
       max: e.maxParticipants,
     }));
-    return computeStats(statEvents, rosters, dpFromApp, staff);
-  }, [events, rosters, dpFromApp, staff]);
+    // L'équipe hors inscrits : celle que VPDive désigne, plus les membres ajoutés dans l'appli (DP désigné sans inscription).
+    const crew = Object.fromEntries(events.map((e) => [e.token, [...(staff[e.token] ?? []), ...(appMembers[e.token] ?? [])]]));
+    return computeStats(statEvents, rosters, dpFromApp, crew);
+  }, [events, rosters, dpFromApp, staff, appMembers]);
 
   const [pdfState, setPdfState] = useState<'idle' | 'busy' | 'error'>('idle');
   /** Le générateur de PDF n'est chargé qu'au premier clic ; une lecture en cours donne des chiffres partiels, dits dans le PDF. */
@@ -175,6 +186,8 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
   };
 
   const presets: { id: Preset; label: string }[] = [
+    { id: 'season', label: seasonPresetLabel('season', new Date()) },
+    { id: 'last-season', label: seasonPresetLabel('last-season', new Date()) },
     { id: 'year', label: 'Depuis janvier' },
     { id: '12m', label: '12 derniers mois' },
     { id: 'last-year', label: String(lastYear) },
@@ -342,6 +355,12 @@ function Hero({ stats, from, to }: { stats: Stats; from: string; to: string }) {
         {stats.fill !== null && `Remplissage moyen ${Math.round(stats.fill * 100)} %. `}
         {stats.waiting > 0 && `${plural(stats.waiting, 'inscription', 'inscriptions')} en liste d’attente.`}
       </p>
+      {stats.merged.length > 0 && (
+        <p className="mt-1 text-sm text-muted">
+          Comptes fusionnés (même personne, plusieurs comptes VPDive) : {stats.merged.map((m) => `${m.name} (${m.accounts} comptes)`).join(', ')}.
+        </p>
+      )}
+
     </div>
   );
 }

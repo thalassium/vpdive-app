@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { ChevronDown, FileDown, Loader2, Printer } from 'lucide-react';
+import { AlertTriangle, ChevronDown, FileDown, Loader2, MessageSquare, Printer } from 'lucide-react';
 import { Menu } from '../Menu';
-import { chosenDepth, kindLabel, prerogativeLabel } from '../../lib/palanquees';
-import { diversInWater, emptySheet, type DiveParams, type Dive, type OutingDoc, type PalanqueeSheet, type SafetyHeader } from '../../lib/outing';
-import { HEADER_FIELDS, firstNameOf, lastNameOf, sheetApt, sheetRows } from '../../lib/safetySheet';
+import { chosenDepth, depthOf, kindLabel, prerogativeLabel } from '../../lib/palanquees';
+import { diversInWater, emptySheet, parseDepth, type DiveParams, type Dive, type OutingDoc, type PalanqueeSheet, type SafetyHeader } from '../../lib/outing';
+import { HEADER_FIELDS, firstNameOf, lastNameOf, missingHeader, noteText, printWarnings, sheetApt, sheetRows } from '../../lib/safetySheet';
 
 interface Props {
   /** Titre de la sortie, repris sur le PDF. */
   title: string;
   doc: OutingDoc;
   dive: Dive;
+  /** Un autre modifie la fiche : elle se lit, s'imprime, ne se change pas. */
+  readOnly?: boolean;
   onHeader: (header: SafetyHeader) => void;
   onSheet: (palanqueeId: string, sheet: PalanqueeSheet) => void;
   onGas: (diverId: string, gas: string) => void;
@@ -20,13 +22,24 @@ interface Props {
  * modèle ressourcedev/Fiche-securite-plongee.xlsx. Débloquée quand les
  * palanquées sont validées ; s'imprime seule (index.css, #print-sheet).
  */
-export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Props) {
+export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSheet, onGas }: Props) {
   const plan = dive.plan!;
   const header = doc.header;
   const [pdfState, setPdfState] = useState<'idle' | 'busy' | 'error'>('idle');
+  const missing = missingHeader(header);
+
+  /**
+   * Avant le PDF ou l'impression : en-tête incomplet (DP, pilote, date, lieu) ou
+   * profondeur prévue au-delà d'une prérogative, à confirmer explicitement.
+   */
+  const confirmPrint = () => {
+    const warnings = printWarnings(header, dive);
+    return !warnings.length || window.confirm(`Avant d’imprimer la fiche :\n\n${warnings.map((w) => `• ${w}`).join('\n')}\n\nContinuer quand même ?`);
+  };
 
   /** Le générateur de PDF n'est chargé qu'au premier clic. */
   const downloadPdf = async () => {
+    if (!confirmPrint()) return;
     setPdfState('busy');
     try {
       const { downloadSafetySheetPdf } = await import('../../lib/safetySheetPdf');
@@ -54,7 +67,7 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
           </button>
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => confirmPrint() && window.print()}
             className="btn btn-quiet h-9 text-sm"
           >
             <Printer className="w-4 h-4" /> Imprimer
@@ -62,10 +75,17 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
         </div>
       </div>
 
+      {missing.length > 0 && (
+        <p role="status" className="text-sm text-warn flex items-start gap-1.5 print:hidden">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> À renseigner avant d’imprimer : {missing.join(', ')}.
+        </p>
+      )}
+
+      <fieldset disabled={readOnly} className="min-w-0 space-y-6">
       <section className="grid sm:grid-cols-2 gap-x-6 gap-y-3 print:grid-cols-3 print:gap-y-1">
         {HEADER_FIELDS.map((f) => (
           <label key={f.key} className="block">
-            <span className="block label print:text-xs mb-1 print:mb-0">{f.label}</span>
+            <span className={`block label print:text-xs mb-1 print:mb-0 ${missing.includes(f.label) ? 'text-warn' : ''}`}>{f.label}</span>
             {f.options ? (
               <Menu
                 ariaLabel={f.label}
@@ -93,6 +113,11 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
         {plan.palanquees.map((p, i) => {
           const sheet = dive.sheets[p.id] ?? emptySheet();
           const rows = sheetRows(p);
+          const note = dive.notes?.[p.id];
+          // Profondeur prévue au-delà de la prérogative de la palanquée : signalée, à confirmer avant d'imprimer.
+          const planned = parseDepth(sheet.planned.depth);
+          const legal = depthOf(p);
+          const tooDeep = planned !== undefined && planned > legal;
           return (
             <section key={p.id} className="card overflow-hidden break-inside-avoid print:rounded-none print:border-black">
               <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-line print:bg-white print:border-black">
@@ -152,31 +177,49 @@ export function SafetySheet({ title, doc, dive, onHeader, onSheet, onGas }: Prop
                       <ParamsCells
                         value={sheet[k]}
                         depthHint={k === 'planned' ? String(chosenDepth(p) || '') : ''}
+                        depthAlert={k === 'planned' && tooDeep}
                         onChange={(v) => onSheet(p.id, { ...sheet, [k]: v })}
                       />
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {tooDeep && (
+                <p role="alert" className="px-3 py-2 border-t border-line text-sm text-danger flex items-start gap-1.5 print:text-black">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {planned} m prévus : au-delà de la prérogative de la palanquée ({legal} m).
+                </p>
+              )}
+              {note && (
+                <p className="px-3 py-2 border-t border-line text-sm text-ink flex items-start gap-1.5 print:border-black/30">
+                  <MessageSquare className="w-4 h-4 shrink-0 mt-0.5 text-muted print:hidden" />
+                  <span>
+                    <span className="text-muted">Encadrant : </span>
+                    {noteText(note)}
+                  </span>
+                </p>
+              )}
             </section>
           );
         })}
       </div>
+      </fieldset>
     </div>
   );
 }
 
-function ParamsCells({ value, depthHint, onChange }: { value: DiveParams; depthHint: string; onChange: (v: DiveParams) => void }) {
+function ParamsCells({ value, depthHint, depthAlert = false, onChange }: { value: DiveParams; depthHint: string; depthAlert?: boolean; onChange: (v: DiveParams) => void }) {
   const cell = (key: keyof DiveParams, props: { type?: string; placeholder?: string; inputMode?: 'numeric' }) => (
     <td className="py-1 pr-2 last:pr-3">
       <input
         value={value[key]}
         onChange={(e) => onChange({ ...value, [key]: e.target.value })}
-        className="field w-full h-9 px-2 text-sm tabular-nums print:border-0 print:p-0"
+        aria-invalid={key === 'depth' && depthAlert ? true : undefined}
+        className={`field w-full h-9 px-2 text-sm tabular-nums print:border-0 print:p-0 ${key === 'depth' && depthAlert ? 'border-danger text-danger' : ''}`}
         {...props}
       />
     </td>
   );
+
   return (
     <>
       {cell('duration', { inputMode: 'numeric', placeholder: 'min' })}

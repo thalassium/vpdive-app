@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import { autoTable, type CellInput, type RowInput } from 'jspdf-autotable';
 import { kindLabel, prerogativeLabel } from './palanquees';
 import { diversInWater, emptySheet, type Dive, type OutingDoc } from './outing';
-import { HEADER_FIELDS, firstNameOf, headerText, lastNameOf, sheetApt, sheetRows } from './safetySheet';
+import { HEADER_FIELDS, firstNameOf, headerText, lastNameOf, noteText, sheetApt, sheetRows } from './safetySheet';
 import { pdfText } from './pdfText';
 
 /**
@@ -82,7 +82,9 @@ export function safetySheetPdf(outing: OutingDoc, dive: Dive, title: string): js
     const trio = palanquees.slice(row * PER_ROW, row * PER_ROW + PER_ROW);
     // Les trois tableaux d'une rangée ont le même nombre de lignes : colonnes alignées, hauteur connue d'avance.
     const lines = Math.max(...trio.map((p) => sheetRows(p).length));
-    const blockH = (lines + 3) * ROW_H + 2 * HEAD_H + PAGE.gap;
+    // Commentaire sur l'encadrant : une ligne de plus sous les paramètres (deux s'il est long).
+    const noteH = trio.some((p) => dive.notes?.[p.id]) ? 2 * ROW_H : 0;
+    const blockH = (lines + 3) * ROW_H + 2 * HEAD_H + PAGE.gap + noteH;
     if (y + blockH > PAGE.h - PAGE.margin - 12) {
       pdf.addPage();
       y = PAGE.margin;
@@ -120,6 +122,9 @@ export function safetySheetPdf(outing: OutingDoc, dive: Dive, title: string): js
           ];
         }),
       ];
+      const note = dive.notes?.[p.id];
+      if (note) params.push([{ content: pdfText(`Encadrant : ${noteText(note)}`), colSpan: 5, styles: { fontSize: 7, fontStyle: 'normal', overflow: 'linebreak' } }]);
+
       const x = PAGE.margin + k * (colW + PAGE.gap);
       autoTable(pdf, {
         startY: y,

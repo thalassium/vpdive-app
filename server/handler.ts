@@ -5,8 +5,17 @@
  *   POST ?action=logout                   déconnexion : le serveur oublie la session mise en cache
  *   GET  ?action=roles                    admin : les membres qui ont un rôle dans l'appli
  *   POST ?action=role     {uct, admin?, superAdmin?}   super-admin : donner ou retirer un rôle
- *   GET  ?action=outing&event=<token>     admin ou DP de la sortie : plongées et fiches
- *   POST ?action=outing&event=<token>     {doc, baseRev}  enregistrer (refusé si quelqu'un a enregistré entre-temps)
+ *   GET  ?action=outing&event=<token>[&client=<id>]   admin ou DP de la sortie : plongées et fiches, et qui la modifie
+ *                                         ({doc, lock}, lock.mine si c'est ce client-là)
+ *   POST ?action=outing&event=<token>     {doc, baseRev, client}  enregistrer : 409 si quelqu'un a enregistré
+ *                                         entre-temps, 423 si un autre détient le bail d'édition, 503 si un autre
+ *                                         enregistrement de la sortie est en cours (réessayer). Le serveur pose
+ *                                         lui-même qui a validé les palanquées, désinscrit, commenté, et quand.
+ *   GET  ?action=outing_lock&event=<token>[&client=<id>]   bail d'édition : qui modifie la fiche ({lock})
+ *   POST ?action=outing_lock&event=<token> {op: acquire|renew|release, client, force?}  prendre, garder ou rendre
+ *                                         la main (2 min, renouvelée par l'éditeur ouvert) ; 423 si un autre la tient.
+ *                                         force : reprendre la main laissée sur un autre appareil (même membre seulement)
+ *   GET  ?action=outing_roles&events=a,b  admin : rôles de plusieurs sorties, et les membres ajoutés sans inscription
  *   GET  ?action=docs_ignored             admin : membres ignorés du suivi des documents
  *   POST ?action=docs_ignored {uct, name, ignore}  admin : ignorer / ne plus ignorer
  *   GET  ?action=helloasso&season=2027    admin : adhésions HelloAsso de la saison (server/helloasso.ts)
@@ -49,6 +58,7 @@
  *                                    les membres pas revus depuis 18 mois en sont retirés à l'écriture)
  *   club:<id>:outing:<event>         fiche de la sortie [2 ans après le dernier enregistrement]
  *   club:<id>:outing:<event>:lock    verrou le temps d'un enregistrement
+ *   club:<id>:outing:<event>:lease   bail d'édition : qui modifie la fiche, jusqu'à quand
  *   club:<id>:docs-ignored           suivi des documents
  *   club:<id>:ffessm                 export FFESSM des licences déposé (gestion des adhésions) [13 mois]
  *   club:<id>:ffessm-brevets         export FFESSM des brevets déposé [13 mois]
@@ -152,8 +162,8 @@ export function roleEntries(roles: RolesDoc, known: KnownMap) {
   }));
 }
 
-const json = (data: unknown, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers } });
 
 const MAX_DOC_BYTES = 400_000;
 
@@ -288,6 +298,87 @@ async function dropOldWrites(store: Store, caller: Caller): Promise<void> {
   for (let i = tail.length - 1; i >= 0 && Date.parse(tail[i]!.at) < cutoff; i--) old++;
   // Indices depuis la fin : une écriture ajoutée en tête entre-temps n'est pas touchée.
   if (old) await store.listTrim(writesKey(caller), 0, -(old + 1));
+}
+
+// ── Fiche de sortie : bail d'édition et marques posées par le serveur ──
+
+/** Durée du bail d'édition ; l'éditeur ouvert et visible le renouvelle toutes les 30 s. */
+export const LEASE_TTL_MS = 120_000;
+
+/** Qui modifie la fiche : le membre (uct, nom) et l'onglet ou l'appareil (client), jusqu'à expiresAt. */
+export interface OutingLease {
+  uct: string;
+  name: string;
+  client: string;
+  since: string;
+  expiresAt: string;
+}
+
+/** Le bail tel que le client le voit : sans l'identifiant d'onglet, avec « c'est moi ». */
+export const leaseView = (l: OutingLease | null, caller: Caller, client: string) =>
+  l ? { uct: l.uct, name: l.name, since: l.since, expiresAt: l.expiresAt, mine: isMine(l, caller, client) } : null;
+
+const isMine = (l: OutingLease, caller: Caller, client: string) => l.uct === caller.uct && !!client && l.client === client;
+/** Bail encore valable, ou null. */
+const active = (l: OutingLease | null, now = Date.now()) => (l && Date.parse(l.expiresAt) > now ? l : null);
+const clientOf = (v: unknown) => (typeof v === 'string' && /^[\w-]{8,80}$/.test(v) ? v : '');
+
+type Stamp = { by: string; at: string };
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+
+/**
+ * Qui a validé les palanquées, désinscrit quelqu'un ou commenté un encadrant,
+ * et quand : posés par le serveur (l'appelant, maintenant) quand la valeur
+ * apparaît ou change ; repris de la version enregistrée sinon. Ce que le
+ * client envoie pour ces champs est ignoré.
+ */
+export function stampOuting(current: Record<string, unknown> | null, incoming: Record<string, unknown>, who: string, now: string): Record<string, unknown> {
+  const stamp: Stamp = { by: who, at: now };
+  const before = new Map(list(current?.dives).filter(isObj).map((d) => [d.id, d]));
+  const dives = Array.isArray(incoming.dives)
+    ? incoming.dives.map((d) => {
+        if (!isObj(d)) return d;
+        const prev = before.get(d.id);
+        const validated = d.validated ? (isObj(prev?.validated) ? prev.validated : stamp) : null;
+        if (!isObj(d.notes)) return { ...d, validated };
+        const prevNotes = isObj(prev?.notes) ? prev.notes : {};
+        const notes = Object.fromEntries(
+          Object.entries(d.notes)
+            .filter(([, n]) => isObj(n) && typeof n.text === 'string' && n.text.trim())
+            .map(([id, n]) => {
+              const text = String((n as Record<string, unknown>).text).trim().slice(0, 500);
+              const old = prevNotes[id];
+              return [id, isObj(old) && old.text === text ? { text, by: old.by, at: old.at } : { text, ...stamp }];
+            }),
+        );
+        return { ...d, validated, notes };
+      })
+    : incoming.dives;
+  const prevGone = new Map(list(current?.unregistered).filter(isObj).map((u) => [u.id, u]));
+  const unregistered = Array.isArray(incoming.unregistered)
+    ? incoming.unregistered.map((u) => {
+        if (!isObj(u)) return u;
+        const prev = prevGone.get(u.id);
+        return { ...u, ...(prev ? { by: prev.by, at: prev.at } : stamp) };
+      })
+    : incoming.unregistered;
+  return { ...incoming, dives, ...(unregistered !== undefined ? { unregistered } : {}) };
+}
+
+/**
+ * Être DP d'une sortie se vérifie auprès de VPDive : la réponse positive est
+ * gardée 5 minutes (l'éditeur ouvert interroge le serveur toutes les 30 s, le
+ * pare-feu VPDive n'aime pas les rafales). Une par jeu de dépendances (tests).
+ */
+const dpCache = new WeakMap<Deps['isDpOf'], Map<string, number>>();
+async function isDpCached(deps: Deps, caller: Caller, event: string): Promise<boolean> {
+  const cache = dpCache.get(deps.isDpOf) ?? dpCache.set(deps.isDpOf, new Map()).get(deps.isDpOf)!;
+  const key = `${caller.clubId}:${caller.uct}:${event}`;
+  if ((cache.get(key) ?? 0) > Date.now()) return true;
+  const ok = await deps.isDpOf(caller, event);
+  if (ok) cache.set(key, Date.now() + 300_000);
+  return ok;
 }
 
 /**
@@ -600,41 +691,99 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
     if (action === 'outing_roles' && request.method === 'GET') {
       if (role === 'member') throw new HttpError(403, 'Réservé aux admins.');
       const events = (url.searchParams.get('events') ?? '').split(',').filter((e) => /^[\w-]{10,80}$/.test(e)).slice(0, 300);
-      const docs = await Promise.all(events.map((e) => store.get<{ roles?: Record<string, string[]> }>(outingKey(caller, e))));
-      return json({ roles: Object.fromEntries(events.map((e, i) => [e, docs[i]?.roles ?? null])) });
+      type RolesOnly = { roles?: Record<string, string[]>; members?: { id: string; name: string; picture?: string }[] };
+      const docs = await Promise.all(events.map((e) => store.get<RolesOnly>(outingKey(caller, e))));
+      // Membres ajoutés sans inscription qui tiennent un rôle (DP désigné…) : leur nom, que la liste VPDive n'a pas.
+      const members = Object.fromEntries(
+        events.map((e, i) => {
+          const held = new Set(Object.values(docs[i]?.roles ?? {}).flat());
+          return [e, (docs[i]?.members ?? []).filter((m) => held.has(m.id)).map((m) => ({ id: m.id, name: m.name, ...(m.picture ? { picture: m.picture } : {}) }))];
+        }),
+      );
+      return json({ roles: Object.fromEntries(events.map((e, i) => [e, docs[i]?.roles ?? null])), members });
     }
 
-    if (action === 'outing') {
+    if (action === 'outing' || action === 'outing_lock') {
       const event = url.searchParams.get('event') ?? '';
       if (!/^[\w-]{10,80}$/.test(event)) throw new HttpError(400, 'Sortie inconnue.');
-      if (role === 'member' && !(await deps.isDpOf(caller, event))) {
+      if (role === 'member' && !(await isDpCached(deps, caller, event))) {
         throw new HttpError(403, 'Réservé aux admins et au directeur de plongée de la sortie.');
       }
       const key = outingKey(caller, event);
-
-      if (request.method === 'GET') return json({ doc: await store.get<{ rev: number }>(key) });
-
-      if (request.method === 'POST') {
-        const text = await request.text();
-        if (text.length > MAX_DOC_BYTES) throw new HttpError(413, 'Fiche trop volumineuse.');
-        const body = parseBody(text) as { doc?: Record<string, unknown>; baseRev?: number } | null;
-        if (!body?.doc || typeof body.doc !== 'object') throw new HttpError(400, 'Contenu manquant.');
-        const conflict = (current: unknown) =>
-          json({ error: 'Quelqu’un a modifié cette sortie entre-temps. Rechargez pour voir sa version.', doc: current }, 409);
-        // Lecture, comparaison et écriture sous verrou : deux enregistrements simultanés ne peuvent pas se croiser.
-        const lockKey = `${key}:lock`;
-        if (!(await acquireLock(store, lockKey))) return conflict(await store.get<{ rev: number }>(key));
+      const leaseKey = `${key}:lease`;
+      const lockKey = `${key}:lock`;
+      const who = caller.name || caller.email;
+      const readLease = async () => active(await store.get<OutingLease>(leaseKey));
+      const busy = () => json({ error: 'Un autre enregistrement de cette sortie est en cours : réessayez.', retry: true }, 503, { 'Retry-After': '1' });
+      const lockedBy = (l: OutingLease, client: string) =>
+        json({ error: `${l.name} modifie cette fiche : seule cette personne peut l’enregistrer pour l’instant.`, lock: leaseView(l, caller, client) }, 423);
+      /** Lecture, comparaison et écriture sous le verrou court : deux écritures simultanées ne se croisent pas. */
+      const underLock = async (run: () => Promise<Response>) => {
+        if (!(await acquireLock(store, lockKey))) return busy();
         try {
-          const current = await store.get<{ rev: number }>(key);
-          const rev = current?.rev ?? 0;
-          if ((body.baseRev ?? 0) !== rev) return conflict(current);
-          const doc = { ...body.doc, rev: rev + 1, updatedAt: new Date().toISOString(), updatedBy: caller.name || caller.email };
-          await store.set(key, doc);
-          return json({ doc });
+          return await run();
         } finally {
           // Si le relâchement échoue, le verrou expire de lui-même (LOCK_TTL_MS).
           await store.unlock(lockKey).catch((e) => console.error('[api/app] unlock', e));
         }
+      };
+
+      if (request.method === 'GET') {
+        const client = clientOf(url.searchParams.get('client'));
+        const lock = leaseView(await readLease(), caller, client);
+        if (action === 'outing_lock') return json({ lock });
+        return json({ doc: await store.get<{ rev: number }>(key), lock });
+      }
+
+      if (request.method === 'POST' && action === 'outing_lock') {
+        const body = parseBody(await request.text()) as { op?: unknown; client?: unknown; force?: unknown } | null;
+        const client = clientOf(body?.client);
+        if (!client) throw new HttpError(400, 'Éditeur inconnu.');
+        const op = body?.op;
+        if (op !== 'acquire' && op !== 'renew' && op !== 'release') throw new HttpError(400, 'Opération inconnue.');
+        return underLock(async () => {
+          const lease = await readLease();
+          if (op === 'release') {
+            if (lease && isMine(lease, caller, client)) await store.del(leaseKey);
+            return json({ lock: lease && !isMine(lease, caller, client) ? leaseView(lease, caller, client) : null });
+          }
+          // Un autre tient la main ; le même membre peut la reprendre (force) s'il l'a laissée sur un autre appareil.
+          if (lease && !isMine(lease, caller, client) && !(body?.force === true && lease.uct === caller.uct)) return lockedBy(lease, client);
+          const now = new Date();
+          const next: OutingLease = {
+            uct: caller.uct,
+            name: who,
+            client,
+            since: lease && isMine(lease, caller, client) ? lease.since : now.toISOString(),
+            expiresAt: new Date(now.getTime() + LEASE_TTL_MS).toISOString(),
+          };
+          // Le bail s’efface aussi de lui-même dans Redis, un peu après son expiration.
+          await store.set(leaseKey, next, { ex: Math.ceil(LEASE_TTL_MS / 1000) + 60 });
+          // La révision enregistrée : le client voit si la fiche a changé pendant qu'il ne tenait pas la main.
+          const current = await store.get<{ rev?: number }>(key);
+          return json({ lock: leaseView(next, caller, client), rev: current?.rev ?? 0 });
+        });
+      }
+
+      if (request.method === 'POST') {
+        const text = await request.text();
+        if (text.length > MAX_DOC_BYTES) throw new HttpError(413, 'Fiche trop volumineuse.');
+        const body = parseBody(text) as { doc?: Record<string, unknown>; baseRev?: number; client?: unknown } | null;
+        if (!body?.doc || typeof body.doc !== 'object') throw new HttpError(400, 'Contenu manquant.');
+        const client = clientOf(body.client);
+        return underLock(async () => {
+          const lease = await readLease();
+          if (lease && !isMine(lease, caller, client)) return lockedBy(lease, client);
+          const current = await store.get<Record<string, unknown> & { rev?: number }>(key);
+          const rev = current?.rev ?? 0;
+          if ((body.baseRev ?? 0) !== rev) {
+            return json({ error: 'Quelqu’un a modifié cette sortie entre-temps.', doc: current, conflict: true }, 409);
+          }
+          const now = new Date().toISOString();
+          const doc = { ...stampOuting(current, body.doc!, who, now), rev: rev + 1, updatedAt: now, updatedBy: who };
+          await store.set(key, doc);
+          return json({ doc });
+        });
       }
     }
 

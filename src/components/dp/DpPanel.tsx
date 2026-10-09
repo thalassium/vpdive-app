@@ -1,8 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { vpdive, ymd, DP_ROLE, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdiveApi';
-import { appApi, AppApiError, type AppRole } from '../../services/appApi';
-import { addedMemberId, adoptRegistrations, defaultRoles, headerFromRoles, newOuting, nextDive, normalizeOuting, syncWithRoster, toggleDiving, withGuests, type AddedMember, type Dive, type DiveRole, type OutingDoc } from '../../lib/outing';
+import { appApi, AppApiError, type AppRole, type OutingLock } from '../../services/appApi';
+import {
+  addedMemberId,
+  adoptRegistrations,
+  defaultRoles,
+  headerFromRoles,
+  newOuting,
+  nextDive,
+  normalizeOuting,
+  parseDepth,
+  pruneOrphans,
+  sameContent,
+  setGuideNote,
+  syncWithRoster,
+  toggleDiving,
+  withGuests,
+  type AddedMember,
+  type Dive,
+  type DiveRole,
+  type OutingDoc,
+} from '../../lib/outing';
+import { setDepth } from '../../lib/palanqueeEdit';
 import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
@@ -70,11 +90,24 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
     loadList();
   }, [loadList]);
 
-  const close = useCallback(async () => {
+  /**
+   * Quitter la sortie ouverte (fermer, revenir à la liste, en choisir une autre) :
+   * ce qui reste part d'abord ; si l'enregistrement échoue, on demande. La
+   * saisie non enregistrée reste en brouillon sur l'appareil.
+   */
+  const leave = useCallback(async (then: () => void) => {
     const saved = await closeRef.current();
-    if (!saved && !window.confirm('Des modifications ne sont pas enregistrées. Fermer quand même ?')) return;
-    onClose();
-  }, [onClose]);
+    if (!saved && !window.confirm('Des modifications ne sont pas enregistrées (elles restent en brouillon sur cet appareil). Quitter quand même ?')) return;
+    then();
+  }, []);
+  const close = useCallback(() => leave(onClose), [leave, onClose]);
+  const select = useCallback(
+    (e: CalendarEvent) => {
+      if (e.token === selected?.token) return;
+      void leave(() => setSelected(e));
+    },
+    [leave, selected],
+  );
 
   // Échap, bouton Retour, focus et verrou de défilement : hooks/useDialog.
   const { ref: dialogRef } = useDialog({ onClose: () => void close(), label: 'dp' });
@@ -100,7 +133,7 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
       >
         <div className="border-t-[3px] border-pink border-b border-line px-5 sm:px-6 py-3.5 shrink-0 flex items-center gap-3 print:hidden">
           {selected && (
-            <button onClick={() => closeRef.current().then(() => setSelected(null))} aria-label="Toutes les sorties" className="icon-btn lg:hidden -ml-2">
+            <button onClick={() => void leave(() => setSelected(null))} aria-label="Toutes les sorties" className="icon-btn lg:hidden -ml-2">
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
@@ -111,7 +144,7 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
             <span className="hidden sm:inline">Directeur de plongée</span>
           </h2>
           <ThemeToggle />
-          <button onClick={close} aria-label="Fermer" className="icon-btn -mr-2">
+          <button onClick={() => void close()} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -133,14 +166,15 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
                 {role === 'member' ? 'Vous n’êtes directeur de plongée d’aucune sortie dans les semaines qui viennent.' : 'Aucune sortie dans les semaines qui viennent.'}
               </p>
             )}
-            {upcoming.length > 0 && <ListGroup label="Aujourd’hui et à venir" events={upcoming} selected={selected} onSelect={setSelected} />}
-            {past.length > 0 && <ListGroup label="Passées" events={past} selected={selected} onSelect={setSelected} />}
+            {upcoming.length > 0 && <ListGroup label="Aujourd’hui et à venir" events={upcoming} selected={selected} onSelect={select} />}
+            {past.length > 0 && <ListGroup label="Passées" events={past} selected={selected} onSelect={select} />}
           </aside>
 
           {/* Sortie choisie */}
           <main className={`${selected ? 'flex' : 'hidden lg:flex'} flex-1 min-w-0 flex-col overflow-y-auto overscroll-contain bg-canvas print:bg-white print:overflow-visible`}>
             {selected ? (
-              <OutingWorkspace key={selected.token} event={selected} session={session} canPromote={role !== 'member'} closeRef={closeRef} onSessionLost={onSessionLost} />
+              <OutingWorkspace key={selected.token} event={selected} session={session} isAdmin={role !== 'member'} closeRef={closeRef} onSessionLost={onSessionLost} />
+
             ) : (
               <p className="m-auto p-8 text-muted">Choisissez une sortie.</p>
             )}
@@ -220,21 +254,76 @@ function ListGroup({ label, events, selected, onSelect }: { label: string; event
 
 type SaveState = 'saved' | 'pending' | 'saving' | 'error' | 'conflict';
 
+/**
+ * Brouillon d'une fiche, gardé sur l'appareil tant qu'il n'est pas enregistré :
+ * une session expirée ou un serveur injoignable ne fait plus perdre la saisie.
+ */
+interface Draft {
+  doc: OutingDoc;
+  /** Révision sur laquelle la saisie s'appuie : si la fiche a changé depuis, l'enregistrer fait un conflit. */
+  baseRev: number;
+  at: string;
+  by: string;
+}
+const DRAFT_PREFIX = 'outing-draft:v1:';
+function readDraft(token: string): Draft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_PREFIX + token);
+    return raw ? (JSON.parse(raw) as Draft) : null;
+  } catch {
+    return null;
+  }
+}
+function writeDraft(token: string, draft: Draft) {
+  try {
+    localStorage.setItem(DRAFT_PREFIX + token, JSON.stringify(draft));
+  } catch {
+    // Stockage plein ou interdit : rien de plus à faire, l'enregistrement reste la vraie sauvegarde.
+  }
+}
+function clearDraft(token: string) {
+  try {
+    localStorage.removeItem(DRAFT_PREFIX + token);
+  } catch {
+    // Rien à faire.
+  }
+}
+
+/** Cet onglet, pour le bail d'édition : le même après un rechargement de la page (sessionStorage). */
+function editorClient(): string {
+  const fresh = () => `c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    const id = sessionStorage.getItem('outing-client') ?? fresh();
+    sessionStorage.setItem('outing-client', id);
+    return id;
+  } catch {
+    return fresh();
+  }
+}
+
+/** Le bail est renouvelé toutes les 30 s (il dure 2 min) ; sans la main, la fiche est relue toutes les 20 s. */
+const RENEW_MS = 30_000;
+const POLL_MS = 20_000;
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+const dateTime = (iso: string) => new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+type LeaseResult = 'ok' | 'taken' | 'failed';
+
 function OutingWorkspace({
   event,
   session,
-  canPromote,
+  isAdmin,
   closeRef,
   onSessionLost,
 }: {
   event: CalendarEvent;
   session: Session;
-  /** Admin : peut inscrire quelqu'un de la liste d'attente. */
-  canPromote: boolean;
+  /** Admin : peut inscrire quelqu'un de la liste d'attente et désinscrire (routes d'admin de VPDive). */
+  isAdmin: boolean;
   closeRef: React.RefObject<() => Promise<boolean>>;
   onSessionLost: (e: unknown) => boolean;
 }) {
-  const [roster, setRoster] = useState<RosterEntry[] | null>(null);
+  const token = event.token;
+  const [roster, setRosterState] = useState<RosterEntry[] | null>(null);
   const [doc, setDoc] = useState<OutingDoc | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [diveId, setDiveId] = useState<string | null>(null);
@@ -243,98 +332,258 @@ function OutingWorkspace({
   const [view, setView] = useState<'dive' | 'benevoles'>('dive');
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [conflict, setConflict] = useState<OutingDoc | null>(null);
-  /** Désinscrits depuis la dernière composition, retirés au chargement ; à dire au DP. */
-  const [departed, setDeparted] = useState<string[]>([]);
-  const [needsSave, setNeedsSave] = useState(false);
+  /** Retirés des palanquées au chargement : désinscrits, ou passés en liste d'attente ; à dire au DP. */
+  const [departed, setDeparted] = useState<{ gone: string[]; waitlisted: string[] }>({ gone: [], waitlisted: [] });
+  /** Qui modifie la fiche (bail d'édition) ; `mine` : cet onglet. */
+  const [lock, setLockState] = useState<OutingLock | null>(null);
+  /** Saisie non enregistrée trouvée sur l'appareil, proposée à la reprise. */
+  const [draftOffer, setDraftOffer] = useState<Draft | null>(null);
+  /** Message passager : action ignorée, main perdue… */
+  const [notice, setNotice] = useState<string | null>(null);
+  const [client] = useState(editorClient);
 
   const docRef = useRef<OutingDoc | null>(null);
+  /** La dernière version du serveur, rapprochée de la liste : ce qu'on retrouve si une saisie est refusée. */
+  const baseDocRef = useRef<OutingDoc | null>(null);
+  const rosterRef = useRef<RosterEntry[] | null>(null);
+  const lockRef = useRef<OutingLock | null>(null);
   const revRef = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inFlight = useRef<Promise<void> | null>(null);
+  const acquiring = useRef<Promise<LeaseResult> | null>(null);
+  const saveStateRef = useRef<SaveState>('saved');
   const me = `${session.firstName} ${session.lastName}`.trim() || session.email;
+
+  const setSave = (s: SaveState) => {
+    saveStateRef.current = s;
+    setSaveState(s);
+  };
+  /** La liste tenue à jour aussitôt : une modification qui suit (désinscrire, inscrire) la lit déjà. */
+  const setRoster = (r: RosterEntry[]) => {
+    rosterRef.current = r;
+    setRosterState(r);
+  };
+  const setLock = (l: OutingLock | null) => {
+    lockRef.current = l;
+    setLockState(l);
+  };
+  const showDoc = (d: OutingDoc) => {
+    docRef.current = d;
+    setDoc(d);
+  };
+
+  /** Version enregistrée (ou fiche neuve) rapprochée des inscrits du jour : les désinscrits en sortent, un membre ajouté qui s'est inscrit devient l'inscrit VPDive. */
+  const derive = useCallback(
+    (saved: OutingDoc | null, r: RosterEntry[]) => {
+      const base = saved ? adoptRegistrations(normalizeOuting(saved, event), r) : null;
+      const sync = base ? syncWithRoster(base, withGuests(r, base)) : null;
+      return { doc: sync?.doc ?? newOuting(event, r, session.clubName), gone: sync?.departed ?? [], waitlisted: sync?.waitlisted ?? [] };
+    },
+    [event, session.clubName],
+  );
 
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const [r, saved] = await Promise.all([vpdive.fetchRoster(event.token), appApi.getOuting(event.token)]);
-      // Une composition enregistrée est rapprochée des inscrits du jour : les désinscrits en sortent.
-      // Un membre ajouté qui s'est inscrit depuis devient l'inscrit VPDive.
-      const base = saved ? adoptRegistrations(normalizeOuting(saved, event), r) : null;
-      const sync = base ? syncWithRoster(base, withGuests(r, base)) : null;
-      const d = sync?.doc ?? newOuting(event, r, session.clubName);
-      revRef.current = saved?.rev ?? 0;
-      docRef.current = d;
+      const [r, res] = await Promise.all([vpdive.fetchRoster(token), appApi.getOuting(token, client)]);
+      const v = derive(res.doc, r);
+      // Ouvrir une fiche ne l'enregistre pas : la synchronisation ne part qu'avec le premier geste de celui qui tient la main.
+      revRef.current = res.doc?.rev ?? 0;
+      baseDocRef.current = v.doc;
+      showDoc(v.doc);
       setRoster(r);
-      setDoc(d);
-      setDeparted(sync?.departed ?? []);
-      if (saved && sync && sync.doc !== saved) setNeedsSave(true);
-      setDiveId(d.dives[0]?.id ?? null);
+      setLock(res.lock);
+      setSave('saved');
+      setDeparted({ gone: v.gone, waitlisted: v.waitlisted });
+      setDiveId(v.doc.dives[0]?.id ?? null);
       setView('dive');
-      setTab(d.dives[0]?.validated ? 'fiche' : 'palanquees');
+      setTab(v.doc.dives[0]?.validated ? 'fiche' : 'palanquees');
+      const draft = readDraft(token);
+      if (draft && draft.by === me) {
+        // Déjà enregistrée telle quelle (la page s'est fermée juste après) : rien à proposer.
+        if (res.doc && sameContent(draft.doc, res.doc)) clearDraft(token);
+        else setDraftOffer(draft);
+      }
     } catch (e) {
       if (onSessionLost(e)) return;
       setLoadError(e instanceof Error ? e.message : String(e));
     }
-  }, [event, session.clubName, onSessionLost]);
+  }, [token, client, derive, me, onSessionLost]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  /** Enregistre la dernière version, une sauvegarde à la fois. */
-  const flush = useCallback(async () => {
+  /** Relit la fiche enregistrée et qui la tient ; la remplace à l'écran si rien n'est en attente ici. */
+  const refresh = useCallback(async () => {
+    try {
+      const res = await appApi.getOuting(token, client);
+      setLock(res.lock);
+      const r = rosterRef.current;
+      if (!r || saveStateRef.current !== 'saved' || inFlight.current || (res.doc?.rev ?? 0) === revRef.current) return;
+      const v = derive(res.doc, r);
+      revRef.current = res.doc?.rev ?? 0;
+      baseDocRef.current = v.doc;
+      showDoc(v.doc);
+    } catch (e) {
+      // Réseau : on relira au prochain tour.
+      onSessionLost(e);
+    }
+  }, [token, client, derive, onSessionLost]);
+
+  /** Revient à la version du serveur (saisie refusée) ; ce qui n'était pas enregistré reste en brouillon si `keepDraft`. */
+  const backToServer = (message: string, keepDraft: boolean) => {
+    clearTimeout(timer.current);
+    if (!keepDraft) clearDraft(token);
+    else setDraftOffer(readDraft(token));
+    if (baseDocRef.current) showDoc(baseDocRef.current);
+    setSave('saved');
+    setNotice(message);
+    void refresh();
+  };
+
+  /** Prend la main si on ne l'a pas : 'taken' si un autre la tient, 'failed' si le serveur n'a pas répondu. */
+  const ensureLease = useCallback(
+    (force = false): Promise<LeaseResult> => {
+      if (lockRef.current?.mine && !force) return Promise.resolve('ok');
+      if (acquiring.current) return acquiring.current;
+      acquiring.current = (async (): Promise<LeaseResult> => {
+        try {
+          const res = await appApi.outingLock(token, 'acquire', client, { force });
+          setLock(res.lock);
+          return 'ok';
+        } catch (e) {
+          if (onSessionLost(e)) return 'failed';
+          if (e instanceof AppApiError && e.status === 423) {
+            setLock(((e.body as { lock?: OutingLock } | null)?.lock ?? null) as OutingLock | null);
+            return 'taken';
+          }
+          return 'failed';
+        } finally {
+          acquiring.current = null;
+        }
+      })();
+      return acquiring.current;
+    },
+    [token, client, onSessionLost],
+  );
+
+  const takenBy = () => lockRef.current?.name ?? 'Quelqu’un';
+
+  /** Enregistre la dernière version, une sauvegarde à la fois, après avoir pris la main. */
+  const flush = async (): Promise<void> => {
     clearTimeout(timer.current);
     while (inFlight.current) await inFlight.current;
-    const d = docRef.current;
-    if (!d || saveStateRef.current === 'saved' || saveStateRef.current === 'conflict') return;
-    setSave('saving');
+    if (!docRef.current || saveStateRef.current === 'saved' || saveStateRef.current === 'conflict') return;
+    // Tout se passe dans inFlight (posé sans attendre) : deux appels ne peuvent pas enregistrer en même temps.
     inFlight.current = (async () => {
+      const lease = await ensureLease();
+      if (lease === 'taken') {
+        return backToServer(`Modification non enregistrée : ${takenBy()} a commencé à modifier cette fiche juste avant vous.`, false);
+      }
+      if (lease === 'failed') return setSave('error');
+      const d = docRef.current!;
+      setSave('saving');
       try {
-        const saved = await appApi.saveOuting(event.token, d, revRef.current);
+        const saved = await appApi.saveOuting(token, d, revRef.current, client);
         revRef.current = saved.rev ?? revRef.current + 1;
-        const meta = { rev: saved.rev, updatedAt: saved.updatedAt, updatedBy: saved.updatedBy };
         const unchanged = docRef.current === d;
-        docRef.current = { ...docRef.current!, ...meta };
-        setDoc(docRef.current);
+        // La version du serveur fait foi : c'est lui qui pose qui a validé, désinscrit, commenté, et quand.
+        baseDocRef.current = saved;
+        if (unchanged) {
+          showDoc(saved);
+          clearDraft(token);
+        } else showDoc({ ...docRef.current!, rev: saved.rev, updatedAt: saved.updatedAt, updatedBy: saved.updatedBy });
         setSave(unchanged ? 'saved' : 'pending');
       } catch (e) {
-        if (onSessionLost(e)) return;
+        if (onSessionLost(e)) return setSave('error');
+        const body = e instanceof AppApiError ? (e.body as { doc?: OutingDoc; lock?: OutingLock; retry?: boolean } | null) : null;
         if (e instanceof AppApiError && e.status === 409) {
-          setConflict(((e.body as { doc?: OutingDoc } | null)?.doc ?? null) as OutingDoc | null);
+          setConflict(body?.doc ?? null);
           setSave('conflict');
-        } else setSave('error');
+        } else if (e instanceof AppApiError && e.status === 423) {
+          setLock(body?.lock ?? null);
+          backToServer(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
+        } else {
+          setSave('error');
+          // Un autre enregistrement de la sortie était en cours : on réessaie de soi-même.
+          if (body?.retry) timer.current = setTimeout(() => void flushRef.current(), 1500);
+        }
       }
     })();
     await inFlight.current;
     inFlight.current = null;
-    if (saveStateRef.current === 'pending') timer.current = setTimeout(() => void flush(), 800);
-  }, [event.token, onSessionLost]);
-
-  const saveStateRef = useRef<SaveState>('saved');
-  const setSave = (s: SaveState) => {
-    saveStateRef.current = s;
-    setSaveState(s);
+    if (saveStateRef.current === 'pending') timer.current = setTimeout(() => void flushRef.current(), 800);
   };
+  const flushRef = useRef(flush);
+  useEffect(() => {
+    flushRef.current = flush;
+  });
 
-  // En fermant ou en changeant de sortie, ce qui n'est pas encore parti est enregistré.
+  // En fermant ou en changeant de sortie : ce qui n'est pas encore parti est enregistré, puis la main est rendue.
   useEffect(() => {
     closeRef.current = async () => {
-      await flush();
+      await flushRef.current();
       return saveStateRef.current === 'saved';
     };
-    return () => {
-      void flush();
-    };
-  }, [flush, closeRef]);
-
-  // Composition modifiée au chargement (désinscrits retirés) : à enregistrer comme une saisie.
+  }, [closeRef]);
   useEffect(() => {
-    if (!needsSave) return;
-    setNeedsSave(false);
-    setSave('pending');
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => void flush(), 1000);
-  }, [needsSave, flush]);
+    const release = (keepalive: boolean) => {
+      if (!lockRef.current?.mine) return;
+      lockRef.current = null;
+      void appApi.outingLock(token, 'release', client, { keepalive }).catch(() => undefined);
+    };
+    const onHide = () => release(true);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      void flushRef.current().finally(() => release(false));
+    };
+  }, [token, client]);
+
+  // Tenir la main : renouvelée toutes les 30 s tant que l'onglet est visible ; en le quittant, ce qui reste part.
+  const mine = !!lock?.mine;
+  useEffect(() => {
+    if (!mine) return;
+    const renew = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const res = await appApi.outingLock(token, 'renew', client);
+        setLock(res.lock);
+        // Quelqu'un a enregistré pendant que l'onglet était caché : on recharge sa version.
+        if ((res.rev ?? 0) !== revRef.current && saveStateRef.current === 'saved') void refresh();
+      } catch (e) {
+        if (onSessionLost(e)) return;
+        if (e instanceof AppApiError && e.status === 423) {
+          setLock(((e.body as { lock?: OutingLock } | null)?.lock ?? null) as OutingLock | null);
+          if (saveStateRef.current === 'saved') {
+            setNotice(`${takenBy()} a pris la main pendant votre absence.`);
+            void refresh();
+          } else backToServer(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
+        }
+      }
+    };
+    const id = setInterval(() => void renew(), RENEW_MS);
+    const onVisibility = () => (document.visibilityState === 'visible' ? void renew() : void flushRef.current());
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [mine, token, client, refresh, onSessionLost]);
+
+  // Sans la main : la fiche est relue régulièrement (et au retour sur l'onglet), pour voir les changements de celui qui la tient.
+  const loaded = !!doc;
+  useEffect(() => {
+    if (mine || !loaded) return;
+    const tick = () => document.visibilityState === 'visible' && void refresh();
+    const id = setInterval(tick, POLL_MS);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [mine, loaded, refresh]);
 
   // Fermer l'onglet avec des modifications en attente : le navigateur demande confirmation.
   useEffect(() => {
@@ -344,20 +593,36 @@ function OutingWorkspace({
     return () => window.removeEventListener('beforeunload', warn);
   }, [saveState]);
 
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  /** Un autre tient la main : la fiche est en lecture seule. */
+  const other = lock && !lock.mine ? lock : null;
+
   const update = (fn: (d: OutingDoc) => OutingDoc) => {
     const current = docRef.current;
-    if (!current || saveStateRef.current === 'conflict') return;
+    if (!current) return;
+    if (lockRef.current && !lockRef.current.mine) return setNotice(`Modification ignorée : ${lockRef.current.name} modifie cette fiche.`);
+    if (saveStateRef.current === 'conflict') return setNotice('Modification ignorée : choisissez d’abord quelle version garder (bandeau en haut).');
     // Contrôle continu : un plongeur décoché de « Qui plonge ? » quitte aussitôt les palanquées.
     const changed = fn(current);
-    const next = roster ? syncWithRoster(changed, withGuests(roster, changed)).doc : changed;
-    docRef.current = next;
-    setDoc(next);
+    const r = rosterRef.current;
+    const next = r ? syncWithRoster(changed, withGuests(r, changed)).doc : changed;
+    showDoc(next);
+    // Écrit à chaque geste : une saisie proposée en reprise et pas reprise est alors remplacée.
+    writeDraft(token, { doc: next, baseRev: revRef.current, at: new Date().toISOString(), by: me });
+    if (draftOffer) setDraftOffer(null);
     setSave('pending');
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => void flush(), 1000);
+    // Premier geste sans la main : on la demande tout de suite, pour dire au plus vite si quelqu'un l'a prise.
+    timer.current = setTimeout(() => void flushRef.current(), lockRef.current?.mine ? 1000 : 0);
   };
 
-  const updateDive = (fn: (d: Dive) => Dive) => update((d) => ({ ...d, dives: d.dives.map((x) => (x.id === diveId ? fn(x) : x)) }));
+  /** Une plongée modifiée ; ses fiches et commentaires sans palanquée (palanquées refaites) s'en vont. */
+  const updateDive = (fn: (d: Dive) => Dive) => update((d) => ({ ...d, dives: d.dives.map((x) => (x.id === diveId ? pruneOrphans(fn(x)) : x)) }));
 
   /** Inscrits VPDive, membres ajoutés et plongeurs hors VPDive : tout l'écran les traite pareil. */
   const guests = doc?.guests;
@@ -366,9 +631,16 @@ function OutingWorkspace({
 
   /** L'identifiant d'inscription que VPDive attend pour ses routes d'admin. */
   const socketOf = (id: string, name: string) => {
-    const socket = roster?.find((r) => r.id === id)?.socket;
+    const socket = rosterRef.current?.find((r) => r.id === id)?.socket;
     if (!socket) throw new Error(`Inscription de ${name} introuvable sur VPDive : rechargez la sortie.`);
     return socket;
+  };
+
+  /** Avant d'écrire dans VPDive au nom de la fiche : il faut tenir la main. */
+  const mustHoldLease = async () => {
+    const lease = await ensureLease();
+    if (lease === 'taken') throw new Error(`${takenBy()} modifie cette fiche : action annulée.`);
+    if (lease === 'failed') throw new Error('Serveur de l’appli injoignable : réessayez.');
   };
 
   /**
@@ -376,11 +648,12 @@ function OutingWorkspace({
    * assurer. Il reste affiché barré (`unregistered`) tant qu'il ne s'est pas réinscrit.
    */
   const unregister = async (person: { id: string; name: string; instructor: boolean }) => {
-    await vpdive.deleteRegistration(event.token, socketOf(person.id, person.name));
-    const fresh = await vpdive.fetchRoster(event.token);
+    await mustHoldLease();
+    await vpdive.deleteRegistration(token, socketOf(person.id, person.name));
+    const fresh = await vpdive.fetchRoster(token);
     if (fresh.some((r) => r.id === person.id)) throw new Error(`VPDive n’a pas désinscrit ${person.name}.`);
     setRoster(fresh);
-    // Plus décoché : s'il se réinscrit, il revient coché comme tout nouvel inscrit.
+    // Plus décoché : s'il se réinscrit, il revient comme tout nouvel inscrit.
     update((d) => ({
       ...d,
       settings: toggleDiving(d.settings, person.id, true),
@@ -390,8 +663,9 @@ function OutingWorkspace({
 
   /** Liste d'attente → inscrit sur VPDive (même au-delà de la jauge), puis coché « plonge ». */
   const promote = async (person: { id: string; name: string }) => {
-    await vpdive.switchWaitingList(event.token, socketOf(person.id, person.name));
-    const fresh = await vpdive.fetchRoster(event.token);
+    await mustHoldLease();
+    await vpdive.switchWaitingList(token, socketOf(person.id, person.name));
+    const fresh = await vpdive.fetchRoster(token);
     const now = fresh.find((r) => r.id === person.id);
     if (!now || now.waitingList) throw new Error(`VPDive n’a pas inscrit ${person.name}.`);
     setRoster(fresh);
@@ -404,6 +678,7 @@ function OutingWorkspace({
    * tant qu'on ne le coche pas. Rien n'est inscrit sur VPDive.
    */
   const addMember = async (m: MemberMatch, chosen: DiveRole[]) => {
+    await mustHoldLease();
     const existing = people?.find((r) => r.uct === m.id);
     let id = existing?.id ?? addedMemberId(m.id);
     let added: AddedMember | null = null;
@@ -416,8 +691,9 @@ function OutingWorkspace({
     }
     id = added?.id ?? id;
     update((d) => {
-      const list = added ? withGuests(roster ?? [], { ...d, members: [...(d.members ?? []), added] }) : withGuests(roster ?? [], d);
-      let roles = d.roles ?? defaultRoles(roster ?? []);
+      const r = rosterRef.current ?? [];
+      const list = added ? withGuests(r, { ...d, members: [...(d.members ?? []), added] }) : withGuests(r, d);
+      let roles = d.roles ?? defaultRoles(r);
       const header = { ...d.header };
       for (const role of chosen) {
         if (!(roles[role] ?? []).includes(id)) roles = { ...roles, [role]: [...(roles[role] ?? []), id] };
@@ -430,6 +706,19 @@ function OutingWorkspace({
         ...(added ? { members: [...(d.members ?? []), added], settings: toggleDiving(d.settings, id, false) } : {}),
       };
     });
+  };
+
+  /** Reprendre la saisie trouvée sur l'appareil : il faut la main ; si la fiche a changé depuis, l'enregistrement fera un conflit à trancher. */
+  const resumeDraft = async (draft: Draft) => {
+    const lease = await ensureLease();
+    if (lease !== 'ok') return setNotice(lease === 'taken' ? `Impossible de reprendre la saisie : ${takenBy()} modifie cette fiche.` : 'Serveur de l’appli injoignable : réessayez.');
+    const r = rosterRef.current;
+    const d = r ? syncWithRoster(draft.doc, withGuests(r, draft.doc)).doc : draft.doc;
+    revRef.current = draft.baseRev;
+    setDraftOffer(null);
+    showDoc(d);
+    setSave('pending');
+    void flushRef.current();
   };
 
   if (loadError) {
@@ -449,6 +738,7 @@ function OutingWorkspace({
   if (!doc || !roster || !people) return <GabianLoader label="Chargement de la sortie…" className="m-auto" />;
 
   const dive = doc.dives.find((d) => d.id === diveId) ?? doc.dives[0]!;
+  const readOnly = !!other;
 
   return (
     <div className="px-5 sm:px-6 py-5 space-y-5">
@@ -464,36 +754,117 @@ function OutingWorkspace({
         <SaveBadge state={saveState} doc={doc} onRetry={() => void flush()} />
       </header>
 
+      {other && (
+        <div role="status" className="p-4 rounded-xl bg-tint text-brand text-base flex flex-wrap items-center gap-3 print:hidden">
+          <Lock className="w-5 h-5 shrink-0" />
+          <span className="flex-1 min-w-0">
+            <strong className="font-semibold">
+              En cours de modification par {other.uct === session.traceability ? 'vous, sur un autre appareil ou un autre onglet,' : other.name} depuis {hhmm(other.since)}.
+            </strong>{' '}
+            Lecture seule : la fiche se met à jour toute seule et redevient modifiable dès qu’elle est libre.
+          </span>
+          {other.uct === session.traceability && (
+            <button
+              type="button"
+              onClick={() =>
+                void ensureLease(true).then((r) => {
+                  if (r === 'ok') void refresh();
+                  else setNotice('Impossible de prendre la main : réessayez.');
+                })
+              }
+              className="btn btn-quiet h-9 text-sm"
+            >
+              Prendre la main ici
+            </button>
+          )}
+        </div>
+      )}
+
+      {notice && (
+        <div role="status" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <span className="flex-1 min-w-0">{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="Fermer" className="icon-btn w-9 h-9">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {draftOffer && (
+        <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <span className="flex-1 min-w-0">
+            Une saisie non enregistrée du {dateTime(draftOffer.at)} existe sur cet appareil : la reprendre, ou l’abandonner (modifier la fiche l’abandonne aussi).
+          </span>
+          <button type="button" onClick={() => void resumeDraft(draftOffer)} disabled={readOnly} className="btn btn-quiet h-9 text-sm border-warn/40 text-warn">
+            La reprendre
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              clearDraft(token);
+              setDraftOffer(null);
+            }}
+            className="btn btn-quiet h-9 text-sm"
+          >
+            L’abandonner
+          </button>
+        </div>
+      )}
+
       {saveState === 'conflict' && (
         <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">
-            {conflict?.updatedBy ?? 'Quelqu’un'} a enregistré cette sortie pendant que vous la modifiiez. Vos derniers changements ne sont pas enregistrés.
+            {conflict?.updatedBy ?? 'Quelqu’un'} a enregistré cette sortie
+            {conflict?.updatedAt ? ` le ${dateTime(conflict.updatedAt)}` : ''} pendant que vous la modifiiez. Vos derniers changements ne sont pas enregistrés : gardez sa version ou la vôtre.
           </span>
           <button
             type="button"
             onClick={() => {
-              if (!conflict) return void load();
-              docRef.current = conflict;
-              revRef.current = conflict.rev ?? 0;
-              setDoc(conflict);
               setConflict(null);
+              clearDraft(token);
+              if (!conflict) {
+                setSave('saved');
+                return void load();
+              }
+              const r = rosterRef.current;
+              const v = r ? derive(conflict, r).doc : conflict;
+              revRef.current = conflict.rev ?? 0;
+              baseDocRef.current = v;
+              showDoc(v);
               setSave('saved');
             }}
             className="btn btn-quiet h-9 text-sm border-warn/40 text-warn"
           >
             Charger sa version
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!window.confirm(`Écraser la version de ${conflict?.updatedBy ?? 'l’autre personne'} avec la vôtre ? Ses changements seront perdus.`)) return;
+              // Ma version, enregistrée par-dessus la sienne : on part de sa révision.
+              revRef.current = conflict?.rev ?? revRef.current;
+              setConflict(null);
+              setSave('pending');
+              void flush();
+            }}
+            className="btn btn-quiet h-9 text-sm"
+          >
+            Écraser avec ma version
+          </button>
         </div>
       )}
 
-      {departed.length > 0 && (
+      {(departed.gone.length > 0 || departed.waitlisted.length > 0) && (
         <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">
-            {departed.length > 1 ? 'Désinscrits' : 'Désinscrit'} depuis la composition : {departed.join(', ')}. {departed.length > 1 ? 'Retirés' : 'Retiré'} des palanquées, à revoir.
+            {departed.gone.length > 0 && `${departed.gone.length > 1 ? 'Désinscrits' : 'Désinscrit'} depuis la composition : ${departed.gone.join(', ')}. `}
+            {departed.waitlisted.length > 0 && `${departed.waitlisted.length > 1 ? 'Passés' : 'Passé'} en liste d’attente : ${departed.waitlisted.join(', ')}. `}
+            {departed.gone.length + departed.waitlisted.length > 1 ? 'Retirés' : 'Retiré'} des palanquées, à revoir.
           </span>
-          <button type="button" onClick={() => setDeparted([])} aria-label="Fermer" className="icon-btn w-9 h-9">
+          <button type="button" onClick={() => setDeparted({ gone: [], waitlisted: [] })} aria-label="Fermer" className="icon-btn w-9 h-9">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -516,18 +887,20 @@ function OutingWorkspace({
             {d.label}
           </button>
         ))}
-        <button
-          onClick={() => {
-            const added = nextDive(doc);
-            update((d) => ({ ...d, dives: [...d.dives, added] }));
-            setDiveId(added.id);
-            setView('dive');
-            setTab('palanquees');
-          }}
-          className="btn btn-quiet h-9 text-sm border-dashed"
-        >
-          <Plus className="w-4 h-4" /> Plongée
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => {
+              const added = nextDive(doc);
+              update((d) => ({ ...d, dives: [...d.dives, added] }));
+              setDiveId(added.id);
+              setView('dive');
+              setTab('palanquees');
+            }}
+            className="btn btn-quiet h-9 text-sm border-dashed"
+          >
+            <Plus className="w-4 h-4" /> Plongée
+          </button>
+        )}
         <span className="w-px h-6 bg-line mx-1" aria-hidden />
         <button
           onClick={() => setView('benevoles')}
@@ -536,7 +909,7 @@ function OutingWorkspace({
         >
           <HandHelping className="w-4 h-4" /> Bénévoles
         </button>
-        {view === 'dive' && doc.dives.length > 1 && (
+        {view === 'dive' && doc.dives.length > 1 && !readOnly && (
           <button
             onClick={() => {
               if (!window.confirm(`Supprimer « ${dive.label} » et sa fiche de sécurité ?`)) return;
@@ -554,11 +927,9 @@ function OutingWorkspace({
       </nav>
 
       {view === 'benevoles' ? (
-        <VolunteersPanel
-          roster={people}
-          volunteers={doc.volunteers ?? {}}
-          onChange={(volunteers) => update((d) => ({ ...d, volunteers }))}
-        />
+        <fieldset disabled={readOnly} className="min-w-0">
+          <VolunteersPanel roster={people} volunteers={doc.volunteers ?? {}} onChange={(volunteers) => update((d) => ({ ...d, volunteers }))} />
+        </fieldset>
       ) : (
         <>
         {/* Palanquées / Fiche */}
@@ -577,19 +948,22 @@ function OutingWorkspace({
             roster={people}
             doc={doc}
             dive={dive}
+            readOnly={readOnly}
             onSettings={(settings) => update((d) => ({ ...d, settings }))}
             // Le rôle changé remplit son champ de l'en-tête de la fiche ; les deux autres gardent ce qui y est écrit (pilote extérieur…).
             onRoles={(roles, role) => update((d) => ({ ...d, roles, header: { ...d.header, ...headerFromRoles(people, roles, role) } }))}
             onPlan={(plan) => updateDive((d) => ({ ...d, plan }))}
             onValidate={() => {
+              // Qui et quand : posés par le serveur à l'enregistrement.
               updateDive((d) => ({ ...d, validated: { by: me, at: new Date().toISOString() } }));
               setTab('fiche');
             }}
             onReopen={() => updateDive((d) => ({ ...d, validated: null }))}
+            onNote={(palanqueeId, text) => updateDive((d) => setGuideNote(d, palanqueeId, text, me))}
             onGuests={(list) => update((d) => ({ ...d, guests: list }))}
             onMembers={(list) => update((d) => ({ ...d, members: list }))}
-            onUnregister={unregister}
-            onPromote={canPromote ? promote : undefined}
+            onUnregister={isAdmin ? unregister : undefined}
+            onPromote={isAdmin ? promote : undefined}
             onAddMember={addMember}
           />
         ) : (
@@ -597,8 +971,16 @@ function OutingWorkspace({
             title={event.title}
             doc={doc}
             dive={dive}
+            readOnly={readOnly}
             onHeader={(header) => update((d) => ({ ...d, header }))}
-            onSheet={(id, sheet) => updateDive((d) => ({ ...d, sheets: { ...d.sheets, [id]: sheet } }))}
+            // La profondeur prévue est aussi celle de la palanquée : elle est contrôlée contre sa prérogative.
+            onSheet={(id, sheet) =>
+              updateDive((d) => ({
+                ...d,
+                sheets: { ...d.sheets, [id]: sheet },
+                plan: d.plan && sheet.planned.depth !== (d.sheets[id]?.planned.depth ?? '') ? setDepth(d.plan, id, parseDepth(sheet.planned.depth)) : d.plan,
+              }))
+            }
             onGas={(id, gas) => updateDive((d) => ({ ...d, gas: { ...d.gas, [id]: gas } }))}
           />
         )}

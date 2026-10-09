@@ -271,13 +271,16 @@ test('outing : enregistrement puis conflit de révision, verrou relâché à cha
   assert.equal(((await next.json()) as { doc: { rev: number } }).doc.rev, 2);
 });
 
-test('outing : verrou tenu par quelqu’un d’autre → 409 avec le doc courant', async () => {
+test('outing : verrou court tenu par un autre enregistrement → 503 « réessayez », pas un conflit', async () => {
   const store = memStore({ [`club:12:outing:${EV}`]: { rev: 3 } }, { lock: async () => false });
   const d = deps(store, caller({ vpdiveAdmin: true }));
   const started = Date.now();
   const res = await handleWith(outingPost({ dives: [] }, 3), d);
-  assert.equal(res.status, 409);
-  assert.deepEqual(((await res.json()) as { doc: unknown }).doc, { rev: 3 });
+  assert.equal(res.status, 503);
+  assert.equal(res.headers.get('Retry-After'), '1');
+  const body = (await res.json()) as { retry: boolean; doc?: unknown };
+  assert.equal(body.retry, true);
+  assert.equal(body.doc, undefined, 'pas de « charger sa version » : rien n’a changé');
   assert.ok(Date.now() - started >= 1400, 'a réessayé pendant ~1,5 s');
   assert.ok(!store.writes.includes(`club:12:outing:${EV}`));
 });
@@ -299,8 +302,121 @@ test('outing : un simple membre qui n’est pas DP est refusé', async () => {
   assert.equal(res.status, 403);
   const dp = await handleWith(req('GET', `action=outing&event=${EV}`), deps(store, caller({ uct: PLAIN }), true));
   assert.equal(dp.status, 200);
-  assert.deepEqual(await dp.json(), { doc: null });
+  assert.deepEqual(await dp.json(), { doc: null, lock: null });
 });
+
+// ── Sortie : bail d'édition ──
+
+const CLIENT_A = 'client-aaaa';
+const CLIENT_B = 'client-bbbb';
+const lockPost = (body: object) => req('POST', `action=outing_lock&event=${EV}`, JSON.stringify(body));
+const savePost = (doc: unknown, baseRev: number, client: string) => req('POST', `action=outing&event=${EV}`, JSON.stringify({ doc, baseRev, client }));
+type LockBody = { lock: { name: string; mine: boolean; since: string; expiresAt: string } | null; rev?: number; error?: string };
+
+test('bail d’édition : A prend la main ; B lit en voyant A, ne peut ni la prendre ni enregistrer ; A rend la main, B la prend', async () => {
+  const store = memStore();
+  const alice = deps(store, caller({ uct: SUPER, name: 'Alice', vpdiveAdmin: true }));
+  const bruno = deps(store, caller({ uct: OTHER, name: 'Bruno', vpdiveAdmin: true }));
+
+  const got = await handleWith(lockPost({ op: 'acquire', client: CLIENT_A }), alice);
+  assert.equal(got.status, 200);
+  const mine = (await got.json()) as LockBody;
+  assert.equal(mine.lock?.mine, true);
+  assert.equal(mine.lock?.name, 'Alice');
+  assert.equal(mine.rev, 0);
+  assert.ok(Date.parse(mine.lock!.expiresAt) - Date.now() > 100_000, 'environ 2 minutes');
+
+  const seen = (await (await handleWith(req('GET', `action=outing&event=${EV}&client=${CLIENT_B}`), bruno)).json()) as LockBody & { doc: unknown };
+  assert.equal(seen.lock?.name, 'Alice');
+  assert.equal(seen.lock?.mine, false);
+  assert.equal((seen.lock as Record<string, unknown>).client, undefined, 'l’identifiant d’onglet ne sort pas');
+
+  const refused = await handleWith(lockPost({ op: 'acquire', client: CLIENT_B }), bruno);
+  assert.equal(refused.status, 423);
+  assert.equal(((await refused.json()) as LockBody).lock?.name, 'Alice');
+  assert.equal((await handleWith(lockPost({ op: 'acquire', client: CLIENT_B, force: true }), bruno)).status, 423, 'force : seulement pour le même membre');
+  const write = await handleWith(savePost({ dives: [] }, 0, CLIENT_B), bruno);
+  assert.equal(write.status, 423);
+  assert.match(((await write.json()) as LockBody).error!, /Alice modifie cette fiche/);
+  assert.equal((await handleWith(savePost({ dives: [] }, 0, ''), bruno)).status, 423, 'sans client (ancienne version) : refusé aussi');
+
+  const saved = await handleWith(savePost({ dives: [] }, 0, CLIENT_A), alice);
+  assert.equal(saved.status, 200);
+
+  // Renouvelé : « depuis » ne bouge pas.
+  const renewed = (await (await handleWith(lockPost({ op: 'renew', client: CLIENT_A }), alice)).json()) as LockBody;
+  assert.equal(renewed.lock?.since, mine.lock?.since);
+  assert.equal(renewed.rev, 1);
+
+  assert.equal((await handleWith(lockPost({ op: 'release', client: CLIENT_B }), bruno)).status, 200, 'B ne peut pas rendre la main d’A');
+  assert.equal(((await (await handleWith(req('GET', `action=outing_lock&event=${EV}`), bruno)).json()) as LockBody).lock?.name, 'Alice');
+  const released = (await (await handleWith(lockPost({ op: 'release', client: CLIENT_A }), alice)).json()) as LockBody;
+  assert.equal(released.lock, null);
+  assert.equal(store.locks.size, 0, 'verrou court relâché');
+  const taken = (await (await handleWith(lockPost({ op: 'acquire', client: CLIENT_B }), bruno)).json()) as LockBody;
+  assert.equal(taken.lock?.mine, true);
+  assert.equal(taken.rev, 1, 'B voit qu’une version a été enregistrée');
+});
+
+test('bail d’édition : expiré, la main est libre ; le même membre peut la reprendre depuis un autre appareil ; client exigé', async () => {
+  const past = new Date(Date.now() - 1000).toISOString();
+  const store = memStore({ [`club:12:outing:${EV}:lease`]: { uct: OTHER, name: 'Bruno', client: CLIENT_B, since: past, expiresAt: past } });
+  const alice = deps(store, caller({ uct: SUPER, name: 'Alice', vpdiveAdmin: true }));
+  assert.equal(((await (await handleWith(req('GET', `action=outing_lock&event=${EV}`), alice)).json()) as LockBody).lock, null, 'expiré : personne');
+  assert.equal((await handleWith(savePost({ dives: [] }, 0, CLIENT_A), alice)).status, 200, 'bail expiré : l’écriture passe');
+  assert.equal((await handleWith(lockPost({ op: 'acquire', client: CLIENT_A }), alice)).status, 200);
+  const phone = await handleWith(lockPost({ op: 'acquire', client: 'client-phone' }), alice);
+  assert.equal(phone.status, 423, 'autre onglet du même membre : il faut forcer');
+  const forced = (await (await handleWith(lockPost({ op: 'acquire', client: 'client-phone', force: true }), alice)).json()) as LockBody;
+  assert.equal(forced.lock?.mine, true);
+  assert.equal((await handleWith(lockPost({ op: 'renew', client: CLIENT_A }), alice)).status, 423, 'l’ancien onglet a perdu la main');
+  assert.equal((await handleWith(lockPost({ op: 'acquire' }), alice)).status, 400);
+  assert.equal((await handleWith(lockPost({ op: 'voler', client: CLIENT_A }), alice)).status, 400);
+});
+
+test('marques posées par le serveur : validation, désinscription, commentaire d’encadrant', async () => {
+  const store = memStore();
+  const alice = deps(store, caller({ uct: SUPER, name: 'Alice', vpdiveAdmin: true }));
+  const bruno = deps(store, caller({ uct: OTHER, name: 'Bruno', vpdiveAdmin: true }));
+  const forged = { by: 'Quelqu’un d’autre', at: '2000-01-01T00:00:00Z' };
+  const doc = (validated: unknown, note: string) => ({
+    dives: [{ id: 'd1', validated, notes: note ? { p1: { text: note, ...forged } } : {} }],
+    unregistered: [{ id: 'u1', name: 'X', instructor: false, ...forged }],
+  });
+  type Saved = { doc: { dives: { validated: { by: string; at: string } | null; notes: Record<string, { text: string; by: string; at: string }> }[]; unregistered: { by: string; at: string }[] } };
+  const first = ((await (await handleWith(savePost(doc(forged, 'stagiaire'), 0, CLIENT_A), alice)).json()) as Saved).doc;
+  assert.equal(first.dives[0]!.validated!.by, 'Alice', 'le nom vient du serveur');
+  assert.notEqual(first.dives[0]!.validated!.at, forged.at);
+  assert.equal(first.unregistered[0]!.by, 'Alice');
+  assert.equal(first.dives[0]!.notes.p1!.by, 'Alice');
+
+  // Bruno réenregistre sans rien changer à ces champs : les marques d'Alice restent.
+  const second = ((await (await handleWith(savePost(doc({ by: 'Bruno', at: 'maintenant' }, 'stagiaire'), 1, CLIENT_B), bruno)).json()) as Saved).doc;
+  assert.deepEqual(second.dives[0]!.validated, first.dives[0]!.validated);
+  assert.deepEqual(second.unregistered[0], first.unregistered[0]);
+  assert.deepEqual(second.dives[0]!.notes.p1, first.dives[0]!.notes.p1);
+
+  // Commentaire modifié et palanquées dévalidées puis revalidées : nouvelles marques.
+  const reopened = ((await (await handleWith(savePost(doc(null, 'stagiaire MF1'), 2, CLIENT_B), bruno)).json()) as Saved).doc;
+  assert.equal(reopened.dives[0]!.validated, null);
+  assert.equal(reopened.dives[0]!.notes.p1!.by, 'Bruno');
+  const again = ((await (await handleWith(savePost(doc(forged, 'stagiaire MF1'), 3, CLIENT_B), bruno)).json()) as Saved).doc;
+  assert.equal(again.dives[0]!.validated!.by, 'Bruno');
+});
+
+test('DP d’une sortie : vérifié une fois auprès de VPDive puis gardé ; outing_roles donne le nom des membres ajoutés', async () => {
+  const store = memStore({
+    [`club:12:outing:${EV}`]: { rev: 1, roles: { dp: ['uct:U1'] }, members: [{ id: 'uct:U1', uct: 'U1', name: 'GINS Niels', picture: '' }, { id: 'uct:U2', uct: 'U2', name: 'SANS Rôle', picture: '' }] },
+  });
+  let calls = 0;
+  const member = caller({ uct: PLAIN, email: 'plain@club.fr' });
+  const d: Deps = { identify: async () => member, isDpOf: async () => (calls++, true), store: () => store };
+  for (let i = 0; i < 3; i++) assert.equal((await handleWith(req('GET', `action=outing_lock&event=${EV}`), d)).status, 200);
+  assert.equal(calls, 1);
+  const roles = (await (await handleWith(req('GET', `action=outing_roles&events=${EV}`), deps(store, caller({ vpdiveAdmin: true })))).json()) as { roles: Record<string, unknown>; members: Record<string, unknown> };
+  assert.deepEqual(roles.members[EV], [{ id: 'uct:U1', name: 'GINS Niels' }]);
+});
+
 
 // ── Gestion des adhésions ──
 

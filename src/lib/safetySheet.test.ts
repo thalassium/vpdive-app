@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { aptitudesFromLabels, type Diver, type Palanquee } from './palanquees';
 import { emptySheet, type Dive, type OutingDoc } from './outing';
-import { headerText, sheetApt, sheetRows } from './safetySheet';
+import { headerText, missingHeader, noteText, overDepth, printWarnings, sheetApt, sheetRows } from './safetySheet';
 import { safetySheetFileName, safetySheetPdf } from './safetySheetPdf';
 
 let n = 0;
@@ -77,4 +77,28 @@ test('fiche PDF : une formation de six et deux explorations sur la même rangée
   const dive: Dive = { id: 'd1', label: 'Plongée 1', plan: { palanquees: [big, small, { ...small, id: 's2' }], unassigned: [] }, validated: null, sheets: {}, gas: {} };
   const pdf = safetySheetPdf({ settings: {} as OutingDoc['settings'], header, dives: [dive] }, dive, 'Sortie');
   assert.equal(pdf.getNumberOfPages(), 1);
+});
+
+test('avant d’imprimer : DP, pilote, date et lieu manquants ; profondeur prévue au-delà de la prérogative', () => {
+  const header = { etablissement: 'Club', reference: '', bateau: '', pilote: ' ', dp: 'Hélène', securite: '', date: '2026-10-08', creneau: '', lieu: '', accompagnants: '' };
+  assert.deepEqual(missingHeader(header), ['Pilote', 'Lieu de plongée']);
+  const n1: Palanquee = { id: 'a', kind: 'guided', guide: diver('G', 'N4'), extra: null, members: [diver('Z', 'P1')] };
+  const n3: Palanquee = { id: 'b', kind: 'autonomous', guide: null, extra: null, members: [diver('X', 'P3'), diver('Y', 'P3')] };
+  const sheet = (depth: string) => ({ ...emptySheet(), planned: { duration: '', depth, time: '' } });
+  const dive = { plan: { palanquees: [n1, n3], unassigned: [] }, sheets: { a: sheet('25 m'), b: sheet('45') } };
+  assert.deepEqual(overDepth(dive), [{ label: 'P1', planned: 25, legal: 20 }]);
+  assert.deepEqual(printWarnings(header, dive), ['Non renseigné : Pilote, Lieu de plongée.', 'P1 : 25 m prévus, au-delà de sa prérogative (20 m).']);
+  assert.deepEqual(printWarnings({ ...header, pilote: 'Niels', lieu: 'Riou' }, { ...dive, sheets: {} }), []);
+});
+
+test('fiche PDF : le commentaire sur l’encadrant est imprimé', () => {
+  const g = diver('Guide', 'P4');
+  const p: Palanquee = { id: 'p', kind: 'guided', guide: g, extra: null, members: [diver('Zoé', 'P1')] };
+  const note = { text: 'Stagiaire GP', by: 'Hélène', at: '2026-10-08T08:00:00Z' };
+  assert.match(noteText(note), /^Stagiaire GP \(Hélène, \d\d\/\d\d\/\d{4} \d\d:\d\d\)$/);
+  const header = { etablissement: 'Club', reference: '', bateau: '', pilote: '', dp: '', securite: '', date: '2026-10-08', creneau: '', lieu: '', accompagnants: '' };
+  const dive: Dive = { id: 'd1', label: 'Plongée 1', plan: { palanquees: [p], unassigned: [] }, validated: null, sheets: {}, gas: {}, notes: { p: note } };
+  const pdf = safetySheetPdf({ settings: {} as OutingDoc['settings'], header, dives: [dive] }, dive, 'Sortie');
+  const raw = Buffer.from(pdf.output('arraybuffer')).toString('latin1');
+  assert.match(raw, /Stagiaire GP/);
 });

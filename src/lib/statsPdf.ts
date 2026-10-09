@@ -185,6 +185,7 @@ export function statsPdf(stats: Stats, { from, to, partial }: StatsPdfOptions): 
     others > 0 && `${plural(others, 'autre événement', 'autres événements')} (réunions, cours théoriques…).`,
     stats.fill !== null && `Remplissage moyen ${Math.round(stats.fill * 100)} %.`,
     stats.waiting > 0 && `${plural(stats.waiting, 'inscription', 'inscriptions')} en liste d’attente.`,
+    stats.merged.length > 0 && `Comptes fusionnés (même personne, plusieurs comptes VPDive) : ${stats.merged.map((m) => `${m.name} (${m.accounts} comptes)`).join(', ')}.`,
   ]
     .filter(Boolean)
     .join(' ');

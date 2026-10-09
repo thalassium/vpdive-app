@@ -63,7 +63,16 @@ export interface RoleEntry {
 }
 
 
-export type IgnoredDocs = Record<string, { name: string; by: string; at: string }>;
+/** Qui modifie une fiche de sortie (bail d'édition, server/handler.ts) ; `mine` : cet éditeur-ci. */
+export interface OutingLock {
+  uct: string;
+  name: string;
+  since: string;
+  expiresAt: string;
+  mine: boolean;
+}
+
+export type IgnoredDocs =Record<string, { name: string; by: string; at: string }>;
 
 export class AppApiError extends Error {
   constructor(
@@ -75,13 +84,15 @@ export class AppApiError extends Error {
   }
 }
 
-async function call<T>(query: string, init: { method?: 'GET' | 'POST'; body?: unknown } = {}): Promise<T> {
+async function call<T>(query: string, init: { method?: 'GET' | 'POST'; body?: unknown; keepalive?: boolean } = {}): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`/api/app?${query}`, {
       method: init.method ?? 'GET',
       headers: { ...vpdive.authHeaders(), Accept: 'application/json', ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      // Requête qui doit partir même si la page se ferme (rendre la main en quittant).
+      ...(init.keepalive ? { keepalive: true } : {}),
     });
   } catch {
     throw new AppApiError('Serveur de l’appli injoignable. Vérifiez votre connexion.', 0);
@@ -99,10 +110,33 @@ export const appApi = {
   rolesAndSeen: () => call<{ roles: RoleEntry[]; seen?: Record<string, string> }>('action=roles').then((r) => ({ roles: r.roles, seen: r.seen ?? {} })),
   setRole: (uct: string, change: { admin?: boolean; superAdmin?: boolean }) =>
     call<{ roles: RoleEntry[] }>('action=role', { method: 'POST', body: { uct, ...change } }).then((r) => r.roles),
-  getOuting: (event: string) => call<{ doc: OutingDoc | null }>(`action=outing&event=${encodeURIComponent(event)}`).then((r) => r.doc),
-  /** Rôles enregistrés dans l'appli (DP, pilote, sécurité) pour plusieurs sorties ; null : pas de fiche. */
+  /** La fiche de la sortie (null : pas encore de fiche) et qui la modifie ; `client` : cet éditeur, pour savoir si c'est lui. */
+  getOuting: (event: string, client = '') =>
+    call<{ doc: OutingDoc | null; lock?: OutingLock | null }>(`action=outing&event=${encodeURIComponent(event)}${client ? `&client=${encodeURIComponent(client)}` : ''}`).then((r) => ({
+      doc: r.doc,
+      lock: r.lock ?? null,
+    })),
+  /**
+   * Bail d'édition : prendre la main (acquire), la garder (renew), la rendre
+   * (release). Refusé avec 423 (body.lock = qui la tient) si un autre la tient ;
+   * `force` : la reprendre à soi-même sur un autre appareil. `rev` : révision
+   * enregistrée, pour voir si la fiche a changé entre-temps.
+   */
+  outingLock: (event: string, op: 'acquire' | 'renew' | 'release', client: string, opts: { force?: boolean; keepalive?: boolean } = {}) =>
+    call<{ lock: OutingLock | null; rev?: number }>(`action=outing_lock&event=${encodeURIComponent(event)}`, {
+      method: 'POST',
+      body: { op, client, ...(opts.force ? { force: true } : {}) },
+      keepalive: opts.keepalive,
+    }),
+  /**
+   * Rôles enregistrés dans l'appli (DP, pilote, sécurité) pour plusieurs sorties
+   * (null : pas de fiche), et le nom des membres ajoutés sans inscription qui en tiennent un.
+   */
   outingRoles: (events: string[]) =>
-    call<{ roles: Record<string, Record<string, string[]> | null> }>(`action=outing_roles&events=${events.map(encodeURIComponent).join(',')}`, { method: 'GET' }).then((r) => r.roles),
+    call<{ roles: Record<string, Record<string, string[]> | null>; members?: Record<string, { id: string; name: string; picture?: string }[]> }>(
+      `action=outing_roles&events=${events.map(encodeURIComponent).join(',')}`,
+      { method: 'GET' },
+    ).then((r) => ({ roles: r.roles, members: r.members ?? {} })),
   /** Suivi des documents : membres ignorés (uct → nom, qui, quand), partagés entre admins. */
   /** Gestion des adhésions : articles HelloAsso de la saison (année de fin). */
   helloasso: (season: number) => call<{ items: HaItem[] }>(`action=helloasso&season=${season}`).then((r) => r.items),
@@ -133,9 +167,13 @@ export const appApi = {
   docsIgnored: () => call<{ ignored: IgnoredDocs }>('action=docs_ignored').then((r) => r.ignored),
   setDocsIgnored: (uct: string, name: string, ignore: boolean) =>
     call<{ ignored: IgnoredDocs }>('action=docs_ignored', { method: 'POST', body: { uct, name, ignore } }).then((r) => r.ignored),
-  /** Refused with status 409 (body.doc = the newer version) when someone saved in between. */
-  saveOuting: (event: string, doc: OutingDoc, baseRev: number) =>
-    call<{ doc: OutingDoc }>(`action=outing&event=${encodeURIComponent(event)}`, { method: 'POST', body: { doc, baseRev } }).then((r) => r.doc),
+  /**
+   * Refusé avec 409 (body.doc = la version plus récente) si quelqu'un a enregistré
+   * entre-temps, 423 (body.lock) si un autre tient la main, 503 (body.retry) si un
+   * autre enregistrement de la sortie est en cours : réessayer.
+   */
+  saveOuting: (event: string, doc: OutingDoc, baseRev: number, client = '') =>
+    call<{ doc: OutingDoc }>(`action=outing&event=${encodeURIComponent(event)}`, { method: 'POST', body: { doc, baseRev, client } }).then((r) => r.doc),
   /**
    * Logout: the server drops its cached copy of this session. Call it before
    * vpdive.logout() (the headers are still needed). Never rejects: fire-and-forget safe.
