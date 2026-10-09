@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Avatar } from './Avatar';
 import { AlertTriangle, ChevronDown, ExternalLink, Lock, RefreshCw, Search, ShieldCheck, Users, X } from 'lucide-react';
-import { vpdive, isUnavailable, type MemberMatch, type MemberProfile } from '../services/vpdiveApi';
+import { vpdive, isUnavailable, type MemberMatch, type MemberProfile } from '../services/vpdive';
 import { appApi, type AppRole, type Me, type RoleEntry } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
 import { findDuplicates, type DuplicateGroup } from '../lib/duplicates';

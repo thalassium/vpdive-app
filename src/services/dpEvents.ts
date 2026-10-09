@@ -7,7 +7,9 @@
  * incomplète (`complete: false`), l'écran le dit et rien n'est gardé en cache.
  * VPDive indisponible (pare-feu, réseau) : on s'arrête là, sans insister.
  */
-import { vpdive, ymd, isSessionLost, isUnavailable, DP_ROLE, type CalendarEvent, type RosterEntry } from './vpdiveApi';
+import { vpdive, isSessionLost, isUnavailable, type CalendarEvent, type RosterEntry } from './vpdive';
+import { DP_ROLE } from '../lib/outingRoles';
+import { ymd } from '../lib/dates';
 
 /** Message affiché là où le menu DP apparaît quand une liste n'a pas pu être lue. */
 export const DP_SCAN_FAILED = 'Vérification des sorties DP impossible';

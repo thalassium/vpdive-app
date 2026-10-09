@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, Wind, X } from 'lucide-react';
-import { vpdive, ymd, type CalendarEvent } from '../../services/vpdiveApi';
+import { vpdive, type CalendarEvent } from '../../services/vpdive';
+import { ymd } from '../../lib/dates';
 import { SPOTS, forecastAt, type Spot } from '../../services/marineWeather';
 import { SEUILS, beaufort, compass, level, metres, windColor, worstIn, type Level, type Slot } from '../../lib/marine';
 import { useDialog } from '../../hooks/useDialog';

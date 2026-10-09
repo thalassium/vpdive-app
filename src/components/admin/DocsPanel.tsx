@@ -4,13 +4,14 @@ import { Avatar } from '../Avatar';
 import { Tab as TabItem, TabList, TabPanel } from '../Tabs';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
-import { vpdive, ymd, isUnavailable, type RosterEntry } from '../../services/vpdiveApi';
+import { vpdive, isUnavailable, type RosterEntry } from '../../services/vpdive';
+import { ymd } from '../../lib/dates';
 import { appApi, type IgnoredDocs } from '../../services/appApi';
 import { messaging } from '../../services/messaging';
 import { bulkReminderText, checkDocs, reminderText, seasonOfOuting, type DocIssue, type DocKind, type DocsStatus } from '../../lib/docsCheck';
 import { MembershipTab, type MembershipStep } from './MembershipTab';
 import { PendingDocumentsTab, RegistrationRequestsTab } from './PendingTabs';
-import type { PendingValidation } from '../../services/vpdiveApi';
+import type { PendingValidation } from '../../services/vpdive';
 import type { RegistrationRequest } from '../../services/appApi';
 
 /**

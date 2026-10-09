@@ -1,5 +1,5 @@
 import { ChevronDown, X } from 'lucide-react';
-import type { RosterEntry } from '../../services/vpdiveApi';
+import type { RosterEntry } from '../../services/vpdive';
 import { MAX_PER_POST, VOLUNTEER_POSTS, dayParticipants, postsByPerson, setVolunteer, type VolunteerPost, type Volunteers } from '../../lib/outing';
 import { Menu } from '../Menu';
 

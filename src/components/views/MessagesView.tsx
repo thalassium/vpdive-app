@@ -3,7 +3,7 @@ import { ArrowLeft, Plus, SendHorizontal, Users, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
 import { Cromagnon } from '../Cromagnon';
 import { messaging, type ChatMember, type ChatMessage, type ChatSummary, type ChatThread } from '../../services/messaging';
-import { vpdive, type MemberMatch } from '../../services/vpdiveApi';
+import { vpdive, type MemberMatch } from '../../services/vpdive';
 import { normalizeName, rankByName } from '../../lib/fuzzy';
 
 /**

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BarChart3, FileDown, RefreshCw, X } from 'lucide-react';
-import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdiveApi';
+import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdive';
 import { appApi } from '../../services/appApi';
 import { computeStats, dateFr, isDiveActivity, monthSeries, monthShort, presetRange, seasonPresetLabel, type PresetId, type StatEvent, type StatPerson, type StatStaff, type Stats } from '../../lib/stats';
 import { Avatar } from '../Avatar';

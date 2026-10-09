@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, Copy, Package, RefreshCw, X } from 'lucide-react';
-import { vpdive, ymd, type CalendarEvent, type RosterEntry } from '../../services/vpdiveApi';
+import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpdive';
+import { ymd } from '../../lib/dates';
 import { appApi } from '../../services/appApi';
 import { BOTTLES } from '../../lib/gear';
 import { aggregateMaterial, isUnknownSize, materialText, sortedSizes, BOTTLE_SHORT, type MaterialPerson } from '../../lib/material';

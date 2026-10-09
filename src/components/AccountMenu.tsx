@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Eye, LogOut, UserRound } from 'lucide-react';
 import { Avatar } from './Avatar';
-import { vpdive, type MemberMatch } from '../services/vpdiveApi';
+import { vpdive, type MemberMatch } from '../services/vpdive';
 import { appApi, type AppRole } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
 import { ROLE_LABEL } from '../lib/roleLabels';

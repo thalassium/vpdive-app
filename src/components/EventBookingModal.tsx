@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, Pencil, Users } from 'lucide-react';
-import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption, type RoleOption } from '../services/vpdiveApi';
+import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption, type RoleOption } from '../services/vpdive';
 import { BuddyField } from './BuddyField';
 import { useConfirm } from '../hooks/useConfirm';
 import { useDialog } from '../hooks/useDialog';

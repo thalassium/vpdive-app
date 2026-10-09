@@ -5,7 +5,8 @@ import { Avatar } from '../Avatar';
 import { Spinner } from '../Spinner';
 import { GabianLoader } from '../Gabian';
 import { MemberSearch } from '../dp/MemberSearch';
-import { vpdive, ymd, isUnavailable } from '../../services/vpdiveApi';
+import { vpdive, isUnavailable } from '../../services/vpdive';
+import { ymd } from '../../lib/dates';
 import { appApi, type FfessmImport, type MemberWriteLog } from '../../services/appApi';
 import { applyJob, type WriteJob } from '../../services/memberWriter';
 import {

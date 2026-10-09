@@ -1,4 +1,4 @@
-import { pictureUrl, vpdive } from './vpdiveApi';
+import { pictureUrl, vpdive } from './vpdive';
 import { wait } from '../lib/wait';
 import {
   mergeConversations,

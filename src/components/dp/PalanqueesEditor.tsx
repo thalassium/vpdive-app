@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Lock, MessageSquare, Pencil, Plus, RotateCcw, Share2, ShieldCheck, Sparkles, Star, Trash2, UserMinus, UserPlus, UserX, X } from 'lucide-react';
-import type { MemberMatch, RosterEntry } from '../../services/vpdiveApi';
+import type { MemberMatch, RosterEntry } from '../../services/vpdive';
 import { MemberSearch } from './MemberSearch';
 import { Avatar } from '../Avatar';
 import { Spinner } from '../Spinner';

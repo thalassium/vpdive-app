@@ -11,7 +11,7 @@
 import { aptitudesFromLabels, isInstructor, type Aptitudes } from './palanquees';
 import { normalizeName } from './fuzzy';
 import { seasonLabel, seasonOf } from './membership';
-import { DP_ROLE, SURFACE_ROLES } from '../services/vpdiveApi';
+import { DP_ROLE, SURFACE_ROLES } from './outingRoles';
 
 export interface StatEvent {
   token: string;

@@ -1,4 +1,4 @@
-import type { CalendarEvent } from '../../services/vpdiveApi';
+import type { CalendarEvent } from '../../services/vpdive';
 import { Cromagnon } from '../Cromagnon';
 
 /**

@@ -13,7 +13,7 @@
  * l'ordre alphabétique compare comme des dates.
  */
 
-import type { RosterEntry } from '../services/vpdiveApi';
+import type { RosterEntry } from '../services/vpdive';
 import { seasonLabel, seasonOf } from './membership';
 
 /** Saison d'une sortie, pour les messages de relance (« 2026/2027 »). */

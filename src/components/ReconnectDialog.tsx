@@ -2,7 +2,7 @@ import { useId } from 'react';
 import { LogOut } from 'lucide-react';
 import { useDialog } from '../hooks/useDialog';
 import { LoginForm } from './LoginPage';
-import type { Session } from '../services/vpdiveApi';
+import type { Session } from '../services/vpdive';
 
 interface Props {
   /** Pourquoi on redemande le mot de passe (« Votre session VPDive a expiré… »). */

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { aptitudesFromLabels, depthOf, proposePalanquees, validate, type Diver, type Plan } from './palanquees';
 import { NO_TRAINING, PREROGATIVE_OPTIONS, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setExtra, setType, trainingMenuFor } from './palanqueeEdit';
-import type { RosterEntry } from '../services/vpdiveApi';
+import type { RosterEntry } from '../services/vpdive';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
   id, name, firstname: name.split(' ')[1] ?? '', lastname: name.split(' ')[0] ?? '', levels, display: levels, training: [], roles: [],

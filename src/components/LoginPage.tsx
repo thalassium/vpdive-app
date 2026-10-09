@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent } from 'react';
 import { AlertCircle, ArrowRight } from 'lucide-react';
-import { vpdive, type Session } from '../services/vpdiveApi';
+import { vpdive, type Session } from '../services/vpdive';
 import { Logo } from './Brand';
 import { Gabian } from './Gabian';
 import { ThemeToggle } from './ThemeToggle';

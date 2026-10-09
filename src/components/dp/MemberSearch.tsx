@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
-import { vpdive, isAborted, type MemberMatch } from '../../services/vpdiveApi';
+import { vpdive, isAborted, type MemberMatch } from '../../services/vpdive';
 import { rankByName } from '../../lib/fuzzy';
 import { Avatar } from '../Avatar';
 

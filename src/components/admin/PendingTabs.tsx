@@ -3,7 +3,7 @@ import { Check, ExternalLink, FileText, UserCheck, UserPlus, X } from 'lucide-re
 import { Avatar } from '../Avatar';
 import { Spinner } from '../Spinner';
 import { GabianLoader } from '../Gabian';
-import { vpdive, type PendingValidation } from '../../services/vpdiveApi';
+import { vpdive, type PendingValidation } from '../../services/vpdive';
 import { appApi, type RegistrationRequest } from '../../services/appApi';
 import { useConfirm } from '../../hooks/useConfirm';
 import { cacheKey } from './memberCache';

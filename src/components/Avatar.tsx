@@ -8,7 +8,7 @@ const SIZES = {
 /**
  * Photo d'un membre telle que renseignée dans VPDive, sinon ses initiales.
  * `picture` est vide quand VPDive n'a que son avatar par défaut (voir
- * pictureUrl dans services/vpdiveApi.ts) ; une photo qui ne charge plus
+ * pictureUrl dans services/vpdive/parse.ts) ; une photo qui ne charge plus
  * retombe aussi sur les initiales.
  */
 export function Avatar({

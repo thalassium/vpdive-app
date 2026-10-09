@@ -11,7 +11,7 @@
  */
 
 import { BOTTLES, DEFAULT_BOTTLE, SIZES, parseComment, sizedKinds, type Bottle, type Size } from './gear';
-import { DP_ROLE, SURFACE_ROLES } from '../services/vpdiveApi';
+import { DP_ROLE, SURFACE_ROLES } from './outingRoles';
 
 /** Ce que fetchRoster donne, réduit à ce qu'il faut ici (testable sans le client VPDive). */
 export interface MaterialRegistrant {

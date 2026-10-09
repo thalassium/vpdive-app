@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Plus, RotateCcw, X } from 'lucide-react';
-import { vpdive } from '../../services/vpdiveApi';
+import { vpdive } from '../../services/vpdive';
 import { automaticLevels, type BrevetMap } from '../../lib/membership';
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));

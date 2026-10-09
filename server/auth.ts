@@ -20,7 +20,7 @@ export interface Caller {
   email: string;
   name: string;
   clubId: string;
-  /** Admin dans VPDive : permission `member_view` (cf. src/services/vpdiveApi.ts). */
+  /** Admin dans VPDive : permission `member_view` (cf. src/services/vpdive/auth.ts). */
   vpdiveAdmin: boolean;
   /** En-têtes à réutiliser pour interroger VPDive au nom de l'appelant. */
   headers: Record<string, string>;

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, ClipboardList, HandHelping, Lock, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
-import { vpdive, ymd, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { vpdive, SessionExpiredError, type CalendarEvent, type MemberMatch, type RosterEntry, type Session } from '../../services/vpdive';
+import { ymd } from '../../lib/dates';
 import { DP_SCAN_FAILED, dpWindow, findDpEvents } from '../../services/dpEvents';
 import { appApi, AppApiError, type AppRole, type OutingLock } from '../../services/appApi';
 import {

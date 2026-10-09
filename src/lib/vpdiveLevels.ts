@@ -54,8 +54,12 @@ function teachingDiploma(q: VpdiveQualif): string {
   return q.code.trim();
 }
 
-/** Autres activités fédérales (apnée, orientation, hockey, pêche, archéologie, handisport…). */
-const otherActivity = (q: VpdiveQualif) => /^(A|OS|NAP|NEV|H|PSP|PS|TIR|RS|AS|BIO|PSH|AUD|s)\s?-/.test(q.name.trim());
+/**
+ * Autres activités fédérales (apnée, orientation, hockey, pêche, archéologie, handisport…),
+ * au début du nom VPDive (« A - … », « H - … ») : aucune prérogative en scaphandre.
+ */
+export const OTHER_ACTIVITY = /^(A|OS|NAP|NEV|H|PSP|PS|TIR|RS|AS|BIO|PSH|AUD|s)\s?-/;
+const otherActivity = (q: VpdiveQualif) => OTHER_ACTIVITY.test(q.name.trim());
 
 /**
  * Ce qui sert à juger les palanquées, sans le bruit (secourisme, nitrox, apnée…).

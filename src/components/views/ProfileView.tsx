@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Award, ChevronDown, ExternalLink, FileText, FolderOpen, IdCard, ImageIcon, LogOut } from 'lucide-react';
-import { vpdive, ymd, type EmergencyContact, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdiveApi';
+import { vpdive, type EmergencyContact, type MemberDocument, type MemberInfo, type MemberProfile, type RosterEntry, type Session } from '../../services/vpdive';
+import { ymd } from '../../lib/dates';
 import type { Me } from '../../services/appApi';
 import { Avatar } from '../Avatar';
 import { ThemeToggle } from '../ThemeToggle';

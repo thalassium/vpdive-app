@@ -5,7 +5,7 @@
  * relecture et contrôle, puis journal sur le serveur (avec la fiche d'avant).
  * Les formulaires et les contrôles sont dans lib/memberWrite.
  */
-import { SessionExpiredError, vpdive, type CallPace } from './vpdiveApi';
+import { SessionExpiredError, vpdive, type CallPace } from './vpdive';
 import { appApi } from './appApi';
 import { capacityEntries, checkWrite, generalEntries, insuranceEntries, licenceEntries, rawHasLicence, snapshot, type Entry, type Expect, type RawMember } from '../lib/memberWrite';
 import { licenceEnd, type Fix, type VpRecord } from '../lib/membership';

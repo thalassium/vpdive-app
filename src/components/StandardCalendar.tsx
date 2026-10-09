@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { dayWeather, metres, type DayWeather, type Slot } from '../lib/marine';
 import { gridRange, listDaysOf } from '../lib/agenda';
 import { ChevronLeft, ChevronRight, Wind, RefreshCw, AlertCircle, Check } from 'lucide-react';
-import { ymd, type CalendarEvent } from '../services/vpdiveApi';
+import { type CalendarEvent } from '../services/vpdive';
+import { ymd } from '../lib/dates';
 import { SPOTS, forecastAt } from '../services/marineWeather';
 
 const MOIS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
