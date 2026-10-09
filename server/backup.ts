@@ -55,7 +55,7 @@ async function storage(cfg: SupabaseConfig, path: string, init: RequestInit & { 
     body: json !== undefined ? JSON.stringify(json) : rest.body,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`Supabase Storage : HTTP ${res.status} sur ${path.split('/').slice(0, 3).join('/')}`);
+  if (!res.ok) throw new Error(`Supabase Storage : HTTP ${res.status} sur ${path.split('/').slice(0, 3).join('/')}`);
   return res;
 }
 
@@ -74,7 +74,7 @@ export async function listBackups(cfg: SupabaseConfig): Promise<string[]> {
 
 /** Contenu d'une sauvegarde du bucket. */
 export async function downloadBackup(cfg: SupabaseConfig, name: string): Promise<BackupFile> {
-  if (!FILE_RE.test(name)) throw new Error(`Nom de sauvegarde inattendu : ${name}`);
+  if (!FILE_RE.test(name)) throw new Error(`Nom de sauvegarde inattendu : ${name}`);
   const res = await storage(cfg, `/object/${encodeURIComponent(cfg.bucket)}/${name}`);
   return parseBackup(await res.text());
 }
@@ -91,7 +91,7 @@ export type BackupResult = { status: 'skipped'; reason: string } | { status: 'do
 export async function runBackup(store: Store, env: Record<string, string | undefined> = process.env, now = new Date()): Promise<BackupResult> {
   const cfg = supabaseConfig(env);
   if (!cfg) {
-    const reason = 'SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY ou SUPABASE_BACKUP_BUCKET manquant : sauvegarde non faite';
+    const reason = 'SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY ou SUPABASE_BACKUP_BUCKET manquant : sauvegarde non faite';
     log('warn', { action: 'backup', status: 200, message: reason });
     return { status: 'skipped', reason };
   }
@@ -128,7 +128,7 @@ const reply = (data: unknown, status = 200) => new Response(JSON.stringify(data)
 export async function handleBackup(request: Request, store: () => Store = getStore): Promise<Response> {
   const secret = process.env.CRON_SECRET;
   if (!secret) {
-    log('error', { action: 'backup', status: 503, message: 'CRON_SECRET manquant : sauvegarde refusée' });
+    log('error', { action: 'backup', status: 503, message: 'CRON_SECRET manquant : sauvegarde refusée' });
     return reply({ error: 'Sauvegarde non configurée.' }, 503);
   }
   if (!sameSecret(request.headers.get('authorization') ?? '', `Bearer ${secret}`)) {

@@ -448,7 +448,7 @@ export function MessagesView({ me, onSessionLost, onRead }: { me: Me; onSessionL
                             <span className="flex-1 min-w-0">
                               <span className={`block truncate text-ink ${c.unread ? 'font-semibold' : 'font-medium'}`}>{c.title}</span>
                               <span className={`block text-sm truncate ${c.unread ? 'text-ink font-medium' : 'text-muted'}`}>
-                                {c.last ? `${mine ? 'Vous : ' : ''}${preview(c.last.text)}` : 'Aucun message'}
+                                {c.last ? `${mine ? 'Vous : ' : ''}${preview(c.last.text)}` : 'Aucun message'}
                               </span>
                             </span>
                             <span className="shrink-0 flex flex-col items-end gap-1.5 self-start pt-0.5">

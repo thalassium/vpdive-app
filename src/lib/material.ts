@@ -50,7 +50,7 @@ export interface MaterialSummary {
   waiting: MaterialPerson[];
 }
 
-export const UNKNOWN_SIZE = 'taille ?';
+export const UNKNOWN_SIZE = 'taille ?';
 /** Une taille à demander au plongeur (inconnue en tout ou en partie). */
 export const isUnknownSize = (size: string) => size.includes('?');
 
@@ -171,7 +171,7 @@ export function aggregateMaterial(roster: MaterialRegistrant[], diving: Set<stri
 }
 
 /** « 12 L : 14 · 15 L : 3 · Enfant : 1 » */
-export const bottlesLine = (bottles: Record<Bottle, number>) => BOTTLES.map((b) => `${BOTTLE_SHORT[b]} : ${bottles[b]}`).join(' · ');
+export const bottlesLine = (bottles: Record<Bottle, number>) => BOTTLES.map((b) => `${BOTTLE_SHORT[b]} : ${bottles[b]}`).join(' · ');
 
 /** Liste à copier (message, note) : le matériel avec ses tailles, puis les bouteilles. */
 export function materialText(summary: MaterialSummary, title: string): string {
@@ -179,11 +179,11 @@ export function materialText(summary: MaterialSummary, title: string): string {
   if (summary.items.length) {
     for (const i of summary.items) {
       const sizes = sortedSizes(i.bySize).map(([s, n]) => `${s} × ${n}`);
-      out.push(`${i.name} : ${i.total}${sizes.length ? ` (${sizes.join(', ')})` : ''}`);
+      out.push(`${i.name} : ${i.total}${sizes.length ? ` (${sizes.join(', ')})` : ''}`);
     }
   } else {
     out.push('Aucun matériel demandé.');
   }
-  out.push('', `Bouteilles : ${bottlesLine(summary.bottles)}`);
+  out.push('', `Bouteilles : ${bottlesLine(summary.bottles)}`);
   return out.join('\n');
 }

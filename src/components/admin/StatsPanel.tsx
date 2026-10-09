@@ -96,7 +96,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
             setStaff((r) => ({ ...r, [e.token]: crew }));
           } catch (err) {
             if (onSessionLost(err)) return;
-            setError(`Lecture interrompue : ${message(err)}`);
+            setError(`Lecture interrompue : ${message(err)}`);
             setStopped(true);
             return;
           }
@@ -202,7 +202,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
     setPdfState('busy');
     try {
       const { downloadStatsPdf } = await import('../../lib/statsPdf');
-      const partial = stopped || progress ? (progress ? `Chiffres partiels : ${n(progress.done)} listes d’inscrits lues sur ${n(progress.total)}.` : 'Chiffres partiels.') : null;
+      const partial = stopped || progress ? (progress ? `Chiffres partiels : ${n(progress.done)} listes d’inscrits lues sur ${n(progress.total)}.` : 'Chiffres partiels.') : null;
       downloadStatsPdf(stats, { from: range.from, to: range.to, partial });
       setPdfState('idle');
     } catch {
@@ -331,7 +331,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
                       </>
                     ) : (
                       <>
-                        <span>Lecture arrêtée : chiffres partiels.</span>
+                        <span>Lecture arrêtée : chiffres partiels.</span>
                         <button type="button" onClick={resume} className="btn btn-quiet sm:h-8 text-sm">
                           <RefreshCw className="w-4 h-4" /> Reprendre
                         </button>
@@ -400,7 +400,7 @@ function Hero({ stats, from, to }: { stats: Stats; from: string; to: string }) {
       </p>
       {stats.merged.length > 0 && (
         <p className="mt-1 text-sm text-muted">
-          Comptes fusionnés (même personne, plusieurs comptes VPDive) : {stats.merged.map((m) => `${m.name} (${m.accounts} comptes)`).join(', ')}.
+          Comptes fusionnés (même personne, plusieurs comptes VPDive) : {stats.merged.map((m) => `${m.name} (${m.accounts} comptes)`).join(', ')}.
         </p>
       )}
 
@@ -460,7 +460,7 @@ function LevelsSection({ stats }: { stats: Stats }) {
             ))}
           </ul>
           {stats.otherSchools.length > 0 && (
-            <p className="mt-3 text-sm text-muted">Autres écoles : {stats.otherSchools.map((x) => `${x.label} ${n(x.count)}`).join(', ')}.</p>
+            <p className="mt-3 text-sm text-muted">Autres écoles : {stats.otherSchools.map((x) => `${x.label} ${n(x.count)}`).join(', ')}.</p>
           )}
         </div>
         <div>
@@ -480,7 +480,7 @@ function LevelsSection({ stats }: { stats: Stats }) {
       </div>
       {stats.training.length > 0 && (
         <p className="mt-4 text-base text-ink">
-          En formation : {stats.training.map((t, i) => `${i ? ', ' : ''}${n(t.count)} vers le ${t.label}`).join('')}.
+          En formation : {stats.training.map((t, i) => `${i ? ', ' : ''}${n(t.count)} vers le ${t.label}`).join('')}.
         </p>
       )}
     </Section>
@@ -495,7 +495,7 @@ function SeasonSection({ stats, from, to }: { stats: Stats; from: string; to: st
   const peak = tops.length === 1 ? tops[0] : null;
   return (
     <Section title="Saison" aside="sorties par mois">
-      <div className="flex items-end gap-1.5 h-40" role="img" aria-label={months.map((m) => `${monthShort(m.key)} : ${m.outings} sorties, ${m.places} places`).join(' ; ')}>
+      <div className="flex items-end gap-1.5 h-40" role="img" aria-label={months.map((m) => `${monthShort(m.key)} : ${m.outings} sorties, ${m.places} places`).join(' ; ')}>
         {months.map((m) => (
           <div key={m.key} className="flex-1 min-w-0 h-full flex flex-col justify-end items-center gap-1" title={`${m.outings} sorties, ${m.places} places`}>
             <span className="text-sm font-semibold tabular-nums text-ink">{m.outings || ''}</span>

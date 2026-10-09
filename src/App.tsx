@@ -284,7 +284,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
       },
       (e) => {
         if (handleSessionLost(e)) return;
-        console.warn('Rôle dans l’appli non lu :', e);
+        console.warn('Rôle dans l’appli non lu :', e);
         // Autre erreur qu'une session perdue : la messagerie propose de réessayer au lieu de charger sans fin.
         setMeError(e instanceof Error ? e.message : String(e));
       },
@@ -324,7 +324,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
       if (cancelled) return;
       writeDpCache(key, tokens);
       setDpScan(tokens);
-    })().catch((e) => handleSessionLost(e) || console.warn('Rôle DP non vérifié :', e));
+    })().catch((e) => handleSessionLost(e) || console.warn('Rôle DP non vérifié :', e));
     return () => {
       cancelled = true;
     };
@@ -334,7 +334,7 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
   const sessionPicture = session.picture;
   useEffect(() => {
     if (sessionPicture !== undefined) return;
-    vpdive.refreshPicture().then(setFetchedPicture, (e) => handleSessionLost(e) || console.warn('Photo non lue :', e));
+    vpdive.refreshPicture().then(setFetchedPicture, (e) => handleSessionLost(e) || console.warn('Photo non lue :', e));
   }, [sessionPicture, handleSessionLost]);
 
   /** Voir le site avec les droits d'un membre : son rôle, puis les sorties où VPDive l'inscrit DP (même fenêtre que le menu DP). */

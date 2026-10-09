@@ -71,7 +71,7 @@ test('export texte lisible', () => {
   const text = planToText('Épave du Liban', plan);
   assert.match(text, /^Palanquées — Épave du Liban/);
   assert.match(text, /P1 · Exploration · PE20/);
-  assert.match(text, /Encadrant : GUIDE Gaby \(GP\)/);
+  assert.match(text, /Encadrant : GUIDE Gaby \(GP\)/);
   assert.match(text, /PA60/, 'prérogative PA60, quelle que soit la profondeur retenue');
 });
 
@@ -214,7 +214,7 @@ test('export texte : mêmes étiquettes que la fiche (E2 enseignant, moniteurs �
   };
   const text = planToText('Test', plan);
   assert.match(text, /P1 · Formation FN1 · PE20/, 'l’objectif de la formation en tête');
-  assert.match(text, /Enseignant : E2 \(E2\)/);
+  assert.match(text, /Enseignant : E2 \(E2\)/);
   assert.match(text, /- M1 \(PA20\)/);
   assert.match(text, /- N2 \(PA20\)/);
 });

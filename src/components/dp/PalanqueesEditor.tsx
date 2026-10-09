@@ -107,7 +107,7 @@ const TYPES: PalanqueeType[] = ['exploration', 'teaching'];
  * son niveau ou son diplôme tel que VPDive l'écrit (DEJEPS, MF1, P2…). Un E3
  * peut être MF1 ou DEJEPS : on ne le devine jamais.
  */
-const describe = (d: Diver) => [prerogativeCode({ ...d, training: 0 }) || 'niveau ?', ...diplomas(d)].join(' · ');
+const describe = (d: Diver) => [prerogativeCode({ ...d, training: 0 }) || 'niveau ?', ...diplomas(d)].join(' · ');
 /** Niveaux et diplômes VPDive, sans ceux qui répètent la prérogative (« PE-40 » à côté de « PE40 »). */
 const diplomas = (d: Diver) => {
   const flat = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -289,7 +289,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
           }`}
           trigger={
             <>
-              <span className={`truncate ${prerogative ? 'font-bold tabular-nums' : ''}`}>{prerogative ? prerogative.replace(' · ', '/') : 'Apt. ?'}</span>
+              <span className={`truncate ${prerogative ? 'font-bold tabular-nums' : ''}`}>{prerogative ? prerogative.replace(' · ', '/') : 'Apt. ?'}</span>
               <ChevronDown className="hidden sm:block w-3.5 h-3.5 shrink-0 opacity-60" />
             </>
           }
@@ -344,7 +344,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
               type="button"
               aria-pressed={companion}
               onClick={() => onSettings(toggleCompanion(settings, d.id, !companion))}
-              title="À bord sans plonger : n’a pas à être placé dans une palanquée"
+              title="À bord sans plonger : n’a pas à être placé dans une palanquée"
               className={`btn sm:h-8 px-2.5 text-sm ${companion ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
             >
               {companion && <Check className="w-4 h-4" />} Accompagnant
@@ -441,7 +441,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
               )
             }
           >
-            Qui plonge ?
+            Qui plonge ?
           </SectionHead>
           {roster.length === 0 && gone.length === 0 ? (
             <p className="text-muted">Personne n’est encore inscrit à cette sortie.</p>
@@ -475,7 +475,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             {unknownLevels.length > 0 && (
               <span className="text-sm text-warn inline-flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                Prérogative à choisir : {unknownLevels.map((d) => d.name).join(', ')}
+                Prérogative à choisir : {unknownLevels.map((d) => d.name).join(', ')}
               </span>
             )}
           </div>
@@ -617,8 +617,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
                 <p role="alert" className="basis-full text-sm text-warn flex items-start gap-1.5">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>
-                    {toPlace.length > 1 ? 'Ils plongent' : 'Plonge'} sans palanquée, à placer avant de valider : {toPlace.map((d) => d.name).join(', ')}. Ou, s’{toPlace.length > 1 ? 'ils ne plongent' : 'il ne plonge'} pas,
-                    décochez-{toPlace.length > 1 ? 'les' : 'le'} dans « Qui plonge ? » (Modifier les plongeurs).
+                    {toPlace.length > 1 ? 'Ils plongent' : 'Plonge'} sans palanquée, à placer avant de valider : {toPlace.map((d) => d.name).join(', ')}. Ou, s’{toPlace.length > 1 ? 'ils ne plongent' : 'il ne plonge'} pas,
+                    décochez-{toPlace.length > 1 ? 'les' : 'le'} dans « Qui plonge ? » (Modifier les plongeurs).
                   </span>
                 </p>
               )}
@@ -674,7 +674,7 @@ function RolesSection({
                       <button
                         type="button"
                         onClick={() => onRoles(toggleRole(roles, role.id, id), role.id)}
-                        aria-label={`Retirer ${name} : ${role.label}`}
+                        aria-label={`Retirer ${name} : ${role.label}`}
                         className="icon-btn relative w-7 h-7 rounded-md hover:text-danger hover:bg-danger-soft max-sm:before:absolute max-sm:before:-inset-2"
                       >
                         <X className="w-4 h-4" />
@@ -683,7 +683,7 @@ function RolesSection({
                   );
                 })}
                 <Menu
-                  ariaLabel={`${role.label} : choisir`}
+                  ariaLabel={`${role.label} : choisir`}
                   triggerClassName="btn btn-quiet sm:h-9 text-sm border-dashed"
                   trigger={
                     <>
@@ -730,7 +730,7 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
   if (!open) {
     return (
       <div className="mt-2">
-        <ActionButton onClick={() => setOpen(true)} icon={<UserPlus className="w-4 h-4" />} title="Un membre du club qui ne s'est pas inscrit">
+        <ActionButton onClick={() => setOpen(true)} icon={<UserPlus className="w-4 h-4" />} title="Un membre du club qui ne s’est pas inscrit">
           Membre non inscrit
         </ActionButton>
       </div>
@@ -782,7 +782,7 @@ function AddMember({ onAdd, onSite }: { onAdd: (m: MemberMatch, roles: DiveRole[
           })}
         </div>
       </fieldset>
-      <p className="text-sm text-muted">Ajouté à la sortie dans l’appli seulement : il n’est pas inscrit sur VPDive et ne plonge pas tant qu’on ne le coche pas.</p>
+      <p className="text-sm text-muted">Ajouté à la sortie dans l’appli seulement : il n’est pas inscrit sur VPDive et ne plonge pas tant qu’on ne le coche pas.</p>
       {error && (
         <p role="alert" className="text-sm text-danger">
           {error}
@@ -988,7 +988,7 @@ function PalanqueeCard({
           <span className="alpha h-8 shrink-0 pl-2 bg-pink text-on-pink text-sm font-bold tabular-nums inline-flex items-center">P{index}</span>
           <span className="min-w-0">
             {locked || hasStudent(p) ? (
-              <span className="block font-semibold text-ink" title={locked ? undefined : 'Un élève en formation (FN#) : palanquée de formation'}>
+              <span className="block font-semibold text-ink" title={locked ? undefined : 'Un élève en formation (FN#) : palanquée de formation'}>
                 {TYPE_LABEL[typeOf(p)]}
               </span>
             ) : (

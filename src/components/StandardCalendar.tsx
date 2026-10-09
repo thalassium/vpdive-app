@@ -33,7 +33,7 @@ type WeatherOf = (date: string) => DayWeather | null;
 
 /** Le pire créneau de la journée, en clair (infobulles). */
 const weatherText = (w: DayWeather) =>
-  `Météo 6 h – 21 h (Pointe Rouge) : vent ${w.wind} nd (${w.dir}), rafales ${w.gusts} nd${w.waves !== null ? `, vagues ${metres(w.waves)}` : ''}${
+  `Météo 6 h – 21 h (Pointe Rouge) : vent ${w.wind} nd (${w.dir}), rafales ${w.gusts} nd${w.waves !== null ? `, vagues ${metres(w.waves)}` : ''}${
     w.level === 'rouge' ? ' : sortie très menacée' : w.level === 'jaune' ? ' : sortie menacée' : ''
   }`;
 /** Couleur du texte selon le niveau : orange en vigilance, rouge au-delà. */
@@ -70,7 +70,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
     const port = SPOTS[0];
     forecastAt(port.lat, port.lon).then(
       (s) => live && setSlots(s),
-      (e) => console.warn('Météo indisponible :', e),
+      (e) => console.warn('Météo indisponible :', e),
     );
     return () => {
       live = false;
@@ -256,7 +256,7 @@ export function StandardCalendar({ month, onMonthChange, events, isLoading, erro
                     <button
                       className="sm:hidden absolute inset-0"
                       onClick={() => setSelectedDay(day.date)}
-                      aria-label={`${dayLabel(day.date)} : ${dayEvents.length} sortie${dayEvents.length > 1 ? 's' : ''}`}
+                      aria-label={`${dayLabel(day.date)} : ${dayEvents.length} sortie${dayEvents.length > 1 ? 's' : ''}`}
                       aria-pressed={isSelected}
                     />
 

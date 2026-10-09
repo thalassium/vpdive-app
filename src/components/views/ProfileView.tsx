@@ -75,7 +75,7 @@ export function ProfileView({
         setFreshPicture(p);
         onPictureRef.current?.(p);
       },
-      (e) => live && !onSessionLost(e) && console.warn('Photo non relue :', e),
+      (e) => live && !onSessionLost(e) && console.warn('Photo non relue :', e),
     );
     return () => {
       live = false;
@@ -223,13 +223,13 @@ export function ProfileView({
                       </ul>
                     </div>
                   ))}
-                {quals.training.length > 0 && <p className="text-ink">En préparation : {quals.training.join(', ')}</p>}
+                {quals.training.length > 0 && <p className="text-ink">En préparation : {quals.training.join(', ')}</p>}
                 <p className="text-ink">
-                  Certificat médical :{' '}
+                  Certificat médical :{' '}
                   {!quals.medical ? (
                     <span className="text-muted">non renseigné</span>
                   ) : quals.medical.valid ? (
-                    <span className="text-ok font-medium">{quals.medical.until ? `valable jusqu'au ${frDate(quals.medical.until)}` : 'valable'}</span>
+                    <span className="text-ok font-medium">{quals.medical.until ? `valable jusqu’au ${frDate(quals.medical.until)}` : 'valable'}</span>
                   ) : (
                     <span className="text-danger font-medium">à renouveler</span>
                   )}

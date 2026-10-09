@@ -47,12 +47,12 @@ export function BrevetMapView({
         <div className="min-w-0 flex-1">
           <h3 className="text-lg font-semibold text-brand">Correspondance des brevets</h3>
           <p className="text-sm text-muted max-w-3xl">
-            Pour chaque brevet de l’export FFESSM, les niveaux VPDive qui le valent. Sans choix, la règle automatique s’applique (par code : Niveau 2 → P2/N2, Nitrox confirmé →
+            Pour chaque brevet de l’export FFESSM, les niveaux VPDive qui le valent. Sans choix, la règle automatique s’applique (par code : Niveau 2 → P2/N2, Nitrox confirmé →
             PNC…). Les choix sont partagés entre les admins.
           </p>
         </div>
       </div>
-      {error && <p className="text-sm text-danger">Niveaux VPDive non lus : {error}</p>}
+      {error && <p className="text-sm text-danger">Niveaux VPDive non lus : {error}</p>}
       {all.length === 0 ? (
         <p className="py-8 text-center text-muted">Déposez d’abord l’export des brevets.</p>
       ) : (
@@ -101,7 +101,7 @@ function BrevetRow({ brevet, chosen, names, inExport, onSave }: { brevet: string
       </div>
       <div className="space-y-2 min-w-0">
         {shown.length === 0 ? (
-          <p className="text-sm text-warn font-medium">{names ? 'Aucun niveau VPDive reconnu : à choisir.' : 'Lecture des niveaux VPDive…'}</p>
+          <p className="text-sm text-warn font-medium">{names ? 'Aucun niveau VPDive reconnu : à choisir.' : 'Lecture des niveaux VPDive…'}</p>
         ) : (
           <ul className="flex flex-wrap gap-1.5">
             {shown.map((n) => (

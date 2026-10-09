@@ -52,9 +52,9 @@ const reload = () => window.location.reload();
 function explain(error: unknown): string {
   if (isChunkLoadError(error))
     return navigator.onLine === false
-      ? 'Cet écran n’a pas pu être téléchargé : l’appareil semble hors ligne. Rechargez une fois la connexion revenue.'
+      ? 'Cet écran n’a pas pu être téléchargé : l’appareil semble hors ligne. Rechargez une fois la connexion revenue.'
       : 'Une nouvelle version de Gabian est en ligne. Rechargez l’appli pour la prendre.';
-  return 'Cet écran a rencontré un problème. Le club en a été averti ; rechargez l’appli pour reprendre.';
+  return 'Cet écran a rencontré un problème. Le club en a été averti ; rechargez l’appli pour reprendre.';
 }
 
 /** Écran en panne, dans la page : le reste de l'appli (en-tête, onglets) reste utilisable. */

@@ -106,7 +106,7 @@ export function RegistrationRequestsTab({
                 type="button"
                 disabled={busy !== null}
                 onClick={() => void decide(r, 'guest')}
-                title="Invité : pas de messagerie, n’apparaît pas aux autres membres"
+                title="Invité : pas de messagerie, n’apparaît pas aux autres membres"
                 className="btn btn-quiet sm:h-9 text-sm"
               >
                 <UserPlus className="w-4 h-4" /> Accepter comme invité
@@ -189,7 +189,7 @@ export function PendingDocumentsTab({
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted max-w-3xl">
-        Déposés par les membres eux-mêmes. Tant qu’ils ne sont pas validés, VPDive n’en tient pas compte : un membre peut paraître sans licence ou sans saison alors qu’il les a
+        Déposés par les membres eux-mêmes. Tant qu’ils ne sont pas validés, VPDive n’en tient pas compte : un membre peut paraître sans licence ou sans saison alors qu’il les a
         renseignées.
       </p>
       {members.map((list) => {

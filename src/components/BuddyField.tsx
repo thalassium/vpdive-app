@@ -92,13 +92,13 @@ export function BuddyField({ value, onChange, onSessionLost }: Props) {
 
       <div id="buddy-help" aria-live="polite" className="mt-1.5 text-sm">
         {search.state === 'busy' && <p className="text-muted">Recherche parmi les membres…</p>}
-        {search.state === 'unavailable' && <p className="text-muted">Recherche des membres indisponible : le nom sera transmis tel quel.</p>}
+        {search.state === 'unavailable' && <p className="text-muted">Recherche des membres indisponible : le nom sera transmis tel quel.</p>}
         {search.state === 'done' && search.matches.length === 0 && (
-          <p className="text-muted">Aucun membre ne ressemble à ce nom : il sera transmis tel quel.</p>
+          <p className="text-muted">Aucun membre ne ressemble à ce nom : il sera transmis tel quel.</p>
         )}
         {search.state === 'done' && search.matches.length > 0 && (
           <div>
-            <p className="text-muted mb-1.5">{search.matches.length > 1 ? 'Vouliez-vous dire :' : 'Vouliez-vous dire'}</p>
+            <p className="text-muted mb-1.5">{search.matches.length > 1 ? 'Vouliez-vous dire :' : 'Vouliez-vous dire'}</p>
             <div className="flex flex-wrap gap-1.5">
               {search.matches.map((m) => (
                 <button

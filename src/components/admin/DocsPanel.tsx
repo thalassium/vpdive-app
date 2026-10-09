@@ -20,7 +20,7 @@ import type { RegistrationRequest } from '../../services/appApi';
  */
 type Tab = 'todo' | MembershipStep | 'relance';
 const SUBTITLE: Record<Exclude<Tab, 'relance'>, string> = {
-  todo: 'À valider avant les vérifications : tant qu’elles ne sont pas traitées, VPDive ignore ces personnes et ces documents.',
+  todo: 'À valider avant les vérifications : tant qu’elles ne sont pas traitées, VPDive ignore ces personnes et ces documents.',
   diagnostic: 'Chaque membre vu par HelloAsso (paiements), la FFESSM (licence) et VPDive (fiche).',
   quickfix: 'Les corrections sans risque à pousser dans VPDive, puis relire les fiches.',
   arbitrage: 'Le cas par cas, à décider à la main.',
@@ -198,7 +198,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
       (e) => {
         if (!live || onSessionLost(e)) return;
         setIgnored({});
-        setIgnoreError(`Liste des membres ignorés illisible : ${message(e)}`);
+        setIgnoreError(`Liste des membres ignorés illisible : ${message(e)}`);
       },
     );
     return () => {
@@ -311,7 +311,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             run.current++;
             return;
           }
-          errors.push(`${ev.title} (${dayLabel(date)}) : ${message(e)}`);
+          errors.push(`${ev.title} (${dayLabel(date)}) : ${message(e)}`);
           setRosterErrors([...errors]);
         }
         setProgress({ done: i + 1, total: events.length });
@@ -612,7 +612,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               {phase === 'stopped' && (
                 <>
                   <span>
-                    Vérification arrêtée : {progress.done}/{progress.total} fiches lues.
+                    Vérification arrêtée : {progress.done}/{progress.total} fiches lues.
                   </span>
                   <button type="button" onClick={resume} className="btn btn-quiet sm:h-9 text-sm">
                     <RefreshCw className="w-4 h-4" /> Reprendre
@@ -634,7 +634,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
           {rosterErrors.length > 0 && (
             <div role="alert" className="px-1 text-sm text-danger">
               <p className="flex flex-wrap items-center gap-x-3">
-                <span className="font-semibold">Inscrits illisibles pour {plural(rosterErrors.length, 'sortie', 'sorties')} :</span>
+                <span className="font-semibold">Inscrits illisibles pour {plural(rosterErrors.length, 'sortie', 'sorties')} :</span>
                 {!loading && (
                   <button type="button" onClick={load} className="inline-flex items-center gap-1 max-sm:min-h-11 font-semibold underline underline-offset-2">
                     <RefreshCw className="w-4 h-4" /> Réessayer
@@ -654,7 +654,7 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
             </p>
           )}
           {statusFailures > 0 && phase !== 'stopped' && (
-            <p className="px-1 text-sm text-muted">{plural(statusFailures, 'fiche membre illisible', 'fiches membres illisibles')} : adhésion non vérifiée.</p>
+            <p className="px-1 text-sm text-muted">{plural(statusFailures, 'fiche membre illisible', 'fiches membres illisibles')} : adhésion non vérifiée.</p>
           )}
 
           {filter !== 'ignored' && outings && phase === 'done' && active.length === 0 && (
@@ -752,7 +752,7 @@ function MemberCard({ row, checked, onToggle, onRemind, onIgnore }: { row: Row; 
               <IssueChip key={i.kind} issue={i} />
             ))}
           </span>
-          {next && <span className="mt-1 block text-sm text-muted">Prochaine sortie : {dayLabel(next.outing.date)}</span>}
+          {next && <span className="mt-1 block text-sm text-muted">Prochaine sortie : {dayLabel(next.outing.date)}</span>}
         </span>
       </label>
       <span className="flex flex-col sm:flex-row items-stretch gap-1.5 shrink-0">
@@ -818,14 +818,14 @@ function ReminderSheet({
     for (const [i, r] of rows.entries()) {
       if (i > 0) await wait(SEND_GAP_MS);
       if (!r.uct) {
-        errors.push(`${r.name} : pas de compte d’adhérent connu`);
+        errors.push(`${r.name} : pas de compte d’adhérent connu`);
       } else {
         try {
           await messaging.writeTo(r.uct, text);
           sent++;
         } catch (e) {
           if (onSessionLost(e)) return;
-          errors.push(`${r.name} : ${message(e)}`);
+          errors.push(`${r.name} : ${message(e)}`);
         }
       }
       setSending({ done: i + 1, total: rows.length });
@@ -873,7 +873,7 @@ function ReminderSheet({
 
         {noEmail.length > 0 && (
           <p className="text-sm text-muted">
-            Sans e-mail : <span className="text-ink">{noEmail.map((r) => r.name).join(', ')}</span>
+            Sans e-mail : <span className="text-ink">{noEmail.map((r) => r.name).join(', ')}</span>
           </p>
         )}
 

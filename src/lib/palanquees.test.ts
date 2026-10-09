@@ -377,7 +377,7 @@ test('moniteur plongeur en formation : statut E# pour un enseignant, prérogativ
   assert.deepEqual(validate(p).filter((i) => i.includes('élève')), [], '4 élèves + 3 moniteurs : conforme');
 
   const fifth = { ...p, members: [...p.members, diver('S5', 'P1', 'FN2')] };
-  assert.ok(validate(fifth).includes('5 élèves : 4 au maximum.'));
+  assert.ok(validate(fifth).includes('5 élèves : 4 au maximum.'));
   const onlyInstructors = { ...p, members: [gp, mf2] };
   assert.ok(validate(onlyInstructors).includes('Aucun élève.'));
 });
@@ -538,7 +538,7 @@ test('le directeur de plongée reste sur le bateau, sauf si sans lui des plongeu
   // Quatre N1 : un seul encadrant suffit, palanquée pleine ; le DP ne plonge pas.
   const four = proposePalanquees([dp, guide, ...n1(4)], { lastResort: [dp.id] });
   assert.ok(!everyone(four).includes(dp.id));
-  assert.equal(four.unassigned.find((u) => u.diver.id === dp.id)?.reason, 'Directeur de plongée : reste sur le bateau.');
+  assert.equal(four.unassigned.find((u) => u.diver.id === dp.id)?.reason, 'Directeur de plongée : reste sur le bateau.');
   assert.equal(four.palanquees[0]!.members.length, 4);
 
   // Cinq N1 : sans lui, un N1 resterait à terre ; il encadre.

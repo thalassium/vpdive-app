@@ -97,7 +97,7 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
 
       {missing.length > 0 && (
         <p role="status" className="text-sm text-warn flex items-start gap-1.5 print:hidden">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> À renseigner avant d’imprimer : {missing.join(', ')}.
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> À renseigner avant d’imprimer : {missing.join(', ')}.
         </p>
       )}
 
@@ -209,14 +209,14 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
               </div>
               {tooDeep && (
                 <p role="alert" className="px-3 py-2 border-t border-line text-sm text-danger flex items-start gap-1.5 print:text-black">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {planned} m prévus : au-delà de la prérogative de la palanquée ({legal} m).
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {planned} m prévus : au-delà de la prérogative de la palanquée ({legal} m).
                 </p>
               )}
               {note && (
                 <p className="px-3 py-2 border-t border-line text-sm text-ink flex items-start gap-1.5 print:border-black/30">
                   <MessageSquare className="w-4 h-4 shrink-0 mt-0.5 text-muted print:hidden" />
                   <span>
-                    <span className="text-muted">Encadrant : </span>
+                    <span className="text-muted">Encadrant : </span>
                     {noteText(note)}
                   </span>
                 </p>

@@ -274,14 +274,14 @@ export function planToText(title: string, plan: Plan): string {
   const lines = [`Palanquées — ${title}`, ''];
   plan.palanquees.forEach((p, i) => {
     lines.push(`P${i + 1} · ${kindLabel(p)} · ${prerogativeLabel(p)}`);
-    if (p.guide) lines.push(`  ${p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} : ${p.guide.name} (${guideLabel(p.guide, p)})`);
+    if (p.guide) lines.push(`  ${p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} : ${p.guide.name} (${guideLabel(p.guide, p)})`);
     for (const m of p.members) lines.push(`  - ${m.name} (${memberLabel(m, p)})`);
     if (p.extra) lines.push(`  + ${p.extra.name} (GP suppl., ${extraLabel(p)})`);
     lines.push('');
   });
   if (plan.unassigned.length) {
-    lines.push('Non placés :');
-    for (const u of plan.unassigned) lines.push(`  - ${u.diver.name} : ${u.reason}`);
+    lines.push('Non placés :');
+    for (const u of plan.unassigned) lines.push(`  - ${u.diver.name} : ${u.reason}`);
   }
   return lines.join('\n').trim();
 }

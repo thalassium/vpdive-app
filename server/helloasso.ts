@@ -88,14 +88,14 @@ async function haFetch(url: string, init: RequestInit = {}): Promise<Response> {
     return await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch (e) {
     const name = (e as { name?: string } | null)?.name;
-    if (name === 'TimeoutError' || name === 'AbortError') throw new HttpError(504, 'HelloAsso ne répond pas : réessayez dans un instant.');
+    if (name === 'TimeoutError' || name === 'AbortError') throw new HttpError(504, 'HelloAsso ne répond pas : réessayez dans un instant.');
     throw new HttpError(502, 'HelloAsso injoignable.');
   }
 }
 
 async function requestToken(params: Record<string, string>): Promise<{ token: Token; ttl: number }> {
   const res = await haFetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params) });
-  if (!res.ok) throw new HttpError(502, `HelloAsso : jeton refusé (HTTP ${res.status})`);
+  if (!res.ok) throw new HttpError(502, `HelloAsso : jeton refusé (HTTP ${res.status})`);
   const t = (await res.json()) as HaTokenResponse;
   const ttl = Number(t.expires_in) || 1700;
   return { token: { access: String(t.access_token), refresh: String(t.refresh_token ?? ''), expires: Date.now() + ttl * 1000 }, ttl };
@@ -111,7 +111,7 @@ export async function token(store: Store): Promise<string> {
   if (!(await acquireLock(store, TOKEN_LOCK, 9_000, 200, 20_000))) {
     const again = await store.get<Token>(TOKEN_KEY);
     if (again && usable(again)) return again.access;
-    throw new HttpError(503, 'HelloAsso : renouvellement du jeton en cours, réessayez dans un instant.');
+    throw new HttpError(503, 'HelloAsso : renouvellement du jeton en cours, réessayez dans un instant.');
   }
   try {
     // Un autre appel a pu le renouveler pendant qu'on attendait le verrou.
@@ -138,7 +138,7 @@ async function all<T>(path: string, access: string): Promise<T[]> {
     const res = await haFetch(`${API}${path}${sep}pageSize=100${next ? `&continuationToken=${encodeURIComponent(next)}` : ''}`, {
       headers: { Authorization: `Bearer ${access}`, Accept: 'application/json' },
     });
-    if (!res.ok) throw new HttpError(502, `HelloAsso : lecture refusée (HTTP ${res.status})`);
+    if (!res.ok) throw new HttpError(502, `HelloAsso : lecture refusée (HTTP ${res.status})`);
     const page = (await res.json()) as HaPage<T>;
     const data = Array.isArray(page.data) ? page.data : [];
     if (!data.length) break;
@@ -209,7 +209,7 @@ export async function membershipItems(store: Store, season: number): Promise<HaI
     const formSeason = seasonOfForm(f);
     if (formSeason === null) {
       // Plus d'oubli silencieux : le formulaire est signalé dans les journaux.
-      log('warn', { action: 'helloasso', message: 'Formulaire d’adhésion sans saison reconnaissable : ignoré', form: String(f.formSlug ?? '') });
+      log('warn', { action: 'helloasso', message: 'Formulaire d’adhésion sans saison reconnaissable : ignoré', form: String(f.formSlug ?? '') });
       continue;
     }
     if (formSeason !== season && formSeason !== season - 1) continue;

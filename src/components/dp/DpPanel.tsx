@@ -510,7 +510,7 @@ function OutingWorkspace({
     inFlight.current = (async () => {
       const lease = await ensureLease();
       if (lease === 'taken') {
-        return backToServer(`Modification non enregistrée : ${takenBy()} a commencé à modifier cette fiche juste avant vous.`, false);
+        return backToServer(`Modification non enregistrée : ${takenBy()} a commencé à modifier cette fiche juste avant vous.`, false);
       }
       if (lease === 'failed') return setSave('error');
       const d = docRef.current!;
@@ -534,7 +534,7 @@ function OutingWorkspace({
           setSave('conflict');
         } else if (e instanceof AppApiError && e.status === 423) {
           setLock(body?.lock ?? null);
-          backToServer(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
+          backToServer(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
         } else {
           setSave('error');
           // Un autre enregistrement de la sortie était en cours : on réessaie de soi-même.
@@ -593,7 +593,7 @@ function OutingWorkspace({
           if (saveStateRef.current === 'saved') {
             setNotice(`${takenBy()} a pris la main pendant votre absence.`);
             void refresh();
-          } else backToServerRef.current(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
+          } else backToServerRef.current(`${takenBy()} a pris la main : vos dernières modifications ne sont pas enregistrées. Elles restent en brouillon sur cet appareil.`, true);
         }
       }
     };
@@ -639,8 +639,8 @@ function OutingWorkspace({
   const update = (fn: (d: OutingDoc) => OutingDoc) => {
     const current = docRef.current;
     if (!current) return;
-    if (lockRef.current && !lockRef.current.mine) return setNotice(`Modification ignorée : ${lockRef.current.name} modifie cette fiche.`);
-    if (saveStateRef.current === 'conflict') return setNotice('Modification ignorée : choisissez d’abord quelle version garder (bandeau en haut).');
+    if (lockRef.current && !lockRef.current.mine) return setNotice(`Modification ignorée : ${lockRef.current.name} modifie cette fiche.`);
+    if (saveStateRef.current === 'conflict') return setNotice('Modification ignorée : choisissez d’abord quelle version garder (bandeau en haut).');
     // Contrôle continu : un plongeur décoché de « Qui plonge ? » quitte aussitôt les palanquées.
     const changed = fn(current);
     const r = rosterRef.current;
@@ -666,15 +666,15 @@ function OutingWorkspace({
   /** L'identifiant d'inscription que VPDive attend pour ses routes d'admin. */
   const socketOf = (id: string, name: string) => {
     const socket = rosterRef.current?.find((r) => r.id === id)?.socket;
-    if (!socket) throw new Error(`Inscription de ${name} introuvable sur VPDive : rechargez la sortie.`);
+    if (!socket) throw new Error(`Inscription de ${name} introuvable sur VPDive : rechargez la sortie.`);
     return socket;
   };
 
   /** Avant d'écrire dans VPDive au nom de la fiche : il faut tenir la main. */
   const mustHoldLease = async () => {
     const lease = await ensureLease();
-    if (lease === 'taken') throw new Error(`${takenBy()} modifie cette fiche : action annulée.`);
-    if (lease === 'failed') throw new Error('Serveur de l’appli injoignable : réessayez.');
+    if (lease === 'taken') throw new Error(`${takenBy()} modifie cette fiche : action annulée.`);
+    if (lease === 'failed') throw new Error('Serveur de l’appli injoignable : réessayez.');
   };
 
   /**
@@ -745,7 +745,7 @@ function OutingWorkspace({
   /** Reprendre la saisie trouvée sur l'appareil : il faut la main ; si la fiche a changé depuis, l'enregistrement fera un conflit à trancher. */
   const resumeDraft = async (draft: Draft) => {
     const lease = await ensureLease();
-    if (lease !== 'ok') return setNotice(lease === 'taken' ? `Impossible de reprendre la saisie : ${takenBy()} modifie cette fiche.` : 'Serveur de l’appli injoignable : réessayez.');
+    if (lease !== 'ok') return setNotice(lease === 'taken' ? `Impossible de reprendre la saisie : ${takenBy()} modifie cette fiche.` : 'Serveur de l’appli injoignable : réessayez.');
     const r = rosterRef.current;
     const d = r ? syncWithRoster(draft.doc, withGuests(r, draft.doc)).doc : draft.doc;
     revRef.current = draft.baseRev;
@@ -799,7 +799,7 @@ function OutingWorkspace({
             <strong className="font-semibold">
               En cours de modification par {other.uct === session.traceability ? 'vous, sur un autre appareil ou un autre onglet,' : other.name} depuis {hhmm(other.since)}.
             </strong>{' '}
-            Lecture seule : la fiche se met à jour toute seule et redevient modifiable dès qu’elle est libre.
+            Lecture seule : la fiche se met à jour toute seule et redevient modifiable dès qu’elle est libre.
           </span>
           {other.uct === session.traceability && (
             <button
@@ -807,7 +807,7 @@ function OutingWorkspace({
               onClick={() =>
                 void ensureLease(true).then((r) => {
                   if (r === 'ok') void refresh();
-                  else setNotice('Impossible de prendre la main : réessayez.');
+                  else setNotice('Impossible de prendre la main : réessayez.');
                 })
               }
               className="btn btn-quiet sm:h-9 text-sm"
@@ -832,7 +832,7 @@ function OutingWorkspace({
         <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">
-            Une saisie non enregistrée du {dateTime(draftOffer.at)} existe sur cet appareil : la reprendre, ou l’abandonner (modifier la fiche l’abandonne aussi).
+            Une saisie non enregistrée du {dateTime(draftOffer.at)} existe sur cet appareil : la reprendre, ou l’abandonner (modifier la fiche l’abandonne aussi).
           </span>
           <button type="button" onClick={() => void resumeDraft(draftOffer)} disabled={readOnly} className="btn btn-quiet sm:h-9 text-sm border-warn/40 text-warn">
             La reprendre
@@ -855,7 +855,7 @@ function OutingWorkspace({
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">
             {conflict?.updatedBy ?? 'Quelqu’un'} a enregistré cette sortie
-            {conflict?.updatedAt ? ` le ${dateTime(conflict.updatedAt)}` : ''} pendant que vous la modifiiez. Vos derniers changements ne sont pas enregistrés : gardez sa version ou la vôtre.
+            {conflict?.updatedAt ? ` le ${dateTime(conflict.updatedAt)}` : ''} pendant que vous la modifiiez. Vos derniers changements ne sont pas enregistrés : gardez sa version ou la vôtre.
           </span>
           <button
             type="button"
@@ -906,8 +906,8 @@ function OutingWorkspace({
         <div role="alert" className="p-4 rounded-xl bg-warn-soft text-warn text-base flex flex-wrap items-center gap-3 print:hidden">
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <span className="flex-1 min-w-0">
-            {departed.gone.length > 0 && `${departed.gone.length > 1 ? 'Désinscrits' : 'Désinscrit'} depuis la composition : ${departed.gone.join(', ')}. `}
-            {departed.waitlisted.length > 0 && `${departed.waitlisted.length > 1 ? 'Passés' : 'Passé'} en liste d’attente : ${departed.waitlisted.join(', ')}. `}
+            {departed.gone.length > 0 && `${departed.gone.length > 1 ? 'Désinscrits' : 'Désinscrit'} depuis la composition : ${departed.gone.join(', ')}. `}
+            {departed.waitlisted.length > 0 && `${departed.waitlisted.length > 1 ? 'Passés' : 'Passé'} en liste d’attente : ${departed.waitlisted.join(', ')}. `}
             {departed.gone.length + departed.waitlisted.length > 1 ? 'Retirés' : 'Retiré'} des palanquées, à revoir.
           </span>
           <button type="button" onClick={() => setDeparted({ gone: [], waitlisted: [] })} aria-label="Fermer" className="icon-btn sm:w-9 sm:h-9">

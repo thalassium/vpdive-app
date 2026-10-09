@@ -122,7 +122,7 @@ export function describeSnapshot(before: unknown, levelName: (id: string) => str
   out.push({ label: 'Saisons', value: seasons.length ? seasons.map(label).join(', ') : 'aucune' });
   const a = years(list(s.yearsUserConfirmation) as Years).join();
   const b = years(list(s.yearsConfirmation) as Years).join();
-  if (a !== b && 'yearsConfirmation' in s) out.push({ label: 'Listes VPDive', value: `yearsUserConfirmation : ${a || 'vide'} · yearsConfirmation : ${b || 'vide'}` });
+  if (a !== b && 'yearsConfirmation' in s) out.push({ label: 'Listes VPDive', value: `yearsUserConfirmation : ${a || 'vide'} · yearsConfirmation : ${b || 'vide'}` });
   const licences = list(s.licences).map(rec);
   out.push({
     label: 'Licences',
@@ -151,7 +151,7 @@ export function describeSnapshot(before: unknown, levelName: (id: string) => str
 /** Bloc général, recopié de la fiche, avec la saison en plus. */
 export function generalEntries(u: RawMember, season: number): Entry[] {
   // Hors vue admin, VPDive n'attend pas all_members… et le retire quand même : on n'écrit pas.
-  if (u.is_admin_view !== true) throw new WriteError('fiche lue sans la vue admin : écriture refusée (le statut Membre serait perdu)');
+  if (u.is_admin_view !== true) throw new WriteError('fiche lue sans la vue admin : écriture refusée (le statut Membre serait perdu)');
   const t = u.user_club_traceability ?? {};
   const c = String(u.civility ?? '').trim().toLowerCase();
   const civility = c === 'mme' ? 'mrs' : c === 'mlle' ? 'ms' : ['mr', 'mrs', 'ms'].includes(c) ? c : '';
@@ -194,7 +194,7 @@ export function licenceEntries(u: RawMember, change: LicenceChange): Entry[] {
   const out: Entry[] = [];
   list.forEach((l, i) => {
     // Une organisation vide ferait perdre la licence : on ne devine pas.
-    if (!l.organization?.id) throw new WriteError(`licence ${l.licence ?? ''} sans organisation sur la fiche : à corriger à la main`);
+    if (!l.organization?.id) throw new WriteError(`licence ${l.licence ?? ''} sans organisation sur la fiche : à corriger à la main`);
     const current = l.expirationDate ?? u.licenses?.find((x) => x.id === l.id)?.expiration_date ?? '';
     out.push([k(i, 'organization'), String(l.organization.id)], [k(i, 'licence'), String(l.licence ?? '')], [k(i, 'expiration_date'), change.extend?.id === l.id ? frDate(change.extend.expires) : frDate(current)]);
     const file = u.file_licence?.[String(l.id)]?.uniq;
@@ -245,7 +245,7 @@ export function currentCapacities(u: RawMember): string[] {
 export function capacityEntries(u: RawMember, add: string[], catalog: Set<string>): Entry[] {
   const now = currentCapacities(u);
   // Le site VPDive retire en silence un niveau absent du référentiel : on refuse plutôt.
-  if (now.some((id) => !catalog.has(id))) throw new WriteError('la fiche a un niveau hors du référentiel du club : à faire à la main');
+  if (now.some((id) => !catalog.has(id))) throw new WriteError('la fiche a un niveau hors du référentiel du club : à faire à la main');
   if (add.some((id) => !catalog.has(id))) throw new WriteError('niveau inconnu du référentiel');
   return [...new Set([...now, ...add])].map((id): Entry => ['mobile_capacities_form[capacities][]', id]);
 }
@@ -267,21 +267,21 @@ export interface Expect {
  * encore visibles (validation du club en attente, peut-être).
  */
 export function checkWrite(before: VpRecord, after: VpRecord, want: Expect, season: number): { error?: string; warning?: string } {
-  if (after.member !== before.member) return { error: `statut ${after.member ? 'Membre' : 'Invité'} après l’écriture (avant : ${before.member ? 'Membre' : 'Invité'})` };
+  if (after.member !== before.member) return { error: `statut ${after.member ? 'Membre' : 'Invité'} après l’écriture (avant : ${before.member ? 'Membre' : 'Invité'})` };
   if (after.licences.length < before.licences.length) return { error: 'une licence a disparu de la fiche' };
   if (before.seasons.some((s) => !after.seasons.includes(s))) return { error: 'une saison a disparu de la fiche' };
   const lostLevel = before.levels.find((l) => !after.levels.includes(l));
-  if (lostLevel) return { error: `niveau perdu : ${lostLevel}` };
+  if (lostLevel) return { error: `niveau perdu : ${lostLevel}` };
   if (want.season && !after.seasons.includes(String(want.season))) return { error: 'la saison n’apparaît pas sur la fiche relue' };
   if (want.licence) {
     const l = latestLicence(after.licences.filter((x) => isFfessmLicence(x) && flatLicence(x.number) === flatLicence(want.licence!)));
     if (!l) return { error: 'la licence n’apparaît pas sur la fiche relue' };
     if (!l.expires || l.expires < licenceEnd(season)) return { error: `licence encore ${l.expires ? `au ${l.expires.split('-').reverse().join('/')}` : 'sans date de fin'}` };
   }
-  if (want.insurance && after.insurance !== want.insurance) return { error: `assurance relue : ${after.insurance || 'aucune'}` };
-  if (want.insuranceYear && after.insuranceYear !== want.insuranceYear) return { error: `année de l’assurance relue : ${after.insuranceYear ?? 'aucune'}` };
+  if (want.insurance && after.insurance !== want.insurance) return { error: `assurance relue : ${after.insurance || 'aucune'}` };
+  if (want.insuranceYear && after.insuranceYear !== want.insuranceYear) return { error: `année de l’assurance relue : ${after.insuranceYear ?? 'aucune'}` };
   // Le nom du référentiel (envoyé) est souvent plus long que celui que la fiche relue donne.
   const missing = (want.levels ?? []).filter((n) => !after.levels.some((l) => sameLevel(l, n) || sameLevelCode(l, n)));
-  if (missing.length) return { warning: `pas encore visible : ${missing.join(', ')} (validation en attente ?)` };
+  if (missing.length) return { warning: `pas encore visible : ${missing.join(', ')} (validation en attente ?)` };
   return {};
 }

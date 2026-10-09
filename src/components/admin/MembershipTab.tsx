@@ -100,7 +100,7 @@ const VPDIVE_MEMBER = (uct: string) => `https://septentrion-env.vpdive.com/app/m
 const FIX_ORDER: FixKind[] = ['season', 'licence', 'licence-add', 'insurance', 'brevets'];
 const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
   season: { title: `Saison d’adhésion à ajouter`, help: 'Adhésion payée sur HelloAsso (geste d’août compris), saison absente de la fiche VPDive.' },
-  licence: { title: 'Licence FFESSM : date de fin à mettre à jour', help: 'Même numéro, date ancienne. VPDive relit la FFESSM si la licence est vérifiée, sinon la date est saisie.' },
+  licence: { title: 'Licence FFESSM : date de fin à mettre à jour', help: 'Même numéro, date ancienne. VPDive relit la FFESSM si la licence est vérifiée, sinon la date est saisie.' },
   'licence-add': { title: 'Licence FFESSM à ajouter', help: 'Licence prise par le club (export Mon Club), absente de la fiche VPDive.' },
   insurance: {
     title: 'Assurance à reporter',
@@ -109,8 +109,8 @@ const FIX_TITLE: Record<FixKind, { title: string; help: string }> = {
   brevets: { title: 'Brevets à ajouter', help: 'Brevets délivrés par la FFESSM (export des brevets), absents des niveaux de la fiche VPDive.' },
 };
 const CASE_TITLE: Record<CaseKind, string> = {
-  homonym: 'Homonymes : choisir le bon membre',
-  family: 'Patronyme commun : parents',
+  homonym: 'Homonymes : choisir le bon membre',
+  family: 'Patronyme commun : parents',
   absent: 'Pas de fiche VPDive',
   guest: 'Statut Invité à passer en Membre',
   'licence-other': 'Autre numéro de licence dans VPDive',
@@ -325,7 +325,7 @@ export function MembershipTab({
   const targets = (f: Fix) => (f.brevets ?? []).map((b) => ({ brevet: b, level: catalog ? brevetTarget(b, brevetMap, catalog) : null }));
   /** Pourquoi une correction ne peut pas s'écrire (case grisée), sinon null. */
   const blocked = (f: Fix): string | null => {
-    if (f.kind === 'licence' && !f.licenceId) return 'licence sans identifiant VPDive : à faire à la main';
+    if (f.kind === 'licence' && !f.licenceId) return 'licence sans identifiant VPDive : à faire à la main';
     if (f.kind !== 'brevets') return null;
     if (!catalog) return 'lecture du référentiel des niveaux…';
     return targets(f).some((t) => t.level) ? null : 'niveau VPDive à choisir dans la correspondance des brevets (roue crantée, étape 2)';
@@ -412,7 +412,7 @@ export function MembershipTab({
   const errors = (loadError || haError) && (
     <div role="alert" className="p-3 rounded-xl bg-danger-soft text-danger text-sm flex flex-wrap items-center gap-3">
       <AlertTriangle className="w-4 h-4 shrink-0" />
-      <span className="flex-1 min-w-0">{haError ? `HelloAsso : ${haError}` : loadError}</span>
+      <span className="flex-1 min-w-0">{haError ? `HelloAsso : ${haError}` : loadError}</span>
       {haError && (
         <button type="button" onClick={loadHelloasso} className="btn btn-quiet sm:h-8 text-sm">
           <RefreshCw className="w-4 h-4" /> Réessayer
@@ -466,12 +466,12 @@ export function MembershipTab({
                 const n = rows.filter((r) => r.season === season).length;
                 return n
                   ? { text: `${n} licence${n > 1 ? 's' : ''} pour ${seasonLabel(season)}`, warn: false }
-                  : { text: `Aucune licence pour ${seasonLabel(season)} : export d’une autre saison ?`, warn: true };
+                  : { text: `Aucune licence pour ${seasonLabel(season)} : export d’une autre saison ?`, warn: true };
               }}
             />
             <FfessmImportBox what="brevets" current={brevetsImport} parse={parseFfessmBrevets} save={appApi.saveFfessmBrevets} onImported={setBrevetsImport} onSessionLost={onSessionLost} />
           </div>
-          <button type="button" onClick={() => setConfigOpen(true)} className="icon-btn ml-auto" aria-label="Réglages : correspondance des brevets" title="Correspondance des brevets">
+          <button type="button" onClick={() => setConfigOpen(true)} className="icon-btn ml-auto" aria-label="Réglages : correspondance des brevets" title="Correspondance des brevets">
             <Settings className="w-5 h-5" />
           </button>
         </div>
@@ -577,7 +577,7 @@ export function MembershipTab({
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm text-muted max-w-2xl">
-            Corrections sans risque : une valeur connue ajoutée à la fiche d’un membre reconnu avec certitude, sans rien retirer. Après les avoir écrites dans VPDive, relisez les
+            Corrections sans risque : une valeur connue ajoutée à la fiche d’un membre reconnu avec certitude, sans rien retirer. Après les avoir écrites dans VPDive, relisez les
             fiches pour mettre le diagnostic à jour.
           </p>
           {search}
@@ -662,7 +662,7 @@ export function MembershipTab({
                           {f.kind === 'brevets' && !why && catalog && (
                             <span className="text-xs text-muted">
                               coche {targets(f).filter((t) => t.level).map((t) => t.level!.name).join(', ')}
-                              {unresolved.length > 0 && ` · ${unresolved.join(', ')} : niveau à choisir`}
+                              {unresolved.length > 0 && ` · ${unresolved.join(', ')} : niveau à choisir`}
                             </span>
                           )}
                           {why && <span className="text-xs text-warn">{why}</span>}
@@ -680,7 +680,7 @@ export function MembershipTab({
             <>
               <Spinner className="text-brand" />
               <span className="text-sm text-ink tabular-nums">
-                Écriture {writing.done + 1}/{writing.total} : {writing.name}…
+                Écriture {writing.done + 1}/{writing.total} : {writing.name}…
               </span>
               <button type="button" onClick={() => (stopWriting.current = true)} className="btn btn-quiet sm:h-9 text-sm">
                 Arrêter après cette fiche
@@ -709,7 +709,7 @@ export function MembershipTab({
               </button>
               <span className="text-sm text-muted">
                 {progress
-                  ? 'Lecture des fiches VPDive en cours : le bouton s’active quand elle est finie.'
+                  ? 'Lecture des fiches VPDive en cours : le bouton s’active quand elle est finie.'
                   : !selected.length
                     ? 'Cochez les corrections à écrire.'
                     : 'Chaque fiche est relue après l’écriture, et le lot s’arrête au premier problème. La fiche d’avant est gardée dans le journal.'}
@@ -738,8 +738,8 @@ export function MembershipTab({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm text-muted max-w-2xl">
-          Le cas par cas : ce qui demande une décision ou une saisie à la main, dans l’appli, sur la fiche VPDive ou sur Mon Club. Un cas réglé ou sans suite se coche
-          «{' '}Validation manuelle{' '}» : il ne compte plus pour la saison {seasonLabel(season)}.
+          Le cas par cas : ce qui demande une décision ou une saisie à la main, dans l’appli, sur la fiche VPDive ou sur Mon Club. Un cas réglé ou sans suite se coche
+          «{' '}Validation manuelle{' '}» : il ne compte plus pour la saison {seasonLabel(season)}.
         </p>
         {search}
       </div>
@@ -767,7 +767,7 @@ export function MembershipTab({
                   <li key={r.p.key} className={`px-4 py-3 grid gap-x-4 gap-y-2 lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_minmax(0,16rem)_minmax(0,15rem)] items-start ${check ? 'bg-raised/50' : ''}`}>
                     <div className={`min-w-0 ${check ? 'opacity-60' : ''}`}>
                       <p className="font-semibold text-ink break-words">{r.p.name}</p>
-                      <p className="text-sm text-muted">{r.p.birthDate ? `né(e) le ${frDay(r.p.birthDate)}` : ''}</p>
+                      <p className="text-sm text-muted">{r.p.birthDate ? `né le ${frDay(r.p.birthDate)}` : ''}</p>
                     </div>
                     <p className={`text-sm text-ink ${check ? 'opacity-60' : ''}`}>{c.text}</p>
                     <div className={`min-w-0 ${check ? 'opacity-60' : ''}`}>
@@ -832,13 +832,13 @@ function WriteLog({ catalog, onClose, onSessionLost }: { catalog: Capacity[] | n
         <div className="min-w-0 flex-1">
           <h3 className="text-lg font-semibold text-brand">Journal des écritures</h3>
           <p className="text-sm text-muted max-w-3xl">
-            Les fiches VPDive écrites par les corrections rapides, les plus récentes d’abord. La fiche d’avant est gardée : de quoi remettre une valeur à la main si besoin.
+            Les fiches VPDive écrites par les corrections rapides, les plus récentes d’abord. La fiche d’avant est gardée : de quoi remettre une valeur à la main si besoin.
           </p>
         </div>
       </div>
       {error ? (
         <p role="alert" className="text-sm text-danger">
-          Journal illisible : {error}
+          Journal illisible : {error}
         </p>
       ) : !writes ? (
         <GabianLoader label="Lecture du journal…" />
@@ -966,7 +966,7 @@ function PersonRow({ row, season }: { row: Row; season: number }) {
       <div className="min-w-0">
         <p className="font-semibold text-ink break-words">{p.name}</p>
         <p className="text-sm text-muted">
-          {p.birthDate ? `né(e) le ${frDay(p.birthDate)}` : 'naissance inconnue'}
+          {p.birthDate ? `né le ${frDay(p.birthDate)}` : 'naissance inconnue'}
           {p.email && <span className="block truncate">{p.email}</span>}
         </p>
       </div>
@@ -1051,7 +1051,7 @@ function VpdiveStatus({ match, pending }: { match: Match; pending: boolean }) {
     <div className="text-sm">
       {match.obsolete && <p className="text-warn">{match.obsolete}</p>}
       <p className="text-warn font-medium inline-flex items-center gap-1.5">
-        <UserX className="w-4 h-4" /> {match.status === 'confirm' ? 'Homonymes : à trancher (étape 4)' : match.why || 'Pas de fiche VPDive (étape 4)'}
+        <UserX className="w-4 h-4" /> {match.status === 'confirm' ? 'Homonymes : à trancher (étape 4)' : match.why || 'Pas de fiche VPDive (étape 4)'}
       </p>
     </div>
   );
@@ -1163,7 +1163,7 @@ function FfessmImportBox<Row>({
     try {
       // Mon Club exporte en windows-1252 : lu en UTF-8, les accents seraient perdus.
       const { rows, period } = parse(decodeExport(await file.arrayBuffer()));
-      if (!rows.length) throw new Error(`Rien trouvé : est-ce bien l’export « Liste des ${what} » de Mon Club (CSV) ?`);
+      if (!rows.length) throw new Error(`Rien trouvé : est-ce bien l’export « Liste des ${what} » de Mon Club (CSV) ?`);
       onImported(await save(rows, period));
     } catch (e) {
       if (!onSessionLost(e)) setError(message(e));
@@ -1178,8 +1178,8 @@ function FfessmImportBox<Row>({
         {current === undefined
           ? `Export des ${what}…`
           : current
-            ? `FFESSM, ${what} : ${current.rows.length}${current.period ? `, ${current.period.toLowerCase()}` : ''} · déposé par ${current.by} le ${frDay(current.at)}`
-            : `FFESSM, ${what} : aucun export déposé`}
+            ? `FFESSM, ${what} : ${current.rows.length}${current.period ? `, ${current.period.toLowerCase()}` : ''} · déposé par ${current.by} le ${frDay(current.at)}`
+            : `FFESSM, ${what} : aucun export déposé`}
         {info && !info.warn && ` · ${info.text}`}
       </span>
       {info?.warn && (

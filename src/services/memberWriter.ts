@@ -70,7 +70,7 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
     }
     if (licenceFix || add) {
       if (!job.licence) throw new Error('n° de licence FFESSM inconnu');
-      if (licenceFix && !licenceFix.licenceId) throw new Error('licence sans identifiant VPDive : à faire à la main');
+      if (licenceFix && !licenceFix.licenceId) throw new Error('licence sans identifiant VPDive : à faire à la main');
       const change = () => ({
         ...(licenceFix?.licenceId && !refreshed ? { extend: { id: licenceFix.licenceId, expires: licenceEnd(season) } } : {}),
         ...(add ? { add: { number: job.licence!, expires: licenceEnd(season) } } : {}),
@@ -123,19 +123,19 @@ export async function applyJob(job: WriteJob, season: number, catalog: Set<strin
     after = await vpdive.memberRecord(uct);
     const check = checkWrite(record, after, want, season);
     result = check.error
-      ? { ok: false, message: `Écrit (${done.join(', ')}) mais à vérifier : ${check.error}`, after }
-      : { ok: true, message: `Écrit : ${done.join(', ')}`, ...(check.warning ? { warning: check.warning } : {}), after };
+      ? { ok: false, message: `Écrit (${done.join(', ')}) mais à vérifier : ${check.error}`, after }
+      : { ok: true, message: `Écrit : ${done.join(', ')}`, ...(check.warning ? { warning: check.warning } : {}), after };
   } catch (e) {
     if (e instanceof SessionExpiredError) {
       // Session perdue entre deux blocs : ce qui est déjà écrit va quand même au journal (si le serveur l'accepte encore).
       if (before && wrote) {
         await appApi
-          .logMemberWrite({ uct, name: job.name, kinds: [...kinds], ok: false, message: `Écrit en partie (${done.join(', ')}), puis : session VPDive expirée`, before })
+          .logMemberWrite({ uct, name: job.name, kinds: [...kinds], ok: false, message: `Écrit en partie (${done.join(', ')}), puis : session VPDive expirée`, before })
           .catch(() => undefined);
       }
       throw e;
     }
-    result = { ok: false, message: wrote ? `Écrit en partie (${done.join(', ')}), puis : ${message(e)}` : `Rien écrit : ${message(e)}`, ...(after ? { after } : {}) };
+    result = { ok: false, message: wrote ? `Écrit en partie (${done.join(', ')}), puis : ${message(e)}` : `Rien écrit : ${message(e)}`, ...(after ? { after } : {}) };
   }
 
   // Le journal garde la fiche d'avant : sans lui, on ne continue pas le lot.

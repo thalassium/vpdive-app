@@ -260,7 +260,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
           if (onSessionLost(e)) return;
           quotedKey.current = null;
           if (id === priceRequest.current) {
-            setStatus({ kind: 'error', text: `${PRICE_ERROR} : ${e instanceof Error ? e.message : e}` });
+            setStatus({ kind: 'error', text: `${PRICE_ERROR} : ${e instanceof Error ? e.message : e}` });
           }
         },
       )
@@ -294,7 +294,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
         text: res.waitingList
           ? editing
             ? 'Votre inscription est modifiée. Vous êtes toujours sur liste d’attente.'
-            : 'Vous êtes sur liste d’attente : le club vous préviendra si une place se libère.'
+            : 'Vous êtes sur liste d’attente : le club vous préviendra si une place se libère.'
           : editing
             ? 'Votre inscription est modifiée sur VPDive.'
             : res.message,
@@ -407,7 +407,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                   <Notice tone="warn" title="Sortie annulée">
                     {detail.alreadyRegistered
                       ? 'Le club a annulé cette sortie. Vous pouvez vous désinscrire ci-dessous.'
-                      : 'Le club a annulé cette sortie : les inscriptions sont fermées.'}
+                      : 'Le club a annulé cette sortie : les inscriptions sont fermées.'}
                   </Notice>
                 )}
                 {detail.alreadyRegistered && !editing ? (
@@ -564,7 +564,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                         {choiceGear.map((m) => (
                           <SizePicker
                             key={m.id}
-                            label={sizedKinds(m.name).length ? `${m.name} : votre taille` : `${m.name} : votre choix`}
+                            label={sizedKinds(m.name).length ? `${m.name} : votre taille` : `${m.name} : votre choix`}
                             options={m.choices.map((c) => ({ value: c.id, label: c.name }))}
                             value={choiceOf[m.id] ?? null}
                             onChange={(v) => setChoiceOf((prev) => ({ ...prev, [m.id]: v }))}
@@ -691,7 +691,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
                     : roleRequired
                       ? 'Choisissez votre rôle'
                       : sizeMissing
-                        ? `Choisir la taille : ${sizeMissing}`
+                        ? `Choisir la taille : ${sizeMissing}`
                         : pricesLoading
                           ? 'Calcul du tarif…'
                           : editing
@@ -857,7 +857,7 @@ function RegisteredPanel({
             <Clock className="w-5 h-5" />
             Sur liste d’attente
           </p>
-          <p className="text-ink mt-1">La sortie est complète : le club vous préviendra si une place se libère.</p>
+          <p className="text-ink mt-1">La sortie est complète : le club vous préviendra si une place se libère.</p>
         </div>
       ) : (
         <p className="flex items-center gap-2 font-semibold text-base text-ok">
@@ -880,7 +880,7 @@ function RegisteredPanel({
       )}
       {detail.myCart && (
         <p className="text-ink">
-          Montant : <strong className="tabular-nums">{formatEuro(detail.myCart.amount)}</strong> ·{' '}
+          Montant : <strong className="tabular-nums">{formatEuro(detail.myCart.amount)}</strong> ·{' '}
           {detail.myCart.paid ? 'réglé' : 'à régler sur VPDive'}
         </p>
       )}
@@ -909,7 +909,7 @@ function RegisteredPanel({
         </div>
       )}
       {!canEdit && !cancelled && <p className="text-muted">Le club n’a pas ouvert la modification d’inscription pour cette sortie.</p>}
-      {!detail.canUnregister && <p className="text-muted">La désinscription n’est plus possible en ligne : contactez le club.</p>}
+      {!detail.canUnregister && <p className="text-muted">La désinscription n’est plus possible en ligne : contactez le club.</p>}
     </div>
   );
 }

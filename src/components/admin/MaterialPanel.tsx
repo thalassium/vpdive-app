@@ -283,7 +283,7 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
             {summary.people.length > divers && ` · ${summary.people.length - divers} à bord sans plonger`}
             {summary.waiting.length > 0 && ` · ${summary.waiting.length} en liste d’attente`}
           </p>
-          <p className="text-sm text-muted">{outing ? 'Bouteilles d’après la fiche de sortie du DP.' : 'Pas encore de fiche de sortie : bouteilles d’après les rôles VPDive.'}</p>
+          <p className="text-sm text-muted">{outing ? 'Bouteilles d’après la fiche de sortie du DP.' : 'Pas encore de fiche de sortie : bouteilles d’après les rôles VPDive.'}</p>
         </div>
         <button type="button" onClick={copy} className="btn btn-quiet">
           {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />} {copied ? 'Copiée' : 'Copier la liste'}
@@ -296,7 +296,7 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
           <p className="text-muted">
             {summary.people.length === 0
               ? 'Aucun inscrit pour cette sortie.'
-              : `Aucun matériel demandé pour cette sortie. Les bouteilles restent à prévoir : ${bottlesDue}.`}
+              : `Aucun matériel demandé pour cette sortie. Les bouteilles restent à prévoir : ${bottlesDue}.`}
           </p>
         ) : (
           <ul className="divide-y divide-line">
@@ -362,7 +362,7 @@ function PeopleList({ people }: { people: MaterialPerson[] }) {
             <span className="block text-base text-ink">{p.name}</span>
             <span className="flex flex-wrap gap-x-4 text-sm text-muted">
               {p.lines.length ? p.lines.map((line, j) => <span key={j}>{line}</span>) : 'Rien à louer'}
-              {p.noBottle && <span className="text-warn">Pas de bouteille : {p.noBottle}</span>}
+              {p.noBottle && <span className="text-warn">Pas de bouteille : {p.noBottle}</span>}
             </span>
 
           </span>

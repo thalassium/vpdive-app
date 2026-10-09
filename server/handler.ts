@@ -210,7 +210,7 @@ export function withRetention(store: Store): Store {
   };
 }
 
-const BUSY = 'Quelqu’un d’autre enregistre en même temps : réessayez dans un instant.';
+const BUSY = 'Quelqu’un d’autre enregistre en même temps : réessayez dans un instant.';
 
 /**
  * Lecture-modification-écriture d'un document partagé, sous verrou : deux
@@ -499,7 +499,7 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
       if (!/^[\w-]{20,80}$/.test(uct)) throw new HttpError(400, 'Membre inconnu.');
       const removing = body?.superAdmin === false || body?.admin === false;
       if (removing && uct === caller.uct) throw new HttpError(400, 'Vous ne pouvez pas retirer vos propres rôles.');
-      if (removing && lockedSuper(uct, known)) throw new HttpError(400, 'Super-admin défini dans les réglages Vercel (SUPER_ADMIN_EMAILS) : à retirer là-bas.');
+      if (removing && lockedSuper(uct, known)) throw new HttpError(400, 'Super-admin défini dans les réglages Vercel (SUPER_ADMIN_EMAILS) : à retirer là-bas.');
       const add = (list: string[]) => [...new Set([...list, uct])];
       const drop = (list: string[]) => list.filter((x) => x !== uct);
       // Relu sous verrou : deux super-admins qui changent des rôles en même temps ne s'écrasent pas.
@@ -646,7 +646,7 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
         if (!/^[\w-]{20,80}$/.test(uct)) throw new HttpError(400, 'Membre inconnu.');
         const before = body?.before ?? null;
         if (Buffer.byteLength(JSON.stringify(before)) > MAX_BEFORE_BYTES) {
-          throw new HttpError(413, `Fiche d’avant trop grosse pour le journal (${Math.round(MAX_BEFORE_BYTES / 1024)} Ko au plus) : écriture non journalisée.`);
+          throw new HttpError(413, `Fiche d’avant trop grosse pour le journal (${Math.round(MAX_BEFORE_BYTES / 1024)} Ko au plus) : écriture non journalisée.`);
         }
         const kinds = Array.isArray(body?.kinds) ? body.kinds.map(String).filter((k) => /^[a-z-]{2,20}$/.test(k)).slice(0, 10) : [];
         const entry: MemberWrite = {
@@ -714,9 +714,9 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
       const lockKey = `${key}:lock`;
       const who = caller.name || caller.email;
       const readLease = async () => active(await store.get<OutingLease>(leaseKey));
-      const busy = () => json({ error: 'Un autre enregistrement de cette sortie est en cours : réessayez.', retry: true }, 503, { 'Retry-After': '1' });
+      const busy = () => json({ error: 'Un autre enregistrement de cette sortie est en cours : réessayez.', retry: true }, 503, { 'Retry-After': '1' });
       const lockedBy = (l: OutingLease, client: string) =>
-        json({ error: `${l.name} modifie cette fiche : seule cette personne peut l’enregistrer pour l’instant.`, lock: leaseView(l, caller, client) }, 423);
+        json({ error: `${l.name} modifie cette fiche : seule cette personne peut l’enregistrer pour l’instant.`, lock: leaseView(l, caller, client) }, 423);
       /** Lecture, comparaison et écriture sous le verrou court : deux écritures simultanées ne se croisent pas. */
       const underLock = async (run: () => Promise<Response>) => {
         if (!(await acquireLock(store, lockKey))) return busy();

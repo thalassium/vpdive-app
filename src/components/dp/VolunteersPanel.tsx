@@ -51,7 +51,7 @@ export function VolunteersPanel({ roster, volunteers, onChange }: Props) {
                   return (
                     <span key={slot} className="inline-flex max-w-full min-w-0 items-center">
                       <Menu
-                        ariaLabel={`${post.label} : ${slot === 0 ? 'première' : 'seconde'} personne`}
+                        ariaLabel={`${post.label} : ${slot === 0 ? 'première' : 'seconde'} personne`}
                         triggerClassName={`btn btn-quiet sm:h-10 text-base min-w-48 justify-between ${id ? 'border-brand bg-tint' : 'border-dashed text-muted'}`}
                         trigger={
                           <>

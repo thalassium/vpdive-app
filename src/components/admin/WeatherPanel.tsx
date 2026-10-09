@@ -89,7 +89,7 @@ function SlotRow({ s, active, onSelect }: { s: Slot; active: boolean; onSelect: 
         type="button"
         onClick={onSelect}
         aria-pressed={active}
-        aria-label={`${Number(s.time.slice(11, 13))} h : vent ${s.wind} nœuds de ${compass(s.windDir)}, rafales ${s.gusts}, vagues ${metres(s.waves)}`}
+        aria-label={`${Number(s.time.slice(11, 13))} h : vent ${s.wind} nœuds de ${compass(s.windDir)}, rafales ${s.gusts}, vagues ${metres(s.waves)}`}
         className={`relative w-full text-left grid grid-cols-[3.25rem_minmax(0,1.2fr)_minmax(0,1fr)] items-center gap-2 sm:gap-3 pl-2 pr-3 pt-2.5 pb-3.5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${
           active ? 'shadow-[inset_4px_0_0_var(--color-brand)]' : ''
         }`}
@@ -385,7 +385,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
                       type="button"
                       aria-pressed={day === d}
                       onClick={() => pickDay(d)}
-                      title={peak ? `Jusqu'à ${peak.wind} nd, rafales ${peak.gusts} nd` : undefined}
+                      title={peak ? `Jusqu’à ${peak.wind} nd, rafales ${peak.gusts} nd` : undefined}
                       className={`shrink-0 w-[4.75rem] rounded-lg border py-1.5 text-center transition-colors ${
                         day === d ? 'bg-surface border-brand shadow-lift' : 'bg-surface/60 border-line hover:bg-surface'
                       }`}
@@ -438,7 +438,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
             </section>
 
             <p className="text-sm text-muted">
-              Sources : Météo-France (AROME) et Open-Meteo pour le vent, Open-Meteo Marine pour la mer.
+              Sources : Météo-France (AROME) et Open-Meteo pour le vent, Open-Meteo Marine pour la mer.
             </p>
           </div>
         </main>

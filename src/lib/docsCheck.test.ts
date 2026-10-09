@@ -73,8 +73,8 @@ test('adhésion : la saison de la sortie va du 1er septembre au 31 août (VPDive
 test('messages de relance', () => {
   assert.equal(
     reminderText({ firstName: 'Marie', date: 'sam. 11 oct.', title: 'Sortie Club', kinds: ['licence', 'caci'], year: '2026', from: 'Lucas' }),
-    'Bonjour Marie,\n\nPour la sortie du sam. 11 oct. (Sortie Club), il manque dans ton dossier VPDive : un certificat médical (CACI) valable le jour de la sortie et une licence FFESSM en cours de validité.\n' +
-      'Peux-tu les mettre à jour sur https://septentrion-env.vpdive.com/app/profile ?\n\nMerci,\nLucas',
+    'Bonjour Marie,\n\nPour la sortie du sam. 11 oct. (Sortie Club), il manque dans ton dossier VPDive : un certificat médical (CACI) valable le jour de la sortie et une licence FFESSM en cours de validité.\n' +
+      'Peux-tu les mettre à jour sur https://septentrion-env.vpdive.com/app/profile ?\n\nMerci,\nLucas',
   );
   assert.match(reminderText({ firstName: '', date: 'sam. 11 oct.', title: 'Fosse', kinds: ['adhesion'], year: '2026', from: 'Lucas' }), /^Bonjour,\n[\s\S]*ton adhésion au club pour la saison 2026\.\nPeux-tu la mettre à jour/);
   const bulk = bulkReminderText({ year: '2026', from: 'Lucas' });

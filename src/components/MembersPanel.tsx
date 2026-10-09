@@ -16,7 +16,7 @@ interface Props {
 
 const VPDIVE_MEMBERS_URL = 'https://septentrion-env.vpdive.com/app/members';
 const ROLES_HELP =
-  'Admin : menus Gestion de sortie et Admin. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli par défaut ; le leur retirer ici ne change rien sur vpdive.com.';
+  'Admin : menus Gestion de sortie et Admin. Super-admin : peut en plus nommer ou retirer les admins. Les admins VPDive sont admins de l’appli par défaut ; le leur retirer ici ne change rien sur vpdive.com.';
 const roleRank: Record<AppRole, number> = { superadmin: 0, admin: 1, member: 2 };
 const byName = (a: MemberMatch, b: MemberMatch) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
 
@@ -75,7 +75,7 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
       setRoles(new Map(entries.map((e) => [e.uct, e])));
     } catch (e) {
       if (onSessionLost(e)) return;
-      setRoleError(`${m.name} : ${e instanceof Error ? e.message : String(e)}`);
+      setRoleError(`${m.name} : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(null);
     }
@@ -461,7 +461,7 @@ function Line({ label, values }: { label: string; values: string[] }) {
   if (!values.length) return null;
   return (
     <p className="text-muted">
-      {label} : <span className="text-ink">{values.join(' · ')}</span>
+      {label} : <span className="text-ink">{values.join(' · ')}</span>
     </p>
   );
 }
