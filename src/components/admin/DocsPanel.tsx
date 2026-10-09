@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, EyeOff, FileText, Mail, MessageCircle, RefreshCw, Undo2, X } from 'lucide-react';
 import { Avatar } from '../Avatar';
-import { ThemeToggle } from '../ThemeToggle';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { vpdive, ymd, type RosterEntry } from '../../services/vpdiveApi';
@@ -451,7 +450,6 @@ export function DocsPanel({ me, onClose, onSessionLost }: Props) {
               </p>
             </div>
             <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
-              <ThemeToggle />
               <button onClick={requestClose} aria-label="Fermer" className="icon-btn">
                 <X className="w-6 h-6" />
               </button>

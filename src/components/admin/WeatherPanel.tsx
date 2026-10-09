@@ -3,7 +3,6 @@ import { RefreshCw, Wind, X } from 'lucide-react';
 import { vpdive, ymd, type CalendarEvent } from '../../services/vpdiveApi';
 import { SPOTS, forecastAt, type Spot } from '../../services/marineWeather';
 import { SEUILS, beaufort, compass, level, metres, windColor, worstIn, type Level, type Slot } from '../../lib/marine';
-import { ThemeToggle } from '../ThemeToggle';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 
@@ -283,7 +282,6 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
           <h2 id="weather-title" className="text-xl font-semibold text-brand flex-1">
             Météo
           </h2>
-          <ThemeToggle />
           <button onClick={onClose} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
           </button>

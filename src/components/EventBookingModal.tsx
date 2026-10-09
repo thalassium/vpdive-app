@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { X, Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, Pencil, Users } from 'lucide-react';
 import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption, type RoleOption } from '../services/vpdiveApi';
-import { ThemeToggle } from './ThemeToggle';
 import { BuddyField } from './BuddyField';
 import { useConfirm } from '../hooks/useConfirm';
 import { useDialog } from '../hooks/useDialog';
@@ -345,7 +344,6 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
               </h2>
             </div>
             <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
-              <ThemeToggle />
               <button onClick={onClose} disabled={busy} aria-label="Fermer" className="icon-btn">
                 <X className="w-6 h-6" />
               </button>

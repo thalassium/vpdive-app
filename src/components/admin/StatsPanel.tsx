@@ -4,7 +4,6 @@ import { vpdive, type CalendarEvent, type RosterEntry } from '../../services/vpd
 import { appApi } from '../../services/appApi';
 import { computeStats, dateFr, isDiveActivity, monthSeries, monthShort, presetRange, seasonPresetLabel, type PresetId, type StatEvent, type StatPerson, type StatStaff, type Stats } from '../../lib/stats';
 import { Avatar } from '../Avatar';
-import { ThemeToggle } from '../ThemeToggle';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
 
@@ -218,7 +217,6 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
           >
             {pdfState === 'busy' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} PDF
           </button>
-          <ThemeToggle />
           <button onClick={onClose} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
           </button>

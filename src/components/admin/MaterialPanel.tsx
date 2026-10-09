@@ -7,7 +7,6 @@ import { aggregateMaterial, isUnknownSize, materialText, sortedSizes, BOTTLE_SHO
 import { adoptRegistrations, divingIds, syncWithRoster, withGuests, type OutingDoc } from '../../lib/outing';
 import { Avatar } from '../Avatar';
 import { Menu } from '../Menu';
-import { ThemeToggle } from '../ThemeToggle';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
@@ -85,7 +84,6 @@ export function MaterialPanel({ onClose, onSessionLost }: { onClose: () => void;
           <h2 id="material-title" className="text-xl font-semibold text-brand flex-1">
             Matériel
           </h2>
-          <ThemeToggle />
           <button onClick={onClose} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
           </button>

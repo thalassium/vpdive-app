@@ -5,7 +5,6 @@ import { vpdive, type MemberMatch, type MemberProfile } from '../services/vpdive
 import { appApi, type AppRole, type Me, type RoleEntry } from '../services/appApi';
 import { normalizeName, rankByName } from '../lib/fuzzy';
 import { findDuplicates, type DuplicateGroup } from '../lib/duplicates';
-import { ThemeToggle } from './ThemeToggle';
 import { useDialog } from '../hooks/useDialog';
 import { GabianLoader } from './Gabian';
 
@@ -166,7 +165,6 @@ export function MembersPanel({ me, onClose, onSessionLost }: Props) {
               )}
             </div>
             <div className="flex items-center gap-1 -mr-2 -mt-1 shrink-0">
-              <ThemeToggle />
               <button onClick={onClose} aria-label="Fermer" className="icon-btn">
                 <X className="w-6 h-6" />
               </button>

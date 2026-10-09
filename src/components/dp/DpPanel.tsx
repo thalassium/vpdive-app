@@ -26,7 +26,6 @@ import { setDepth } from '../../lib/palanqueeEdit';
 import { PalanqueesEditor } from './PalanqueesEditor';
 import { SafetySheet } from './SafetySheet';
 import { VolunteersPanel } from './VolunteersPanel';
-import { ThemeToggle } from '../ThemeToggle';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useDialog } from '../../hooks/useDialog';
 import { GabianLoader } from '../Gabian';
@@ -157,7 +156,6 @@ export function DpPanel({ session, role, dpEvents, initialEvent, onClose, onSess
             <span className="sm:hidden">DP</span>
             <span className="hidden sm:inline">Directeur de plongée</span>
           </h2>
-          <ThemeToggle />
           <button onClick={() => void close()} aria-label="Fermer" className="icon-btn -mr-2">
             <X className="w-6 h-6" />
           </button>
