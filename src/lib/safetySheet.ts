@@ -1,5 +1,5 @@
-import { extraLabel, guideLabel, memberLabel, type Diver, type Palanquee } from './palanquees';
-import type { SafetyHeader } from './outing';
+import { depthOf, extraLabel, guideLabel, memberLabel, type Diver, type Palanquee } from './palanquees';
+import { parseDepth, type Dive, type GuideNote, type SafetyHeader } from './outing';
 
 /**
  * Contenu de la fiche de sécurité, commun à l'écran et au PDF : en-tête, et
@@ -48,6 +48,36 @@ export function sheetRows(p: Palanquee): { label: string; d: Diver | null; slot:
 
 export const lastNameOf = (d: Diver) => (d.lastname ?? d.name).toUpperCase();
 export const firstNameOf = (d: Diver) => d.firstname ?? '';
+
+/** Ce que la fiche doit dire avant d'être imprimée : sans eux, elle ne vaut rien le jour J. */
+const REQUIRED: (keyof SafetyHeader)[] = ['dp', 'pilote', 'date', 'lieu'];
+
+/** Champs indispensables de l'en-tête restés vides (libellés de la fiche). */
+export function missingHeader(header: SafetyHeader): string[] {
+  return REQUIRED.filter((k) => !(header[k] ?? '').trim()).map((k) => HEADER_FIELDS.find((f) => f.key === k)!.label);
+}
+
+/** Palanquées dont la profondeur prévue dépasse la prérogative : « P2 », prévue, permise. */
+export function overDepth(dive: Pick<Dive, 'plan' | 'sheets'>): { label: string; planned: number; legal: number }[] {
+  return (dive.plan?.palanquees ?? []).flatMap((p, i) => {
+    const planned = parseDepth(dive.sheets[p.id]?.planned.depth ?? '');
+    const legal = depthOf(p);
+    return planned !== undefined && planned > legal ? [{ label: `P${i + 1}`, planned, legal }] : [];
+  });
+}
+
+/** Avertissements à confirmer avant le PDF ou l'impression ; vide : rien à dire. */
+export function printWarnings(header: SafetyHeader, dive: Pick<Dive, 'plan' | 'sheets'>): string[] {
+  const missing = missingHeader(header);
+  return [
+    ...(missing.length ? [`Non renseigné : ${missing.join(', ')}.`] : []),
+    ...overDepth(dive).map((o) => `${o.label} : ${o.planned} m prévus, au-delà de sa prérogative (${o.legal} m).`),
+  ];
+}
+
+/** Commentaire sur l'encadrant tel qu'il s'imprime : le texte, qui, quand. */
+export const noteText = (n: GuideNote) =>
+  `${n.text} (${n.by}, ${new Date(n.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })})`;
 
 /** Valeur d'en-tête telle qu'imprimée : la date en toutes lettres. */
 export function headerText(key: keyof SafetyHeader, value: string): string {

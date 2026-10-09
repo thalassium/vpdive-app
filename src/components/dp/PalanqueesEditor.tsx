@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Loader2, Lock, Pencil, Plus, RotateCcw, Share2, ShieldCheck, Sparkles, Star, Trash2, UserMinus, UserPlus, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, Loader2, Lock, MessageSquare, Pencil, Plus, RotateCcw, Share2, ShieldCheck, Sparkles, Star, Trash2, UserMinus, UserPlus, UserX, X } from 'lucide-react';
 import type { MemberMatch, RosterEntry } from '../../services/vpdiveApi';
 import { MemberSearch } from './MemberSearch';
 import { Avatar } from '../Avatar';
@@ -48,7 +48,27 @@ import {
   setType,
   trainingMenuFor,
 } from '../../lib/palanqueeEdit';
-import { DIVE_ROLES, dayParticipants, defaultRoles, newGuest, outOfWater, rolesOf, stillUnregistered, toggleDiving, toggleRole, type AddedMember, type Dive, type DiveRole, type Guest, type OutingDoc, type Roles, type Unregistered } from '../../lib/outing';
+import {
+  DIVE_ROLES,
+  dayParticipants,
+  defaultRoles,
+  mustBePlaced,
+  newGuest,
+  outOfWater,
+  rolesOf,
+  stillUnregistered,
+  toggleCompanion,
+  toggleDiving,
+  toggleRole,
+  type AddedMember,
+  type Dive,
+  type DiveRole,
+  type Guest,
+  type GuideNote,
+  type OutingDoc,
+  type Roles,
+  type Unregistered,
+} from '../../lib/outing';
 import { Menu } from '../Menu';
 
 interface Props {
@@ -56,18 +76,22 @@ interface Props {
   roster: RosterEntry[];
   doc: OutingDoc;
   dive: Dive;
+  /** Un autre modifie la fiche : tout se lit, rien ne se change. */
+  readOnly?: boolean;
   onSettings: (settings: OutingDoc['settings']) => void;
   /** Rôles de la sortie, et celui qui vient de changer (pour l'en-tête de la fiche). */
   onRoles: (roles: Roles, role: DiveRole) => void;
   onPlan: (plan: Plan) => void;
   onValidate: () => void;
   onReopen: () => void;
+  /** Commentaire libre sur l'encadrant d'une palanquée (texte vide : effacé). */
+  onNote: (palanqueeId: string, text: string) => void;
   /** Plongeurs hors VPDive de la sortie. */
   onGuests: (guests: Guest[]) => void;
   /** Membres VPDive ajoutés sans inscription. */
   onMembers: (members: AddedMember[]) => void;
-  /** Désinscrit de VPDive ; rejette avec le message à afficher. */
-  onUnregister: (person: { id: string; name: string; instructor: boolean }) => Promise<void>;
+  /** Désinscrit de VPDive (admin seulement : route d'admin de VPDive ; absent sinon) ; rejette avec le message à afficher. */
+  onUnregister?: (person: { id: string; name: string; instructor: boolean }) => Promise<void>;
   /** Liste d'attente → inscrit sur VPDive (admin seulement ; absent sinon). */
   onPromote?: (person: { id: string; name: string }) => Promise<void>;
   /** Ajoute un membre VPDive non inscrit, avec des rôles. */
@@ -116,7 +140,7 @@ function RoleBadges({ id }: { id: string }) {
  * palanquées : générées ou composées à la main, puis validées, ce qui fige la
  * composition et débloque la fiche de sécurité, où se fixent les profondeurs.
  */
-export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles, onPlan, onValidate, onReopen, onGuests, onMembers, onUnregister, onPromote, onAddMember }: Props) {
+export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, onSettings, onRoles, onPlan, onValidate, onReopen, onNote, onGuests, onMembers, onUnregister, onPromote, onAddMember }: Props) {
   const [copied, setCopied] = useState(false);
   /** Inscription depuis la liste d'attente en cours ('busy') ou refusée (message). */
   const [promoting, setPromoting] = useState<Record<string, string>>({});
@@ -126,6 +150,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
   const divers = useMemo(() => rosterToDivers(roster, settings), [roster, settings]);
   const diving = divers.filter((d) => !excluded.has(d.id));
   const locked = !!dive.validated;
+  /** Composition figée à l'écran : validée, ou un autre modifie la fiche. */
+  const frozen = locked || readOnly;
   // Tant que ce n'est pas validé, chaque plongeur apparaît avec ses réglages actuels.
   const plan = dive.plan && !locked ? refreshDivers(dive.plan, divers) : dive.plan;
   const roles = useMemo(() => doc.roles ?? defaultRoles(roster), [doc.roles, roster]);
@@ -152,6 +178,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
   const instructors = diving.filter(isInstructor).map((d) => placed.get(d.id) ?? d);
 
   const issues = plan ? plan.palanquees.flatMap((p) => validate(p)) : [];
+  // Cochés « plonge » mais dans aucune palanquée : à placer avant de valider (sauf rôle de la sortie ou accompagnant).
+  const toPlace = mustBePlaced(free.map((u) => u.diver), roles, settings);
   const unknownLevels = diving.filter((d) => !d.pe && !d.beginner && !isInstructor(d) && !d.training);
   // Les sorties enregistrées avant cette étape, avec une composition : la liste est tenue pour validée.
   const rosterOk = settings.confirmed ?? !!dive.plan;
@@ -220,8 +248,11 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
     const instructor = isInstructor(d);
     const setLevel = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'levels', d.id, v) });
     const setTraining = (v: string) => onSettings({ ...settings, ...setDiverChoice(settings, 'training', d.id, v) });
-    // Sous le nom : mineur, liste d'attente, hors VPDive et son commentaire, et le niveau tel que VPDive l'écrit (P2, PADI - AOW…).
-    const below = [d.minor && 'mineur', r.added && 'non inscrit, ajouté par le DP', r.outside && 'hors VPDive', r.display.join(', '), r.outside && r.comment].filter(Boolean).join(' · ');
+    const companion = !!settings.companions?.includes(d.id);
+    // Sous le nom : accompagnant, mineur, liste d'attente, hors VPDive et son commentaire, et le niveau tel que VPDive l'écrit (P2, PADI - AOW…).
+    const below = [companion && 'accompagnant (ne plonge pas)', d.minor && 'mineur', r.added && 'non inscrit, ajouté par le DP', r.outside && 'hors VPDive', r.display.join(', '), r.outside && r.comment]
+      .filter(Boolean)
+      .join(' · ');
     const hasRoles = (roleMap.get(d.id)?.length ?? 0) > 0;
     return (
       <li key={d.id} className="flex flex-wrap items-center gap-x-1.5 px-3 sm:px-3.5 py-2">
@@ -302,6 +333,20 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             {promoting[d.id]}
           </p>
         )}
+        {/* Décoché : accompagnant ou non (à bord sans plonger), et pour un inscrit, le désinscrire de VPDive (admin). */}
+        {out && !r.waitingList && (
+          <div className="basis-full pl-[1.875rem] pt-1">
+            <button
+              type="button"
+              aria-pressed={companion}
+              onClick={() => onSettings(toggleCompanion(settings, d.id, !companion))}
+              title="À bord sans plonger : n’a pas à être placé dans une palanquée"
+              className={`btn h-8 px-2.5 text-sm ${companion ? 'border border-brand bg-tint text-brand' : 'btn-quiet'}`}
+            >
+              {companion && <Check className="w-4 h-4" />} Accompagnant
+            </button>
+          </div>
+        )}
         {r.outside || r.added ? (
           <div className="basis-full pl-[1.875rem] pt-1">
             <button
@@ -316,7 +361,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             </button>
           </div>
         ) : (
-          out && <UnregisterAction name={d.name} onConfirm={() => onUnregister({ id: d.id, name: d.name, instructor: isInstructor(d) })} />
+          out && onUnregister && <UnregisterAction name={d.name} onConfirm={() => onUnregister({ id: d.id, name: d.name, instructor: isInstructor(d) })} />
         )}
       </li>
     );
@@ -355,16 +400,21 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             <strong className="font-semibold">Palanquées validées</strong> par {dive.validated!.by} le{' '}
             {new Date(dive.validated!.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}. La fiche de sécurité est débloquée.
           </p>
-          <button type="button" onClick={onReopen} className="btn btn-quiet h-9 text-sm border-green/50 text-ok">
-            <Pencil className="w-4 h-4" /> Modifier les palanquées
-          </button>
+          {!readOnly && (
+            <button type="button" onClick={onReopen} className="btn btn-quiet h-9 text-sm border-green/50 text-ok">
+              <Pencil className="w-4 h-4" /> Modifier les palanquées
+            </button>
+          )}
         </div>
       )}
 
-      <RolesSection roster={roster} roles={roles} excluded={excluded} onRoles={onRoles} onAddMember={onAddMember} />
+      <fieldset disabled={readOnly} className="min-w-0">
+        <RolesSection roster={roster} roles={roles} excluded={excluded} onRoles={onRoles} onAddMember={onAddMember} />
+      </fieldset>
 
       {/* 1. Qui plonge : encadrants du plus haut au plus bas, puis plongeurs ; validé par le DP avant les palanquées */}
       {!locked && !rosterOk && (
+        <fieldset disabled={readOnly} className="min-w-0">
         <section>
           <SectionHead
             n={1}
@@ -417,6 +467,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             )}
           </div>
         </section>
+        </fieldset>
       )}
 
       {!locked && rosterOk && (
@@ -426,9 +477,11 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             tone="mid"
             hint={`${diving.filter((d) => isInstructor(d) && !d.training).length} encadrant${diving.filter((d) => isInstructor(d) && !d.training).length > 1 ? 's' : ''} · ${diving.filter((d) => d.training).length} en formation`}
             actions={
-              <ActionButton onClick={() => setConfirmed(false)} icon={<Pencil className="w-4 h-4" />}>
-                Modifier les plongeurs
-              </ActionButton>
+              !readOnly && (
+                <ActionButton onClick={() => setConfirmed(false)} icon={<Pencil className="w-4 h-4" />}>
+                  Modifier les plongeurs
+                </ActionButton>
+              )
             }
           >
             {diving.length} à l’eau
@@ -437,7 +490,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
       )}
 
       {/* 2. Palanquées : générées ou composées, puis validées */}
-      {!locked && rosterOk && !plan && (
+      {!frozen && rosterOk && !plan && (
         <section>
           <SectionHead n={2} tone="deep">
             Palanquées
@@ -469,12 +522,12 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             hint={locked ? undefined : `${plan.palanquees.length} palanquée${plan.palanquees.length > 1 ? 's' : ''}`}
             actions={
               <>
-                {!locked && (
+                {!frozen && (
                   <ActionButton onClick={generate} icon={<Sparkles className="w-4 h-4" />}>
                     Refaire
                   </ActionButton>
                 )}
-                {!locked && (
+                {!frozen && (
                   <ActionButton onClick={() => onPlan(addPalanquee(plan, diving))} icon={<Plus className="w-4 h-4" />} title="Nouvelle palanquée">
                     Palanquée
                   </ActionButton>
@@ -494,7 +547,9 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
                 key={p.id}
                 index={i + 1}
                 p={p}
-                locked={locked}
+                locked={frozen}
+                note={dive.notes?.[p.id]}
+                onNote={readOnly ? undefined : (text) => onNote(p.id, text)}
                 instructors={instructors}
                 targets={targetsFor(p.id)}
                 onMove={moveTo}
@@ -510,14 +565,14 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
             ))}
           </div>
 
-          {free.length > 0 && !locked && (
+          {free.length > 0 && !frozen && (
             <div className="mt-4 grid md:grid-cols-2 gap-3">
               <FreeList title="Encadrants disponibles" items={free.filter((u) => isInstructor(u.diver))} targets={targetsFor()} onMove={moveTo} instructor />
               <FreeList title="Plongeurs non placés" items={free.filter((u) => !isInstructor(u.diver))} targets={targetsFor()} onMove={moveTo} />
             </div>
           )}
 
-          {!locked && (
+          {!frozen && (
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -526,14 +581,25 @@ export function PalanqueesEditor({ title, roster, doc, dive, onSettings, onRoles
                   onPlan(plan);
                   onValidate();
                 }}
-                disabled={issues.length > 0 || plan.palanquees.length === 0}
+                disabled={issues.length > 0 || toPlace.length > 0 || plan.palanquees.length === 0}
                 className="btn btn-primary h-11"
               >
                 <Lock className="w-4 h-4" /> Valider les palanquées
               </button>
               <span className="text-sm text-muted">
-                {issues.length > 0 ? `${issues.length} point${issues.length > 1 ? 's' : ''} à corriger avant de valider.` : 'La validation débloque la fiche de sécurité.'}
+                {issues.length > 0
+                  ? `${issues.length} point${issues.length > 1 ? 's' : ''} à corriger avant de valider.`
+                  : toPlace.length === 0 && 'La validation débloque la fiche de sécurité.'}
               </span>
+              {toPlace.length > 0 && (
+                <p role="alert" className="basis-full text-sm text-warn flex items-start gap-1.5">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>
+                    {toPlace.length > 1 ? 'Ils plongent' : 'Plonge'} sans palanquée, à placer avant de valider : {toPlace.map((d) => d.name).join(', ')}. Ou, s’{toPlace.length > 1 ? 'ils ne plongent' : 'il ne plonge'} pas,
+                    décochez-{toPlace.length > 1 ? 'les' : 'le'} dans « Qui plonge ? » (Modifier les plongeurs).
+                  </span>
+                </p>
+              )}
             </div>
           )}
 
@@ -851,6 +917,8 @@ function PalanqueeCard({
   index,
   p,
   locked,
+  note,
+  onNote,
   instructors,
   targets,
   onMove,
@@ -862,6 +930,9 @@ function PalanqueeCard({
   index: number;
   p: Palanquee;
   locked: boolean;
+  /** Commentaire sur l'encadrant ; onNote absent : lecture seule. */
+  note?: GuideNote;
+  onNote?: (text: string) => void;
   instructors: Diver[];
   targets: Target[];
   onMove: (d: Diver, target: string) => void;
@@ -925,6 +996,7 @@ function PalanqueeCard({
       {/* Plongeurs, avec leur prérogative ; celui qui fixe celle de la palanquée est signalé */}
       <ul className="px-4 pt-3 pb-3 space-y-2.5 text-base">
         <GuideRow p={p} eligible={eligible} locked={locked} targets={targets} onMove={onMove} onGuide={onGuide} onRemove={onRemoveGuide} />
+        {(note || (p.guide && onNote)) && <GuideNoteRow note={note} onNote={onNote} />}
         {p.members.map((m) => {
           const own = ownPrerogative(m, p);
           // Signalé seulement s'il fait descendre la palanquée : un autre plongeur aurait pu aller plus loin.
@@ -1029,7 +1101,90 @@ function GuideRow({
   );
 }
 
+/**
+ * Commentaire libre à côté de l'encadrant (stagiaire, consigne…) : le texte, qui
+ * l'a écrit et quand. Se modifie aussi après validation des palanquées.
+ */
+function GuideNoteRow({ note, onNote }: { note?: GuideNote; onNote?: (text: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(note?.text ?? '');
+  if (editing && onNote) {
+    const save = () => {
+      onNote(text);
+      setEditing(false);
+    };
+    return (
+      <li className="-mx-2 px-2 flex flex-wrap items-center gap-2">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && save()}
+          maxLength={500}
+          placeholder="Commentaire sur l’encadrant (stagiaire, consigne…)"
+          aria-label="Commentaire sur l’encadrant"
+          className="field flex-1 min-w-[12rem] h-9 px-2.5 text-sm"
+          autoFocus
+        />
+        <button type="button" onClick={save} className="btn btn-primary h-9 text-sm">
+          <Check className="w-4 h-4" /> Enregistrer
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setText(note?.text ?? '');
+            setEditing(false);
+          }}
+          className="btn btn-quiet h-9 text-sm"
+        >
+          Annuler
+        </button>
+      </li>
+    );
+  }
+  if (!note) {
+    return (
+      <li className="-mx-2 px-2">
+        <button
+          type="button"
+          onClick={() => {
+            setText('');
+            setEditing(true);
+          }}
+          className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-brand"
+        >
+          <MessageSquare className="w-4 h-4" /> Commenter l’encadrant
+        </button>
+      </li>
+    );
+  }
+  return (
+    <li className="-mx-2 px-2 flex items-start gap-2 text-sm">
+      <MessageSquare className="w-4 h-4 shrink-0 mt-0.5 text-muted" />
+      <span className="flex-1 min-w-0">
+        <span className="text-ink break-words">{note.text}</span>
+        <span className="block text-muted">
+          par {note.by} le {new Date(note.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
+        </span>
+      </span>
+      {onNote && (
+        <button
+          type="button"
+          onClick={() => {
+            setText(note.text);
+            setEditing(true);
+          }}
+          aria-label="Modifier le commentaire"
+          className="icon-btn w-8 h-8"
+        >
+          <Pencil className="w-4 h-4" />
+        </button>
+      )}
+    </li>
+  );
+}
+
 function DiverRow({
+
   d,
   own,
   limiting,

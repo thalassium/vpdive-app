@@ -120,7 +120,7 @@ export function StatsPanel({ onClose, onSessionLost }: { onClose: () => void; on
       // Un seul appel au serveur de l'appli pour toutes les sorties ; sans réponse, VPDive seul.
       appApi
         .outingRoles(list.map((e) => e.token))
-        .then((roles) => id === run.current && setDpFromApp(Object.fromEntries(Object.entries(roles).map(([k, r]) => [k, r?.dp]))))
+        .then(({ roles }) => id === run.current && setDpFromApp(Object.fromEntries(Object.entries(roles).map(([k, r]) => [k, r?.dp]))))
         .catch((e) => onSessionLost(e));
       await readRosters(list, id);
     } catch (e) {
