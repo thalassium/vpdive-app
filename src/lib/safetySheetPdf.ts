@@ -96,7 +96,8 @@ export function safetySheetPdf(outing: OutingDoc, dive: Dive, title: string): js
       const rows = sheetRows(p);
       const people: RowInput[] = [
         ...rows.map((r): RowInput => [
-          pdfText(r.label),
+          // « Encadrant suppl. » dépasse la colonne des libellés : écrit un peu plus petit plutôt que tronqué.
+          r.slot === 'extra' ? { content: pdfText(r.label), styles: { fontSize: 6, cellPadding: { top: 1, bottom: 1, left: 1, right: 0 } } } : pdfText(r.label),
           r.d ? pdfText(lastNameOf(r.d)) : '',
           r.d ? pdfText(firstNameOf(r.d)) : '',
           r.d ? pdfText(sheetApt(r.d, p, r.slot)) : '',

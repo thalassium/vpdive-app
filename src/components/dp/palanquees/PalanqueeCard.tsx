@@ -111,7 +111,8 @@ export function PalanqueeCard({
             <DiverRow key={m.id} d={m} own={own.label} limiting={limiting} locked={locked} targets={targets} onMove={onMove} />
           );
         })}
-        {p.extra && <DiverRow d={p.extra} own={extraLabel(p)} locked={locked} targets={targets} onMove={onMove} />}
+        {/* Encadrant supplémentaire d'une formation : il assiste, hors effectif. */}
+        {p.extra && <DiverRow d={p.extra} own={extraLabel(p.extra, p)} role="Encadrant supplémentaire" locked={locked} targets={targets} onMove={onMove} />}
         {p.members.length === 0 && <li className="text-muted">Aucun plongeur.</li>}
       </ul>
 
@@ -208,6 +209,7 @@ function GuideRow({
 function DiverRow({
   d,
   own,
+  role,
   limiting,
   locked,
   targets,
@@ -215,6 +217,8 @@ function DiverRow({
 }: {
   d: Diver;
   own: string;
+  /** Rôle écrit avant le niveau, pour qui n'est pas simple plongeur (« Encadrant supplémentaire »). */
+  role?: string;
   limiting?: boolean;
   locked: boolean;
   targets: Target[];
@@ -232,6 +236,7 @@ function DiverRow({
           <span className="break-words line-clamp-2 sm:line-clamp-none sm:truncate text-ink">{d.name}</span>
         </span>
         <span className="block text-sm text-muted truncate">
+          {role && `${role} · `}
           {d.training ? `en formation ${trainingLabel(d)} · ${describe(d)}` : describe(d)}
           {d.original && <span title="Le DP a retenu un équivalent FFESSM"> · équivalent retenu</span>}
           {d.minor ? ' · mineur' : ''}

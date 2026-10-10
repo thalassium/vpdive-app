@@ -32,7 +32,7 @@ export const byRank = (a: Diver, b: Diver) => b.teach - a.teach || (GUIDE_ORDER[
 /** Rôles de la sortie de chaque inscrit (DP, pilote, sécurité surface), pour les badges à côté des noms. */
 export const RolesContext = createContext<Map<string, DiveRole[]>>(new Map());
 
-/** Une palanquée cible du menu Déplacer : ses élèves (pour savoir qui peut l'enseigner) et si elle accepte un plongeur supplémentaire. */
+/** Une palanquée cible du menu Déplacer : ses élèves (pour savoir qui peut l'enseigner) et si elle accepte un encadrant supplémentaire (formation qui n'en a pas). */
 export type Target = { id: string; label: string; kind: PalanqueeKind; students: Diver[]; extraOk: boolean };
 
 export const hasRows = (children: ReactNode) => (Array.isArray(children) ? children.flat().length > 0 : !!children);

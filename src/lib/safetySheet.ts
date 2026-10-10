@@ -3,8 +3,8 @@ import { parseDepth, type Dive, type GuideNote, type SafetyHeader } from './outi
 
 /**
  * Contenu de la fiche de sécurité, commun à l'écran et au PDF : en-tête, et
- * pour chaque palanquée ses lignes (encadrant, plongeurs 1 à 4 ou plus, GP
- * suppl. en exploration encadrée).
+ * pour chaque palanquée ses lignes (encadrant, plongeurs 1 à 4 ou plus,
+ * encadrant suppl. en formation).
  */
 
 export const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: string; options?: string[] }[] = [
@@ -21,10 +21,12 @@ export const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: str
 ];
 
 export type SheetSlot = 'guide' | 'member' | 'extra';
+/** Ligne de l'encadrant supplémentaire d'une formation (N4/GP ou enseignant qui assiste, hors effectif). */
+const EXTRA_ROW_LABEL = 'Encadrant suppl.';
 
 /** Colonne APT de la fiche (note 5 du modèle) : mêmes étiquettes que l'écran et l'export (lib/palanquees). */
 export function sheetApt(d: Diver, p: Palanquee, slot: SheetSlot): string {
-  if (slot === 'extra') return extraLabel(p);
+  if (slot === 'extra') return extraLabel(d, p);
   if (slot === 'guide') return guideLabel(d, p);
   return memberLabel(d, p);
 }
@@ -33,8 +35,9 @@ export function sheetApt(d: Diver, p: Palanquee, slot: SheetSlot): string {
  * Les lignes d'une palanquée sur la fiche, six d'ordinaire : une palanquée
  * autonome n'a pas d'encadrant, ses plongeurs prennent les lignes 1 à 4. Une
  * formation peut compter, en plus de ses 4 élèves, des moniteurs qui plongent
- * avec elle : une ligne de plus pour chacun. La ligne « GP suppl. » n'existe
- * qu'en exploration encadrée (ou si une ancienne composition en a un).
+ * avec elle : une ligne de plus pour chacun. La ligne « Encadrant suppl. »
+ * (EXTRA_ROW_LABEL) n'existe qu'en formation (ou si une ancienne composition
+ * d'exploration en a encore un).
  */
 export function sheetRows(p: Palanquee): { label: string; d: Diver | null; slot: SheetSlot }[] {
   const divers = p.kind === 'autonomous' ? [p.guide, ...p.members].filter((d): d is Diver => !!d) : p.members;
@@ -42,7 +45,7 @@ export function sheetRows(p: Palanquee): { label: string; d: Diver | null; slot:
   return [
     { label: p.kind === 'teaching' ? 'Enseignant' : 'Encadrant', d: p.kind === 'autonomous' ? null : p.guide, slot: 'guide' },
     ...lines.map((n) => ({ label: `Plongeur ${n + 1}`, d: divers[n] ?? null, slot: 'member' as const })),
-    ...(p.kind === 'guided' || p.extra ? [{ label: 'GP suppl.', d: p.extra, slot: 'extra' as const }] : []),
+    ...(p.kind === 'teaching' || p.extra ? [{ label: EXTRA_ROW_LABEL, d: p.extra, slot: 'extra' as const }] : []),
   ];
 }
 

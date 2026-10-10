@@ -13,7 +13,7 @@ test('fiche : une palanquée autonome n’a pas d’encadrant, ses plongeurs pre
   const b = diver('B', 'P3');
   const p: Palanquee = { id: 'p', kind: 'autonomous', guide: a, extra: null, members: [b] };
   const rows = sheetRows(p);
-  assert.equal(rows.length, 5, 'ligne encadrant vide, pas de GP suppl. en autonomie');
+  assert.equal(rows.length, 5, 'ligne encadrant vide, pas d’encadrant suppl. en autonomie');
   assert.equal(rows[0]!.d, null);
   assert.deepEqual(rows.slice(1, 3).map((r) => r.d?.id), [a.id, b.id]);
   assert.equal(sheetApt(a, p, 'member'), 'PA60');
@@ -42,8 +42,9 @@ test('fiche : moniteurs plongeurs, statut en formation et une ligne de plus chac
   const mf2 = diver('M', 'MF2');
   const p: Palanquee = { id: 'p', kind: 'teaching', guide: diver('T', 'MF1'), extra: null, members: [...students, mf2] };
   const rows = sheetRows(p);
-  assert.equal(rows.length, 6, 'pas de ligne GP suppl. en formation');
+  assert.equal(rows.length, 7, 'enseignant, 5 plongeurs, et la ligne de l’encadrant suppl., vide');
   assert.equal(rows[5]!.label, 'Plongeur 5');
+  assert.deepEqual([rows[6]!.label, rows[6]!.d, rows[6]!.slot], ['Encadrant suppl.', null, 'extra']);
   assert.equal(sheetApt(mf2, p, 'member'), 'E4');
 
   const explo: Palanquee = { id: 'e', kind: 'autonomous', guide: null, extra: null, members: [diver('N2', 'P2'), mf2] };
@@ -58,13 +59,29 @@ test('fiche : un encadrant d’exploration est noté à sa prérogative la plus 
   }
 });
 
-test('fiche : GP suppl. à la prérogative de la palanquée, et seulement en exploration encadrée', () => {
+test('fiche : encadrant suppl. en formation seulement, un GP à la prérogative de la palanquée, un enseignant à son statut E#', () => {
   const gp2 = diver('GP2', 'N4');
-  const guided: Palanquee = { id: 'g', kind: 'guided', guide: diver('G', 'N4'), extra: gp2, members: [diver('N2', 'P2')] };
-  assert.equal(sheetApt(gp2, guided, 'extra'), 'PE40');
-  assert.equal(sheetRows(guided).at(-1)!.label, 'GP suppl.');
-  const teaching: Palanquee = { id: 't', kind: 'teaching', guide: diver('T', 'MF1'), extra: null, members: [diver('F', 'FN1')] };
-  assert.ok(sheetRows(teaching).every((r) => r.label !== 'GP suppl.'));
+  const teaching: Palanquee = { id: 't', kind: 'teaching', guide: diver('T', 'MF1'), extra: gp2, members: [diver('F', 'FN1')] };
+  const last = sheetRows(teaching).at(-1)!;
+  assert.deepEqual([last.label, last.d, last.slot], ['Encadrant suppl.', gp2, 'extra']);
+  assert.equal(sheetRows(teaching).length, 6, 'il ne prend pas une ligne de plongeur');
+  assert.equal(sheetApt(gp2, teaching, 'extra'), 'PE20');
+  const e2 = diver('E2', 'Initiateur', 'N4');
+  assert.equal(sheetApt(e2, { ...teaching, extra: e2 }, 'extra'), 'E2');
+  // Pas de ligne en exploration, sauf pour une ancienne composition qui en a encore un.
+  const guided: Palanquee = { id: 'g', kind: 'guided', guide: diver('G', 'N4'), extra: null, members: [diver('N2', 'P2')] };
+  assert.ok(sheetRows(guided).every((r) => r.slot !== 'extra'));
+  assert.equal(sheetRows({ ...guided, extra: gp2 }).at(-1)!.label, 'Encadrant suppl.');
+});
+
+test('fiche PDF : « Encadrant suppl. » imprimé en entier', () => {
+  const sup = diver('Sup', 'N4');
+  const p: Palanquee = { id: 't', kind: 'teaching', guide: diver('T', 'MF1'), extra: sup, members: [diver('F', 'FN1')] };
+  const header = { etablissement: 'Club', reference: '', bateau: '', pilote: '', dp: '', securite: '', date: '2026-10-08', creneau: '', lieu: '', accompagnants: '' };
+  const dive: Dive = { id: 'd1', label: 'Plongée 1', plan: { palanquees: [p], unassigned: [] }, validated: null, sheets: {}, gas: {} };
+  const raw = Buffer.from(safetySheetPdf({ settings: {} as OutingDoc['settings'], header, dives: [dive] }, dive, 'Sortie').output('arraybuffer')).toString('latin1');
+  assert.match(raw, /\(Encadrant suppl\.\)/, 'pas tronqué par la largeur de la colonne');
+  assert.match(raw, /\(SUPSON\)/);
 });
 
 test('fiche PDF : une formation de six et deux explorations sur la même rangée tiennent sur une page', () => {

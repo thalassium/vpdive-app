@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptsExtra, aptitudesFromLabels, chosenDepth, depthOf, guideLabel, kindLabel, lowestTeacher, memberLabel, minTeachFor, trainingLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
+import { acceptsExtra, aptitudesFromLabels, canAssist, chosenDepth, depthOf, extraLabel, guideLabel, kindLabel, lowestTeacher, memberLabel, minTeachFor, trainingLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
 
 let n = 0;
 const diver = (name: string, ...labels: string[]): Diver => ({ id: `d${++n}`, name, labels, ...aptitudesFromLabels(labels) });
@@ -190,12 +190,22 @@ test('les N2 partent en autonomie à 20 m plutôt que de faire descendre des N1 
   for (const p of plan.palanquees) assert.deepEqual(validate(p, 40), [], p.members.map((m) => m.name).join());
 });
 
-test('un autonome seul devient plongeur supplémentaire s’il est GP', () => {
+test('exploration : un GP seul plonge comme plongeur, jamais en plus de l’effectif', () => {
   const plan = proposePalanquees([diver('G1', 'N4'), diver('G2', 'N4'), diver('A', 'N1')], { maxDepth: 20 });
   const p = plan.palanquees[0]!;
   assert.equal(plan.palanquees.length, 1);
-  assert.equal(p.extra?.name, 'G2');
+  assert.equal(p.kind, 'guided');
+  assert.equal(p.extra, null, 'plus de plongeur supplémentaire en exploration');
+  assert.deepEqual(p.members.map((m) => m.name).sort(), ['A', 'G2'], 'le second GP est plongeur, dans l’effectif');
   assert.deepEqual(validate(p, 20), []);
+
+  // Sur une sortie d’exploration plus fournie : aucun encadrant supplémentaire nulle part.
+  const big = proposePalanquees([
+    diver('G1', 'N4'), diver('G2', 'N4'), diver('G3', 'MF1'), diver('G4', 'MF2'), diver('G5', 'Initiateur', 'N4'),
+    ...[1, 2, 3, 4, 5].map((i) => diver(`N1-${i}`, 'N1')), ...[1, 2, 3].map((i) => diver(`N2-${i}`, 'N2')), diver('N3', 'N3'),
+  ]);
+  assert.ok(big.palanquees.length > 0);
+  assert.ok(big.palanquees.every((x) => x.kind !== 'teaching' && x.extra === null));
 });
 
 test('palanquées autonomes de 2 ou 3, jamais 1 ni 4', () => {
@@ -482,15 +492,93 @@ test('un enfant est signalé', () => {
   assert.ok(validate({ id: 'c', kind: 'guided', guide: diver('G2', 'N4'), extra: null, members: [child] }).some((i) => /enfant/.test(i)));
 });
 
-test('plongeur supplémentaire : exploration encadrée seulement ; en formation le GP seul devient plongeur', () => {
+test('proposition : un GP seul assiste la formation comme encadrant supplémentaire, hors des élèves', () => {
   const plan = proposePalanquees([diver('E2', 'E2'), diver('G2', 'N4'), diver('F1', 'FN1')], { maxDepth: 20 });
   const p = plan.palanquees[0]!;
   assert.equal(plan.palanquees.length, 1);
+  assert.equal(plan.unassigned.length, 0);
   assert.equal(p.kind, 'teaching');
-  assert.equal(p.extra, null);
-  assert.ok(p.members.some((m) => m.name === 'G2'), 'le GP assiste la formation comme plongeur');
+  assert.equal(p.extra?.name, 'G2');
+  assert.deepEqual(p.members.map((m) => m.name), ['F1'], 'il n’est pas parmi les plongeurs');
   assert.deepEqual(validate(p, 20), []);
-  assert.ok(validate({ ...p, extra: diver('G3', 'N4') }).some((i) => /pas de plongeur supplémentaire en formation/.test(i)));
+});
+
+test('encadrant supplémentaire d’une formation : hors effectif, profondeur inchangée, GP ou enseignant seulement', () => {
+  const teacher = diver('Prof', 'MF1');
+  const students = [1, 2, 3, 4].map((i) => diver(`S${i}`, 'P1', 'FN2'));
+  const gp = diver('GP', 'N4');
+  const base: Palanquee = { id: 'p', kind: 'teaching', guide: teacher, extra: null, members: students };
+  const p: Palanquee = { ...base, extra: gp };
+  // 4 élèves + l’enseignant + l’encadrant supplémentaire : 6 personnes, aucune alerte.
+  assert.deepEqual(validate(p), []);
+  assert.equal(depthOf(p), depthOf(base), 'il ne change pas la profondeur de la formation');
+  assert.equal(depthOf(p), 40);
+  assert.equal(prerogativeLabel(p), 'PE40');
+  assert.equal(extraLabel(gp, p), 'PE40', 'un N4/GP qui assiste prend la prérogative de la palanquée');
+  for (const [labels, apt] of [[['Initiateur', 'N2'], 'E1'], [['Initiateur', 'N4'], 'E2'], [['MF1'], 'E3'], [['MF2'], 'E4']] as const) {
+    const e = diver('E', ...labels);
+    assert.equal(canAssist(e), true);
+    assert.equal(e.canBeExtra, true, 'un enseignant peut l’être dès E1');
+    assert.deepEqual(validate({ ...p, extra: e }), [], apt);
+    assert.equal(extraLabel(e, { ...p, extra: e }), apt, 'un enseignant garde son statut E#');
+  }
+  // Toujours 4 élèves au plus : l’encadrant supplémentaire n’ouvre pas une cinquième place d’élève.
+  assert.ok(validate({ ...p, members: [...students, diver('S5', 'P1', 'FN2')] }).includes('5 élèves : 4 au maximum.'));
+
+  // Jamais un plongeur en formation, ni un simple plongeur.
+  const trainee = diver('F', 'P1', 'FN2');
+  assert.equal(canAssist(trainee), false);
+  assert.ok(validate({ ...p, extra: trainee }).some((i) => /F est en formation \(FN2\) : ne peut pas être encadrant supplémentaire/.test(i)));
+  assert.equal(canAssist({ ...diver('M', 'MF1'), training: 4 }), false, 'un moniteur élève ce jour-là non plus');
+  const n3 = diver('N3', 'N3');
+  assert.equal(canAssist(n3), false);
+  assert.ok(validate({ ...p, extra: n3 }).some((i) => /N3 : un encadrant supplémentaire est au moins N4\/GP ou enseignant/.test(i)));
+
+  assert.equal(acceptsExtra(base), true);
+  assert.equal(acceptsExtra(p), false, 'un seul encadrant supplémentaire par formation');
+});
+
+test('encadrant supplémentaire sur une exploration (ancienne composition) : signalé, pas retiré', () => {
+  const gp = diver('G', 'N4');
+  const extra = diver('Sup', 'N4');
+  const guided: Palanquee = { id: 'g', kind: 'guided', guide: gp, extra, members: [diver('A', 'N1')] };
+  assert.deepEqual(validate(guided), ['Sup : pas d’encadrant supplémentaire en exploration, placez-le comme plongeur ou en formation.']);
+  assert.equal(settleKind(guided).extra, extra, 'laissé en place : au DP de le replacer');
+  assert.equal(acceptsExtra({ ...guided, extra: null }), false, 'une exploration n’en reçoit jamais');
+  assert.equal(acceptsExtra({ id: 'a', kind: 'autonomous', guide: null, extra: null, members: [diver('B', 'N3'), diver('C', 'N3')] }), false);
+  // Sans encadrant, la palanquée devient autonome : il redevient plongeur.
+  const auto = settleKind({ ...guided, guide: null, members: [diver('B', 'N3')] });
+  assert.equal(auto.kind, 'autonomous');
+  assert.equal(auto.extra, null);
+  assert.ok(auto.members.includes(extra));
+});
+
+test('passage en formation : l’encadrant supplémentaire reste, il n’est ni élève ni plongeur', () => {
+  const gp = diver('GP', 'N4');
+  const e2 = diver('E2', 'Initiateur', 'N4');
+  const sup = diver('Sup', 'MF1');
+  const fn1 = diver('F1', 'Débutant', 'FN1');
+  // Exploration d’une ancienne composition, avec un plongeur supplémentaire, qui passe en formation.
+  const p = toTeaching({ id: 'p', kind: 'guided', guide: gp, extra: sup, members: [fn1, e2] });
+  assert.equal(p.kind, 'teaching');
+  assert.equal(p.extra, sup, 'il reste encadrant supplémentaire');
+  assert.equal(p.guide?.name, 'E2', 'l’enseignant est choisi parmi les autres');
+  assert.deepEqual(p.members.map((m) => m.name).sort(), ['F1', 'GP']);
+  assert.deepEqual(validate(p), []);
+  // Une formation qui a déjà le sien n’est pas recomposée.
+  assert.equal(settleKind(p), p);
+  // Un élève arrive dans une exploration encadrée : même chose (settleKind).
+  assert.equal(settleKind({ id: 'q', kind: 'guided', guide: e2, extra: sup, members: [fn1] }).extra, sup);
+
+  // Personne d’autre ne peut enseigner : il prend la formation, plutôt que de la laisser sans enseignant.
+  const fn2 = diver('F2', 'P1', 'FN2');
+  const only = toTeaching({ id: 'r', kind: 'guided', guide: gp, extra: sup, members: [fn2] });
+  assert.equal(only.guide, sup);
+  assert.equal(only.extra, null);
+  // Celui qui ne peut pas l’être (un élève) rejoint les plongeurs.
+  const folded = settleKind({ id: 's', kind: 'teaching', guide: sup, extra: fn2, members: [fn1] });
+  assert.equal(folded.extra, null);
+  assert.ok(folded.members.includes(fn2));
 });
 
 test('formation vers une aptitude précise : FPA20 pour un PE40, zone 20 m, un E2 suffit', () => {
@@ -548,7 +636,7 @@ test('le directeur de plongée reste sur le bateau, sauf si sans lui des plongeu
 
 });
 
-test('6 m sans aptitude PE6 ; palanquée vide signalée comme telle ; plongeur supplémentaire refusé sur une palanquée à revoir', () => {
+test('6 m sans aptitude PE6 ; palanquée vide signalée comme telle', () => {
   const gp = diver('GP', 'N4');
   const mixed: Palanquee = { id: 'm', kind: 'guided', guide: gp, extra: null, members: [diver('Deb', 'Débutant'), diver('N1', 'N1')] };
   assert.equal(prerogativeLabel(mixed), '6 m', 'un N1 avec un débutant : 6 m, pas « PE6 »');
@@ -558,9 +646,6 @@ test('6 m sans aptitude PE6 ; palanquée vide signalée comme telle ; plongeur s
   const empty: Palanquee = { id: 'e', kind: 'autonomous', guide: null, extra: null, members: [] };
   assert.deepEqual(validate(empty), ['Palanquée vide.']);
 
-  assert.equal(acceptsExtra({ id: 'g', kind: 'guided', guide: gp, extra: null, members: [diver('A', 'N1')] }), true);
   const unknown: Palanquee = { id: 'u', kind: 'guided', guide: gp, extra: null, members: [diver('Inconnu')] };
   assert.equal(depthOf(unknown), 0);
-  assert.equal(acceptsExtra(unknown), false, '« À revoir » : pas de plongeur supplémentaire');
-  assert.equal(acceptsExtra({ id: 'd', kind: 'guided', guide: diver('E4', 'MF2'), extra: null, members: [diver('B', 'N3')] }), false, 'au-delà de 40 m');
 });

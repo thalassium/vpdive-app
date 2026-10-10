@@ -207,7 +207,7 @@ test('export texte : mêmes étiquettes que la fiche (E2 enseignant, moniteurs �
   const e2 = diverOf('E2', 'Initiateur', 'N4');
   const plan: Plan = {
     palanquees: [
-      { id: 't', kind: 'teaching', guide: e2, extra: null, members: [diverOf('F1', 'FN1')] },
+      { id: 't', kind: 'teaching', guide: e2, extra: diverOf('Sup', 'N4'), members: [diverOf('F1', 'FN1')] },
       { id: 'a', kind: 'autonomous', guide: null, extra: null, members: [diverOf('N2', 'P2'), diverOf('M1', 'MF2'), diverOf('M2', 'MF2')] },
     ],
     unassigned: [],
@@ -215,17 +215,71 @@ test('export texte : mêmes étiquettes que la fiche (E2 enseignant, moniteurs �
   const text = planToText('Test', plan);
   assert.match(text, /P1 · Formation FN1 · PE20/, 'l’objectif de la formation en tête');
   assert.match(text, /Enseignant : E2 \(E2\)/);
+  assert.match(text, /\+ Sup \(Encadrant suppl\., PE20\)/, 'l’encadrant supplémentaire de la formation, à la prérogative de la palanquée');
   assert.match(text, /- M1 \(PA20\)/);
   assert.match(text, /- N2 \(PA20\)/);
 });
 
-test('plongeur supplémentaire à la main vers une exploration encadrée ; un E1 seul ouvre une palanquée comme plongeur', () => {
+test('encadrant supplémentaire à la main : vers une formation seulement, hors effectif, d’où qu’il vienne', () => {
   const g = diverOf('G', 'N4');
   const gp2 = diverOf('GP2', 'N4');
-  let plan: Plan = { palanquees: [{ id: 'p', kind: 'guided', guide: g, extra: null, members: [diverOf('N1', 'P1')] }], unassigned: [{ diver: gp2, reason: '' }] };
-  plan = setExtra(plan, 'p', gp2);
-  assert.equal(plan.palanquees[0]!.extra?.id, gp2.id);
+  const mf1 = diverOf('MF1', 'MF1');
+  const students = [1, 2, 3, 4].map((i) => diverOf(`F${i}`, 'FN1'));
+  const start: Plan = {
+    palanquees: [
+      { id: 'p', kind: 'guided', guide: g, extra: null, members: [diverOf('N1', 'P1'), mf1] },
+      { id: 't', kind: 'teaching', guide: diverOf('E2', 'Initiateur', 'N4'), extra: null, members: students },
+    ],
+    unassigned: [{ diver: gp2, reason: '' }],
+  };
+  // Un encadrant disponible rejoint la formation de 4 élèves : 6 personnes, rien à signaler.
+  let plan = setExtra(start, 't', gp2);
+  const t = () => plan.palanquees.find((p) => p.id === 't')!;
+  assert.equal(t().extra?.id, gp2.id);
+  assert.equal(t().members.length, 4);
   assert.equal(plan.unassigned.length, 0);
+  assert.deepEqual(validate(t()), []);
+  // Un encadrant déjà placé ailleurs prend le slot : il quitte sa palanquée, l’ancien redevient disponible.
+  plan = setExtra(plan, 't', mf1);
+  assert.equal(t().extra?.id, mf1.id);
+  assert.ok(!plan.palanquees.find((p) => p.id === 'p')!.members.some((m) => m.id === mf1.id));
+  assert.deepEqual(plan.unassigned.map((u) => u.diver.id), [gp2.id]);
+  assert.deepEqual(validate(t()), []);
+  // Jamais en exploration, jamais un simple plongeur.
+  assert.equal(setExtra(start, 'p', gp2), start);
+  assert.equal(setExtra(start, 't', diverOf('N3', 'P3')), start);
+  // Retiré comme les autres, par « Déplacer ».
+  plan = moveDiver(plan, mf1, 'unassigned');
+  assert.equal(t().extra, null);
+  assert.equal(t().kind, 'teaching');
+});
+
+test('changer de type : l’encadrant supplémentaire reste en formation, redevient plongeur en exploration', () => {
+  const e3 = diverOf('E3', 'MF1');
+  const sup = diverOf('Sup', 'N4');
+  const n2 = diverOf('N2', 'P2');
+  // Une formation sans élève FN# (le DP peut la repasser en exploration).
+  const plan: Plan = { palanquees: [{ id: 't', kind: 'teaching', guide: e3, extra: sup, members: [n2] }], unassigned: [] };
+  const explo = setType(plan, 't', 'exploration').palanquees[0]!;
+  assert.equal(explo.kind, 'guided');
+  assert.equal(explo.extra, null);
+  assert.deepEqual(explo.members.map((m) => m.id), [n2.id, sup.id], 'il plonge dans l’effectif');
+  assert.deepEqual(validate(explo), []);
+  // Une ancienne exploration avec un plongeur supplémentaire, passée en formation : il reste à sa place.
+  const old: Plan = { palanquees: [{ id: 'o', kind: 'guided', guide: e3, extra: sup, members: [n2] }], unassigned: [] };
+  const teaching = setType(old, 'o', 'teaching').palanquees[0]!;
+  assert.equal(teaching.kind, 'teaching');
+  assert.equal(teaching.guide?.id, e3.id);
+  assert.equal(teaching.extra?.id, sup.id);
+  assert.deepEqual(teaching.members.map((m) => m.id), [n2.id]);
+  // Avec un élève FN#, pas d’exploration : la formation et son encadrant supplémentaire restent tels quels.
+  const withStudent: Plan = { palanquees: [{ id: 's', kind: 'teaching', guide: e3, extra: sup, members: [diverOf('F', 'P1', 'FN2')] }], unassigned: [] };
+  const kept = setType(withStudent, 's', 'exploration').palanquees[0]!;
+  assert.equal(kept.kind, 'teaching');
+  assert.equal(kept.extra?.id, sup.id);
+});
+
+test('un E1 seul ouvre une palanquée comme plongeur', () => {
   const ini = diverOf('Ini', 'Initiateur', 'N2');
   const fresh = moveDiver({ palanquees: [], unassigned: [{ diver: ini, reason: '' }] }, ini, 'new').palanquees[0]!;
   assert.equal(fresh.guide, null, 'un E1 seul n’encadre pas en exploration');
