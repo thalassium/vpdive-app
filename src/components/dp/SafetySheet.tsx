@@ -163,8 +163,8 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.label} className="border-t border-line print:border-black/30">
+                    {rows.map((r, n) => (
+                      <tr key={n} className="border-t border-line print:border-black/30">
                         <th className="px-3 py-1.5 text-left text-sm print:text-xs font-semibold text-muted whitespace-nowrap">{r.label}</th>
                         <td className="py-1.5 pr-2 font-medium text-ink uppercase">{r.d ? lastNameOf(r.d) : ''}</td>
                         <td className="py-1.5 pr-2 text-ink">{r.d ? firstNameOf(r.d) : ''}</td>

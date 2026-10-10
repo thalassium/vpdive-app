@@ -4,7 +4,7 @@ import { parseDepth, type Dive, type GuideNote, type SafetyHeader } from './outi
 /**
  * Contenu de la fiche de sécurité, commun à l'écran et au PDF : en-tête, et
  * pour chaque palanquée ses lignes (encadrant, plongeurs 1 à 4 ou plus,
- * encadrant suppl. en formation).
+ * encadrants suppl. en formation).
  */
 
 export const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: string; options?: string[] }[] = [
@@ -21,12 +21,16 @@ export const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: str
 ];
 
 export type SheetSlot = 'guide' | 'member' | 'extra';
-/** Ligne de l'encadrant supplémentaire d'une formation (N4/GP ou enseignant qui assiste, hors effectif). */
+/** Ligne d'un encadrant supplémentaire d'une formation (N4/GP ou enseignant qui assiste, hors effectif). */
 const EXTRA_ROW_LABEL = 'Encadrant suppl.';
 
-/** Colonne APT de la fiche (note 5 du modèle) : mêmes étiquettes que l'écran et l'export (lib/palanquees). */
+/**
+ * Colonne APT de la fiche (note 5 du modèle) : mêmes étiquettes que l'écran et
+ * l'export (lib/palanquees). Un encadrant supplémentaire y garde sa prérogative
+ * d'encadrant (GP, E1…E4), pas celle de la palanquée.
+ */
 export function sheetApt(d: Diver, p: Palanquee, slot: SheetSlot): string {
-  if (slot === 'extra') return extraLabel(d, p);
+  if (slot === 'extra') return extraLabel(d);
   if (slot === 'guide') return guideLabel(d, p);
   return memberLabel(d, p);
 }
@@ -35,17 +39,19 @@ export function sheetApt(d: Diver, p: Palanquee, slot: SheetSlot): string {
  * Les lignes d'une palanquée sur la fiche, six d'ordinaire : une palanquée
  * autonome n'a pas d'encadrant, ses plongeurs prennent les lignes 1 à 4. Une
  * formation peut compter, en plus de ses 4 élèves, des moniteurs qui plongent
- * avec elle : une ligne de plus pour chacun. La ligne « Encadrant suppl. »
- * (EXTRA_ROW_LABEL) n'existe qu'en formation (ou si une ancienne composition
- * d'exploration en a encore un).
+ * avec elle : une ligne de plus pour chacun. Les lignes « Encadrant suppl. »
+ * (EXTRA_ROW_LABEL) n'existent qu'en formation : une par encadrant
+ * supplémentaire, et une ligne vide quand il n'y en a pas (ou si une ancienne
+ * composition d'exploration en a encore : une ligne chacun, sans ligne vide).
  */
 export function sheetRows(p: Palanquee): { label: string; d: Diver | null; slot: SheetSlot }[] {
   const divers = p.kind === 'autonomous' ? [p.guide, ...p.members].filter((d): d is Diver => !!d) : p.members;
   const lines = Array.from({ length: Math.max(4, divers.length) }, (_, n) => n);
+  const extras: (Diver | null)[] = p.extras.length ? p.extras : p.kind === 'teaching' ? [null] : [];
   return [
     { label: p.kind === 'teaching' ? 'Enseignant' : 'Encadrant', d: p.kind === 'autonomous' ? null : p.guide, slot: 'guide' },
     ...lines.map((n) => ({ label: `Plongeur ${n + 1}`, d: divers[n] ?? null, slot: 'member' as const })),
-    ...(p.kind === 'teaching' || p.extra ? [{ label: EXTRA_ROW_LABEL, d: p.extra, slot: 'extra' as const }] : []),
+    ...extras.map((d) => ({ label: EXTRA_ROW_LABEL, d, slot: 'extra' as const })),
   ];
 }
 

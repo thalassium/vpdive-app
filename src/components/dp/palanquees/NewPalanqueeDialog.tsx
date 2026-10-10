@@ -33,7 +33,7 @@ export function NewPalanqueeDialog({ plan, diving, onCreate, onClose }: { plan: 
     const where = new Map<string, string>();
     const rank = new Map<string, number>();
     plan?.palanquees.forEach((p, i) => {
-      for (const d of [p.guide, p.extra, ...p.members]) {
+      for (const d of [p.guide, ...p.extras, ...p.members]) {
         if (!d) continue;
         where.set(d.id, `P${i + 1}`);
         rank.set(d.id, i + 1);
