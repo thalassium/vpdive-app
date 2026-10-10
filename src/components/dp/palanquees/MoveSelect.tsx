@@ -1,14 +1,15 @@
 import { ArrowLeftRight, ChevronDown } from 'lucide-react';
 import { Menu } from '../../Menu';
-import { canGuideExploration, canTeach, isInstructor, type Diver } from '../../../lib/palanquees';
+import { canAssist, canGuideExploration, canTeach, isInstructor, type Diver } from '../../../lib/palanquees';
 import type { Target } from './format';
 
 /**
  * Déplacer vers une palanquée : comme plongeur ; comme enseignant ou encadrant
  * si le plongeur peut l'être de cette palanquée-là (jamais un élève ; en
  * formation un enseignant qui suffit, en exploration un N4/GP au moins) ;
- * comme plongeur supplémentaire d'une exploration encadrée ≤ 40 m pour un
- * GP/N4 ; vers une nouvelle palanquée ; ou retirer.
+ * comme encadrant supplémentaire d'une formation qui n'en a pas, pour un
+ * N4/GP ou un enseignant, qu'il soit disponible ou déjà placé ailleurs (il
+ * assiste, hors effectif) ; vers une nouvelle palanquée ; ou retirer.
  */
 export function MoveSelect({
   targets,
@@ -25,7 +26,7 @@ export function MoveSelect({
 }) {
   const instructor = isInstructor(diver);
   const asGuide = diver.training ? [] : targets.filter((t) => (t.kind === 'teaching' ? canTeach(diver, t.students) : canGuideExploration(diver)));
-  const asExtra = diver.canBeExtra && !diver.training ? targets.filter((t) => t.extraOk) : [];
+  const asExtra = canAssist(diver) ? targets.filter((t) => t.extraOk) : [];
   return (
     <Menu
       ariaLabel="Déplacer"
@@ -43,7 +44,7 @@ export function MoveSelect({
           ? [{ title: 'Comme encadrant', onSelect: onMove, options: asGuide.map((t) => ({ value: `guide:${t.id}`, label: `${t.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} de ${t.label}` })) }]
           : []),
         ...(asExtra.length
-          ? [{ title: 'Comme plongeur supplémentaire', onSelect: onMove, options: asExtra.map((t) => ({ value: `extra:${t.id}`, label: `GP suppl. de ${t.label}`, hint: '≤ 40 m' })) }]
+          ? [{ title: 'Comme encadrant supplémentaire', onSelect: onMove, options: asExtra.map((t) => ({ value: `extra:${t.id}`, label: `Encadrant suppl. de ${t.label}` })) }]
           : []),
         {
           title: instructor ? 'Comme plongeur' : undefined,

@@ -3,7 +3,7 @@
  * VPDive aux plongeurs du moteur. Fonctions pures : chaque opération renvoie un
  * nouveau plan, l'écran revalide tout après chaque changement.
  */
-import { aptitudesFromLabels, canGuideExploration, canTeach, extraLabel, guideLabel, isInstructor, kindLabel, memberLabel, prerogativeLabel, settleKind, studentsOf, toTeaching, type Aptitudes, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
+import { aptitudesFromLabels, canAssist, canGuideExploration, canTeach, extraLabel, guideLabel, hasStudent, isInstructor, kindLabel, memberLabel, prerogativeLabel, settleKind, studentsOf, toTeaching, type Aptitudes, type Diver, type PalanqueeKind, type PalanqueeType, type Plan, type Palanquee } from './palanquees';
 import { rankByName } from './fuzzy';
 import type { RosterEntry } from '../services/vpdive';
 
@@ -207,7 +207,7 @@ export function composePalanquee(plan: Plan | null, available: Diver[], choice: 
   return choice.type === 'teaching' ? setType(next, fresh.id, 'teaching') : next;
 }
 
-/** Supprime une palanquée : encadrant, plongeur supplémentaire et plongeurs redeviennent disponibles. */
+/** Supprime une palanquée : encadrant, encadrant supplémentaire et plongeurs redeviennent disponibles. */
 export function deletePalanquee(plan: Plan, palanqueeId: string): Plan {
   const gone = plan.palanquees.find((p) => p.id === palanqueeId);
   if (!gone) return plan;
@@ -246,11 +246,18 @@ export function assignGuide(plan: Plan, palanqueeId: string, diver: Diver): Plan
 /**
  * Change le type d'une palanquée : Formation ou Exploration. En formation, il
  * faut un enseignant : l'encadrant s'il suffit, sinon le moins qualifié qui
- * suffit parmi tous (toTeaching). En exploration, elle est encadrée ou
- * autonome selon qu'elle a un encadrant (settleKind).
+ * suffit parmi tous (toTeaching) ; l'encadrant supplémentaire reste à sa
+ * place. En exploration, elle est encadrée ou autonome selon qu'elle a un
+ * encadrant (settleKind), et l'encadrant supplémentaire, qui n'y existe pas,
+ * reste dans la palanquée comme plongeur. Avec un élève (FN#), pas
+ * d'exploration : la palanquée reste une formation, telle quelle.
  */
 export function setType(plan: Plan, palanqueeId: string, type: PalanqueeType): Plan {
-  return mapPal(plan, palanqueeId, (p) => (type === 'exploration' ? settleKind({ ...p, kind: p.guide ? 'guided' : 'autonomous' }) : toTeaching(p)));
+  return mapPal(plan, palanqueeId, (p) =>
+    type === 'teaching' || hasStudent(p)
+      ? toTeaching(p)
+      : settleKind({ ...p, kind: p.guide ? 'guided' : 'autonomous', extra: null, members: p.extra ? [...p.members, p.extra] : p.members }),
+  );
 }
 
 /** Retire l'encadrant : il redevient disponible, la palanquée d'exploration devient autonome. */
@@ -264,19 +271,23 @@ export function removeGuide(plan: Plan, palanqueeId: string): Plan {
 }
 
 /**
- * Plongeur supplémentaire d'une exploration encadrée (GP/N4 au moins, la
- * palanquée reste à 40 m au plus) : le plongeur quitte sa place actuelle ;
- * celui qui tenait le slot redevient disponible.
+ * Encadrant supplémentaire d'une formation (N4/GP ou enseignant, pas en
+ * formation ; hors effectif, la profondeur de la formation ne change pas) :
+ * il quitte sa place actuelle, palanquée ou disponibles ; celui qui tenait le
+ * slot redevient disponible. Rien ne change si la palanquée n'est pas une
+ * formation ou si le plongeur ne peut pas l'être (canAssist).
  */
 export function setExtra(plan: Plan, palanqueeId: string, diver: Diver): Plan {
-  const previous = plan.palanquees.find((p) => p.id === palanqueeId)?.extra;
+  const host = plan.palanquees.find((p) => p.id === palanqueeId);
+  if (!host || host.kind !== 'teaching' || !canAssist(diver)) return plan;
+  const previous = host.extra;
   if (previous?.id === diver.id) return plan;
   const palanquees = plan.palanquees
     .map((p) => without(p, diver.id))
     .map((p) => (p.id === palanqueeId ? { ...p, extra: diver } : p))
     .map(settleKind);
   const unassigned = plan.unassigned.filter((u) => u.diver.id !== diver.id);
-  if (previous) unassigned.push({ diver: previous, reason: 'Remplacé comme plongeur supplémentaire.' });
+  if (previous) unassigned.push({ diver: previous, reason: 'Remplacé comme encadrant supplémentaire.' });
   return { palanquees, unassigned };
 }
 
@@ -296,7 +307,7 @@ export function planToText(title: string, plan: Plan): string {
     lines.push(`P${i + 1} · ${kindLabel(p)} · ${prerogativeLabel(p)}`);
     if (p.guide) lines.push(`  ${p.kind === 'teaching' ? 'Enseignant' : 'Encadrant'} : ${p.guide.name} (${guideLabel(p.guide, p)})`);
     for (const m of p.members) lines.push(`  - ${m.name} (${memberLabel(m, p)})`);
-    if (p.extra) lines.push(`  + ${p.extra.name} (GP suppl., ${extraLabel(p)})`);
+    if (p.extra) lines.push(`  + ${p.extra.name} (Encadrant suppl., ${extraLabel(p.extra, p)})`);
     lines.push('');
   });
   if (plan.unassigned.length) {
