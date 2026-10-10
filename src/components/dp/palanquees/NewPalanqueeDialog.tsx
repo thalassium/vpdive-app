@@ -28,17 +28,32 @@ export function NewPalanqueeDialog({ plan, diving, onCreate, onClose }: { plan: 
   const [guideId, setGuideId] = useState('');
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
 
-  // Où est chacun : « P2 », ou rien s'il est libre.
-  const where = useMemo(() => {
-    const m = new Map<string, string>();
+  // Où est chacun : « P2 », ou rien s'il est libre ; et le rang de sa palanquée, pour l'ordre des listes.
+  const { where, rank } = useMemo(() => {
+    const where = new Map<string, string>();
+    const rank = new Map<string, number>();
     plan?.palanquees.forEach((p, i) => {
-      for (const d of [p.guide, p.extra, ...p.members]) if (d) m.set(d.id, `P${i + 1}`);
+      for (const d of [p.guide, p.extra, ...p.members]) {
+        if (!d) continue;
+        where.set(d.id, `P${i + 1}`);
+        rank.set(d.id, i + 1);
+      }
     });
-    return m;
+    return { where, rank };
   }, [plan]);
+  // Libres d'abord, puis palanquée par palanquée ; par nom dans chaque groupe.
+  const byPlace = (a: Diver, b: Diver) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0) || a.name.localeCompare(b.name, 'fr');
 
-  const leaders = diving.filter((d) => isInstructor(d) && !d.training);
-  const others = diving.filter((d) => d.id !== guideId);
+  const leaders = diving.filter((d) => isInstructor(d) && !d.training).sort(byPlace);
+  const others = diving.filter((d) => d.id !== guideId).sort(byPlace);
+  // Les plongeurs regroupés comme dans les palanquées : « Libres », puis « P1 », « P2 »…
+  const groups: { title: string; list: Diver[] }[] = [];
+  for (const d of others) {
+    const title = where.get(d.id) ?? 'Libres';
+    const last = groups.at(-1);
+    if (last?.title === title) last.list.push(d);
+    else groups.push({ title, list: [d] });
+  }
   const members = others.filter((d) => picked.has(d.id));
   const guide = diving.find((d) => d.id === guideId) ?? null;
   const allocated = [guide, ...members].some((d) => d && where.has(d.id));
@@ -69,9 +84,9 @@ export function NewPalanqueeDialog({ plan, diving, onCreate, onClose }: { plan: 
         </fieldset>
 
         <label className="block">
-          <span className="label block mb-2">{type === 'teaching' ? 'Enseignant' : 'Encadrant'}</span>
+          <span className="label block mb-2">Encadrant</span>
           <select value={guideId} onChange={(e) => setGuideId(e.target.value)} className="field w-full">
-            <option value="">{type === 'teaching' ? 'Choisi d’après les élèves' : 'Aucun (palanquée autonome)'}</option>
+            <option value="">{type === 'teaching' ? 'Aucun' : 'Aucun (palanquée autonome)'}</option>
             {leaders.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name} · {describe(d)} · {status(d)}
@@ -87,24 +102,29 @@ export function NewPalanqueeDialog({ plan, diving, onCreate, onClose }: { plan: 
           {others.length === 0 ? (
             <p className="text-sm text-muted">Personne d’autre ne plonge.</p>
           ) : (
-            <ul className="space-y-1.5">
-              {others.map((d) => {
-                const placedIn = where.get(d.id);
-                return (
-                  <li key={d.id}>
-                    <label className={`item-card flex items-center gap-3 px-3 py-2 cursor-pointer ${picked.has(d.id) ? 'border-brand bg-accent-soft' : ''}`}>
-                      <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} className="w-5 h-5 accent-[var(--fill)] shrink-0" />
-                      <Avatar name={d.name} picture={d.picture} size="sm" />
-                      <span className="flex-1 min-w-0">
-                        <span className="block font-medium text-ink truncate">{d.name}</span>
-                        <span className="block text-sm text-muted truncate">{describe(d)}</span>
-                      </span>
-                      <span className={`chip shrink-0 ${placedIn ? 'text-brand' : 'bg-ok-soft text-ok'}`}>{placedIn ?? 'libre'}</span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="space-y-3">
+              {groups.map((g) => (
+                <div key={g.title}>
+                  <h3 className={`text-sm font-semibold mb-1.5 ${g.title === 'Libres' ? 'text-ok' : 'text-brand'}`}>
+                    {g.title === 'Libres' ? 'Libres' : `Déjà en ${g.title}`} <span className="text-muted font-normal tabular-nums">· {g.list.length}</span>
+                  </h3>
+                  <ul className="space-y-1.5">
+                    {g.list.map((d) => (
+                      <li key={d.id}>
+                        <label className={`item-card flex items-center gap-3 px-3 py-2 cursor-pointer ${picked.has(d.id) ? 'border-brand bg-accent-soft' : ''}`}>
+                          <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} className="w-5 h-5 accent-[var(--fill)] shrink-0" />
+                          <Avatar name={d.name} picture={d.picture} size="sm" />
+                          <span className="flex-1 min-w-0">
+                            <span className="block font-medium text-ink truncate">{d.name}</span>
+                            <span className="block text-sm text-muted truncate">{describe(d)}</span>
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
           )}
         </fieldset>
       </div>
