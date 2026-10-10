@@ -187,6 +187,26 @@ export function addPalanquee(plan: Plan | null, available: Diver[], kind: Palanq
   return { ...base, palanquees: [...base.palanquees, { id: newId(), kind, guide: null, extra: null, members: [] }] };
 }
 
+/**
+ * Nouvelle palanquée composée d'un coup (fenêtre « Nouvelle palanquée ») : son
+ * type, son encadrant éventuel et ses plongeurs, pris où qu'ils soient (autre
+ * palanquée ou disponibles). Une palanquée vide ne tiendrait pas : la
+ * synchronisation avec les inscrits retire les palanquées vides. Sans
+ * composition encore, tous ceux qui plongent partent des disponibles. En
+ * formation, l'enseignant est vérifié (toTeaching) comme pour « Type ».
+ */
+export function composePalanquee(plan: Plan | null, available: Diver[], choice: { type: PalanqueeType; guide: Diver | null; members: Diver[] }): Plan {
+  const base: Plan = plan ?? { palanquees: [], unassigned: available.map((diver) => ({ diver, reason: 'À placer.' })) };
+  const members = choice.members.filter((d) => d.id !== choice.guide?.id);
+  const ids = new Set([...(choice.guide ? [choice.guide.id] : []), ...members.map((d) => d.id)]);
+  // Ceux qui partent : retirés de leur palanquée (qui reste en place, éventuellement vide) et des disponibles.
+  const palanquees = base.palanquees.map((p) => [...ids].reduce(without, p)).map(settleKind);
+  const unassigned = base.unassigned.filter((u) => !ids.has(u.diver.id));
+  const fresh = settleKind({ id: newId(), kind: choice.guide ? 'guided' : 'autonomous', guide: choice.guide, extra: null, members });
+  const next: Plan = { palanquees: [...palanquees, fresh], unassigned };
+  return choice.type === 'teaching' ? setType(next, fresh.id, 'teaching') : next;
+}
+
 /** Supprime une palanquée : encadrant, plongeur supplémentaire et plongeurs redeviennent disponibles. */
 export function deletePalanquee(plan: Plan, palanqueeId: string): Plan {
   const gone = plan.palanquees.find((p) => p.id === palanqueeId);

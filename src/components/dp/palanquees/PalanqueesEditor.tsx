@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, Lock, Pencil, Plus, Share2, ShieldCheck, Sparkles } from 'lucide-react';
 import type { MemberMatch, RosterEntry } from '../../../services/vpdive';
 import { acceptsExtra, isInstructor, proposePalanquees, studentsOf, validate, type Diver, type Plan } from '../../../lib/palanquees';
-import { addPalanquee, assignGuide, deletePalanquee, buddyPairs, moveDiver, planToText, refreshDivers, rosterToDivers, setExtra, removeGuide, setType } from '../../../lib/palanqueeEdit';
+import { assignGuide, composePalanquee, deletePalanquee, buddyPairs, moveDiver, planToText, refreshDivers, rosterToDivers, setExtra, removeGuide, setType } from '../../../lib/palanqueeEdit';
 import { defaultRoles, mustBePlaced, outOfWater, rolesOf, type AddedMember, type Dive, type DiveRole, type Guest, type OutingDoc, type Roles } from '../../../lib/outing';
 import { useConfirm } from '../../../hooks/useConfirm';
 import { FreeList } from './FreeList';
@@ -10,6 +10,7 @@ import { PalanqueeCard } from './PalanqueeCard';
 import { RolesSection } from './RolesSection';
 import { RosterSection } from './RosterSection';
 import { ActionButton } from './ActionButton';
+import { NewPalanqueeDialog } from './NewPalanqueeDialog';
 import { SectionTitle } from '../../SectionTitle';
 import { RolesContext, type Target } from './format';
 
@@ -94,6 +95,8 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
   // « Qui plonge ? » dépliée tant qu'il n'y a pas de palanquées, repliée ensuite ; Masquer / Afficher à volonté.
   // Simple confort d'affichage, propre à cet écran : les palanquées suivent la liste de toute façon.
   const [rosterOpen, setRosterOpen] = useState(!dive.plan);
+  /** Fenêtre « Nouvelle palanquée » ouverte (type, encadrant, plongeurs choisis d'un coup). */
+  const [composing, setComposing] = useState(false);
   // Plongeurs sans prérogative connue (brevet étranger…) : à choisir avant de générer les palanquées.
   const unknownLevels = diving.filter((d) => !d.pe && !d.beginner && !isInstructor(d) && !d.training);
 
@@ -213,7 +216,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
             </button>
             <button
               type="button"
-              onClick={() => onPlan(addPalanquee(null, diving))}
+              onClick={() => setComposing(true)}
               className="btn btn-quiet sm:h-9 text-sm"
             >
               <Plus className="w-4 h-4" /> Composer à la main
@@ -243,7 +246,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
                   </ActionButton>
                 )}
                 {!frozen && (
-                  <ActionButton onClick={() => onPlan(addPalanquee(plan, diving))} icon={<Plus className="w-4 h-4" />} title="Nouvelle palanquée">
+                  <ActionButton onClick={() => setComposing(true)} icon={<Plus className="w-4 h-4" />} title="Nouvelle palanquée">
                     Palanquée
                   </ActionButton>
                 )}
@@ -326,6 +329,17 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
           )}
 
         </section>
+      )}
+      {composing && (
+        <NewPalanqueeDialog
+          plan={plan}
+          diving={diving}
+          onClose={() => setComposing(false)}
+          onCreate={(choice) => {
+            onPlan(composePalanquee(plan, diving, choice));
+            setComposing(false);
+          }}
+        />
       )}
       {confirmDialog}
     </div>

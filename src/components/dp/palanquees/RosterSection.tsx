@@ -250,7 +250,7 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
             <>
               {hasChoices && !readOnly && (
                 <ActionButton onClick={reset} icon={<RotateCcw className="w-4 h-4" />} title="Aptitudes et formations reviennent à celles de VPDive">
-                  Réinitialiser
+                  Réinitialiser Apt.
                 </ActionButton>
               )}
               <ActionButton onClick={onHide} icon={<ChevronUp className="w-4 h-4" />} title="Replier la liste des plongeurs">

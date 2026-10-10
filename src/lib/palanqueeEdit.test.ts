@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { aptitudesFromLabels, depthOf, proposePalanquees, validate, type Diver, type Plan } from './palanquees';
-import { NO_TRAINING, PREROGATIVE_OPTIONS, addPalanquee, assignGuide, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setExtra, setType, trainingMenuFor } from './palanqueeEdit';
+import { NO_TRAINING, PREROGATIVE_OPTIONS, addPalanquee, assignGuide, composePalanquee, buddyPairs, deletePalanquee, moveDiver, refreshDivers, removeGuide, setDiverChoice, planToText, rosterToDivers, setDepth, setExtra, setType, trainingMenuFor } from './palanqueeEdit';
 import type { RosterEntry } from '../services/vpdive';
 
 const entry = (id: string, name: string, levels: string[], comment = '', age: number | null = 30): RosterEntry => ({
@@ -290,4 +290,24 @@ test('aptitudes forçables : PA12 et PE60 · PA40 se lisent comme elles s’écr
   const [pa12, pe60] = rosterToDivers([entry('a', 'A A', ['P1']), entry('b', 'B B', ['P2'])], { levels: { a: 'PA12', b: 'PE60 · PA40' } });
   assert.deepEqual([pa12!.pe, pa12!.pa], [12, 12]);
   assert.deepEqual([pe60!.pe, pe60!.pa], [60, 40]);
+});
+
+test('nouvelle palanquée composée d’un coup : encadrant et plongeurs pris où qu’ils soient', () => {
+  const divers = rosterToDivers(roster.slice(0, 5));
+  const plan = proposePalanquees(divers);
+  const [gaby, anna, bruno] = [divers[0]!, divers[1]!, divers[2]!];
+  const next = composePalanquee(plan, divers, { type: 'exploration', guide: gaby, members: [anna, bruno] });
+  const fresh = next.palanquees.at(-1)!;
+  assert.equal(fresh.guide?.id, gaby.id);
+  assert.deepEqual(fresh.members.map((d) => d.id).sort(), [anna.id, bruno.id].sort());
+  assert.equal(fresh.kind, 'guided');
+  // Chacun à une seule place : retiré de sa palanquée d'avant.
+  for (const d of [gaby, anna, bruno]) {
+    assert.equal(next.palanquees.filter((x) => [x.guide, x.extra, ...x.members].some((m) => m?.id === d.id)).length, 1, d.name);
+  }
+  // Sans composition encore : les autres restent disponibles.
+  const first = composePalanquee(null, divers, { type: 'exploration', guide: null, members: [divers[3]!, divers[4]!] });
+  assert.equal(first.palanquees.length, 1);
+  assert.equal(first.palanquees[0]!.kind, 'autonomous');
+  assert.deepEqual(first.unassigned.map((u) => u.diver.id).sort(), ['1', '2', '3']);
 });
