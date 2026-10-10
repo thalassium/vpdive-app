@@ -5,7 +5,7 @@ import { ymd, shortDay } from '../../lib/dates';
 import { appApi } from '../../services/appApi';
 import { BOTTLES } from '../../lib/gear';
 import { aggregateMaterial, isUnknownSize, materialText, sortedSizes, BOTTLE_SHORT, type MaterialPerson } from '../../lib/material';
-import { adoptRegistrations, divingIds, syncWithRoster, withGuests, type OutingDoc } from '../../lib/outing';
+import { adoptRegistrations, divingIds, normalizePlans, syncWithRoster, withGuests, type OutingDoc } from '../../lib/outing';
 import { Avatar } from '../Avatar';
 import { MemberSheetButton } from '../member/MemberLink';
 import { Menu } from '../Menu';
@@ -190,7 +190,8 @@ function OutingMaterial({ event, onSessionLost }: { event: CalendarEvent; onSess
         ),
       ])
         .then(([r, saved]) => {
-          setOuting(saved);
+          // Une fiche enregistrée avant un changement des palanquées est relue à la forme actuelle.
+          setOuting(saved && normalizePlans(saved));
           setRoster(r);
         })
         .catch((e: unknown) => {

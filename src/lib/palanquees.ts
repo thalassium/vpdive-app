@@ -34,14 +34,15 @@
  *   - un encadrant d'exploration est au moins N4/GP, noté à sa plus haute
  *     prérogative ; un moniteur qui plonge en exploration prend celle de la
  *     palanquée (celle du moins formé) et compte dans l'effectif ;
- *   - en formation, un E1…E4 qui plonge garde son statut E# et un N4/GP qui
- *     assiste prend la prérogative de la palanquée ; ni l'un ni l'autre ne
- *     compte parmi les 4 élèves ;
- *   - un encadrant peut « assister » une formation : en plus de l'enseignant
- *     et de ses 4 élèves, un « encadrant supplémentaire » (N4/GP ou E1…E4, pas
- *     lui-même en formation) plonge avec la palanquée, qui compte alors plus
- *     de 4 personnes. Il ne compte pas dans l'effectif et ne change pas la
- *     profondeur de la formation (slot `extra`) ;
+ *   - en formation, un E1…E4 qui plonge comme plongeur garde son statut E# et
+ *     un N4/GP qui y plonge comme plongeur prend la prérogative de la
+ *     palanquée ; ni l'un ni l'autre ne compte parmi les 4 élèves ;
+ *   - des encadrants peuvent « assister » une formation : en plus de
+ *     l'enseignant et de ses 4 élèves, un ou plusieurs « encadrants
+ *     supplémentaires » (N4/GP ou E1…E4, pas eux-mêmes en formation) plongent
+ *     avec la palanquée, qui compte alors plus de 4 personnes. Ils ne comptent
+ *     pas dans l'effectif, ne changent pas la profondeur de la formation et
+ *     gardent leur prérogative d'encadrant, GP ou E# (liste `extras`) ;
  *   - jamais de plongeur supplémentaire (*) en exploration : le club n'use
  *     pas de cette possibilité du Code. Un N4/GP de plus y plonge comme
  *     plongeur, dans l'effectif.
@@ -168,11 +169,12 @@ export interface Palanquee {
   /** Encadrant ou enseignant (palanquée encadrée ou de formation). */
   guide: Diver | null;
   /**
-   * Encadrant supplémentaire d'une formation : un N4/GP ou un enseignant
-   * (E1…E4) qui assiste, hors effectif. Jamais en exploration (règle du club) :
-   * une ancienne composition qui en a un est signalée (validate).
+   * Encadrants supplémentaires d'une formation : des N4/GP ou des enseignants
+   * (E1…E4) qui assistent, hors effectif ; le plus souvent aucun ou un seul.
+   * Jamais en exploration (règle du club) : une ancienne composition qui en a
+   * un est signalée (validate).
    */
-  extra: Diver | null;
+  extras: Diver[];
   members: Diver[];
   /**
    * Profondeur maximale retenue par le DP pour cette palanquée, en mètres
@@ -186,6 +188,35 @@ export interface Plan {
   palanquees: Palanquee[];
   /** Plongeurs qui n'ont pas pu être placés, avec la raison. */
   unassigned: { diver: Diver; reason: string }[];
+}
+
+/**
+ * Palanquée telle qu'elle a pu être enregistrée. Avant la liste `extras`, une
+ * formation n'avait qu'un encadrant supplémentaire, rangé dans `extra` (un
+ * plongeur ou null) ; plus ancien encore, ni l'un ni l'autre.
+ */
+export type StoredPalanquee = Omit<Palanquee, 'extras'> & { extras?: (Diver | null)[] | null; extra?: Diver | null };
+export type StoredPlan = Omit<Plan, 'palanquees'> & { palanquees: StoredPalanquee[] };
+
+/**
+ * Palanquée relue d'un enregistrement, à la forme actuelle : l'ancien `extra`
+ * devient le seul élément de `extras` (aucun s'il était null ou absent) et
+ * disparaît. Si les deux champs sont là (fiche réenregistrée par une version
+ * antérieure de l'appli restée ouverte), ils sont réunis, sans doublon. Déjà à
+ * la forme actuelle : la même palanquée est rendue.
+ */
+export function normalizePalanquee(p: StoredPalanquee): Palanquee {
+  if (Array.isArray(p.extras) && !('extra' in p) && p.extras.every((d) => !!d)) return p as Palanquee;
+  const { extra, extras, ...rest } = p;
+  const list: Diver[] = [];
+  for (const d of [...(Array.isArray(extras) ? extras : []), extra]) if (d && !list.some((x) => x.id === d.id)) list.push(d);
+  return { ...rest, extras: list };
+}
+
+/** Composition relue d'un enregistrement (normalizePalanquee) ; rien à reprendre : la même composition est rendue. */
+export function normalizePlan(plan: StoredPlan): Plan {
+  const palanquees = plan.palanquees.map(normalizePalanquee);
+  return palanquees.every((p, i) => p === plan.palanquees[i]) ? (plan as Plan) : { ...plan, palanquees };
 }
 
 export interface PlanOptions {
@@ -394,7 +425,7 @@ export function depthOf(p: Palanquee, outingMax: Depth = 60): Depth | 0 {
       if (!t) return 0;
       depth = minDepth(depth, t);
     }
-    // L'encadrant supplémentaire assiste : il ne change pas la profondeur de la formation.
+    // Les encadrants supplémentaires assistent : ils ne changent pas la profondeur de la formation.
     return depth;
   }
   if (p.kind === 'guided') {
@@ -486,33 +517,34 @@ export function lowestTeacher(candidates: Diver[], students: Diver[], outingMax:
  * Passe une palanquée en formation. Il faut un enseignant (E1…E4) : un N4/GP
  * n'enseigne jamais, ni un moniteur lui-même en formation. L'encadrant en
  * place reste s'il suffit ; sinon le moins qualifié qui suffit, parmi tous,
- * enseigne, et les autres plongent. L'encadrant supplémentaire reste à sa
+ * enseigne, et les autres plongent. Un encadrant supplémentaire reste à sa
  * place s'il peut l'être (canAssist) : il n'est ni élève ni plongeur, et
- * n'enseigne que si personne d'autre ne le peut. Celui qui ne peut pas l'être
- * (un élève, un plongeur) rejoint les plongeurs. Sans enseignant possible : à revoir.
+ * n'enseigne que si personne d'autre ne le peut (le moins qualifié qui suffit
+ * s'ils sont plusieurs). Celui qui ne peut pas l'être (un élève, un plongeur)
+ * rejoint les plongeurs. Sans enseignant possible : à revoir.
  */
 export function toTeaching(p: Palanquee): Palanquee {
-  const assistant = p.extra && canAssist(p.extra) ? p.extra : null;
-  const everyone = [p.guide, ...p.members, assistant ? null : p.extra].filter((d): d is Diver => !!d);
+  const assistants = p.extras.filter(canAssist);
+  const everyone = [p.guide, ...p.members, ...p.extras.filter((d) => !canAssist(d))].filter((d): d is Diver => !!d);
   const students = everyone.filter((d) => d.training || !isInstructor(d));
-  const teacher = (p.guide && canTeach(p.guide, students) ? p.guide : lowestTeacher(everyone, students)) ?? (assistant && canTeach(assistant, students) ? assistant : null);
-  return { ...p, kind: 'teaching', guide: teacher, extra: teacher === assistant ? null : assistant, members: everyone.filter((d) => d !== teacher) };
+  const teacher = (p.guide && canTeach(p.guide, students) ? p.guide : lowestTeacher(everyone, students)) ?? lowestTeacher(assistants, students) ?? null;
+  return { ...p, kind: 'teaching', guide: teacher, extras: assistants.filter((d) => d !== teacher), members: everyone.filter((d) => d !== teacher) };
 }
 
 /**
  * Exploration : encadrée s'il y a un encadrant, autonome sinon. Une palanquée
- * autonome n'a pas d'encadrant supplémentaire : celui d'une ancienne
- * composition redevient plongeur. En exploration encadrée, il est laissé en
- * place et signalé (validate) : au DP de le replacer. Avec un élève FN#, la
+ * autonome n'a pas d'encadrant supplémentaire : ceux d'une ancienne
+ * composition redeviennent plongeurs. En exploration encadrée, ils sont laissés
+ * en place et signalés (validate) : au DP de les replacer. Avec un élève FN#, la
  * palanquée passe en formation (toTeaching). Une formation dont l'enseignant
- * manque ou ne convient plus, ou dont l'encadrant supplémentaire ne peut plus
- * l'être, est recomposée de même ; sinon son encadrant supplémentaire reste.
+ * manque ou ne convient plus, ou dont un encadrant supplémentaire ne peut plus
+ * l'être, est recomposée de même ; sinon ses encadrants supplémentaires restent.
  */
 export function settleKind(p: Palanquee): Palanquee {
-  if (p.kind === 'teaching') return p.guide && canTeach(p.guide, studentsOf(p)) && (!p.extra || canAssist(p.extra)) ? p : toTeaching(p);
+  if (p.kind === 'teaching') return p.guide && canTeach(p.guide, studentsOf(p)) && p.extras.every(canAssist) ? p : toTeaching(p);
   if (hasStudent(p)) return toTeaching(p);
   if (p.guide) return p.kind === 'guided' ? p : { ...p, kind: 'guided' };
-  return { ...p, kind: 'autonomous', extra: null, members: p.extra ? [...p.members, p.extra] : p.members };
+  return { ...p, kind: 'autonomous', extras: [], members: p.extras.length ? [...p.members, ...p.extras] : p.members };
 }
 
 /**
@@ -551,11 +583,11 @@ export function prerogativeCode(d: Aptitudes): string {
 }
 
 /**
- * Une palanquée qui peut recevoir un encadrant supplémentaire : une formation
- * qui n'en a pas déjà un. Jamais une exploration. Reste à vérifier que le
- * plongeur peut l'être (canAssist).
+ * Une palanquée qui peut recevoir un encadrant supplémentaire de plus : toute
+ * formation, sans plafond (ils sont hors effectif). Jamais une exploration.
+ * Reste à vérifier que le plongeur peut l'être (canAssist).
  */
-export const acceptsExtra = (p: Palanquee): boolean => p.kind === 'teaching' && !p.extra;
+export const acceptsExtra = (p: Palanquee): boolean => p.kind === 'teaching';
 
 /** Moniteur : GP/N4 ou E1…E4. */
 export const isInstructor = (d: Aptitudes): boolean => !!d.guide || d.teach > 0;
@@ -568,22 +600,27 @@ export const isInstructor = (d: Aptitudes): boolean => !!d.guide || d.teach > 0;
  */
 export const canAssist = (d: Aptitudes): boolean => isInstructor(d) && !d.training;
 
+/** Prérogative d'encadrant d'un moniteur, la plus haute : E1…E4 pour un enseignant, GP pour un N4/GP ; vide s'il n'en a pas. */
+const instructorCode = (d: Aptitudes): string => (d.teach ? `E${d.teach}` : d.guide === 'GP' ? 'GP' : '');
+
 /**
  * Encadrant ou enseignant tel qu'il est noté, à l'écran, sur la fiche (colonne
- * APT) et dans l'export : E# en formation ; en exploration sa plus haute
- * prérogative (un E4 qui guide reste E4, un E2 est E2, un N4 est GP).
+ * APT) et dans l'export : E# en formation (un N4/GP n'enseigne pas : « ? ») ;
+ * en exploration sa plus haute prérogative (un E4 qui guide reste E4, un E2
+ * est E2, un N4 est GP).
  */
 export function guideLabel(d: Aptitudes, p: Palanquee): string {
-  if (d.teach) return `E${d.teach}`;
-  return p.kind !== 'teaching' && d.guide === 'GP' ? 'GP' : '?';
+  if (p.kind === 'teaching' && !d.teach) return '?';
+  return instructorCode(d) || '?';
 }
 
 /**
  * Plongeur (membre) tel qu'il est noté, mêmes trois endroits. Hors encadrant
  * ou enseignant, tout le monde porte l'aptitude la plus faible du groupe, qui
  * est la prérogative de la palanquée : des PE40 avec un PE20 sont tous PE20,
- * un N2 PA20 avec trois E4 autonomes, tous PA20, un N4/GP qui assiste une
- * formation n'a pas de statut N4. Seule exception, un enseignant (E1…E4) qui
+ * un N2 PA20 avec trois E4 autonomes, tous PA20, un N4/GP qui plonge comme
+ * plongeur dans une formation n'a pas de statut N4 (encadrant supplémentaire,
+ * il le garde : extraLabel). Seule exception, un enseignant (E1…E4) qui
  * plonge dans une formation sans l'enseigner garde son statut E#. La formation
  * d'un élève n'est qu'un objectif, écrit en tête de palanquée (objectiveLabel).
  * Si la palanquée ne peut pas plonger telle quelle, chacun montre sa propre
@@ -598,28 +635,29 @@ export function memberLabel(d: Diver, p: Palanquee): string {
 }
 
 /**
- * Encadrant supplémentaire d'une formation tel qu'il est noté, mêmes trois
- * endroits : comme un moniteur qui plonge avec elle (memberLabel), un
- * enseignant garde son statut E#, un N4/GP prend la prérogative de la palanquée.
+ * Encadrant supplémentaire d'une formation tel qu'il est noté, mêmes endroits
+ * (écran, fiche, PDF, texte partagé) : il garde sa prérogative d'encadrant,
+ * « GP » pour un N4/GP, « E1 »…« E4 » pour un enseignant, jamais celle de la
+ * palanquée (PE20…). « ? » pour qui n'est pas moniteur (signalé par validate).
  */
-export const extraLabel = (d: Diver, p: Palanquee): string => memberLabel(d, p);
+export const extraLabel = (d: Aptitudes): string => instructorCode(d) || '?';
 
-/** Élèves d'une palanquée de formation : les moniteurs qui plongent avec eux ne comptent pas, l'encadrant supplémentaire (hors `members`) non plus. */
+/** Élèves d'une palanquée de formation : les moniteurs qui plongent avec eux ne comptent pas, les encadrants supplémentaires (hors `members`) non plus. */
 export const studentsOf = (p: Palanquee): Diver[] => p.members.filter((m) => m.training || !isInstructor(m));
 
 /** Ce qui rend une palanquée non conforme. Liste vide = conforme. */
 export function validate(p: Palanquee, outingMax: Depth = 60): string[] {
   // Une palanquée vide n'a qu'un défaut : la remplir ou la supprimer.
-  if (!p.guide && !p.extra && p.members.length === 0) return ['Palanquée vide.'];
+  if (!p.guide && !p.extras.length && p.members.length === 0) return ['Palanquée vide.'];
   const issues: string[] = [];
   if (p.depth && p.depth > (depthOf(p, outingMax) || 0)) {
     issues.push(`${p.depth} m dépasse la prérogative de la palanquée (${depthOf(p, outingMax) || 0} m).`);
   }
-  for (const m of [p.guide, p.extra, ...p.members]) {
+  for (const m of [p.guide, ...p.extras, ...p.members]) {
     if (m?.child) issues.push(`${m.name} : plongeur enfant, conditions de pratique enfants à vérifier.`);
   }
   // Ancienne composition : le plongeur supplémentaire d'une exploration n'existe plus, il est signalé sans être retiré.
-  if (p.extra && p.kind !== 'teaching') issues.push(`${p.extra.name} : pas d’encadrant supplémentaire en exploration, placez-le comme plongeur ou en formation.`);
+  if (p.kind !== 'teaching') for (const x of p.extras) issues.push(`${x.name} : pas d’encadrant supplémentaire en exploration, placez-le comme plongeur ou en formation.`);
   if (p.kind === 'teaching') {
     const students = studentsOf(p);
     if (!p.guide) issues.push('Pas d’enseignant.');
@@ -630,14 +668,14 @@ export function validate(p: Palanquee, outingMax: Depth = 60): string[] {
       if (demanding) issues.push(`${trainingLabel(demanding)} demande un E${minTeachFor(demanding)} au minimum (${p.guide.name} est E${p.guide.teach}).`);
     }
     if (students.length === 0) issues.push('Aucun élève.');
-    // L'effectif d'une formation, ce sont ses élèves : ni les moniteurs qui plongent avec elle, ni l'encadrant supplémentaire.
+    // L'effectif d'une formation, ce sont ses élèves : ni les moniteurs qui plongent avec elle, ni les encadrants supplémentaires, quel que soit leur nombre.
     if (students.length > 4) issues.push(`${students.length} élèves : 4 au maximum.`);
-    if (p.extra) {
-      const zone = depthOf(p, outingMax);
-      if (p.extra.training) issues.push(`${p.extra.name} est en formation (${trainingLabel(p.extra)}) : ne peut pas être encadrant supplémentaire.`);
-      else if (!isInstructor(p.extra)) issues.push(`${p.extra.name} : un encadrant supplémentaire est au moins N4/GP ou enseignant (E1 à E4), placez-le comme plongeur.`);
+    const zone = depthOf(p, outingMax);
+    for (const x of p.extras) {
+      if (x.training) issues.push(`${x.name} est en formation (${trainingLabel(x)}) : ne peut pas être encadrant supplémentaire.`);
+      else if (!isInstructor(x)) issues.push(`${x.name} : un encadrant supplémentaire est au moins N4/GP ou enseignant (E1 à E4), placez-le comme plongeur.`);
       // Il ne change pas la profondeur de la formation : s'il ne peut pas la suivre, c'est au DP de trancher.
-      else if (p.extra.pe < zone) issues.push(`${p.extra.name} : encadrant supplémentaire limité à ${p.extra.pe} m, la formation va à ${zone} m.`);
+      else if (x.pe < zone) issues.push(`${x.name} : encadrant supplémentaire limité à ${x.pe} m, la formation va à ${zone} m.`);
     }
     for (const m of p.members) if (!teachingDepthOf(m)) issues.push(`${m.name} : niveau inconnu, à vérifier.`);
   } else if (p.kind === 'guided') {
@@ -828,7 +866,7 @@ function assignGuided(divers: Diver[], guides: Diver[], outingMax: Depth, out: P
     if (!group.length) break;
     free.splice(free.indexOf(e1), 1);
     rest = rest.filter((d) => !group.includes(d));
-    out.push({ id: newId(), kind: 'teaching', guide: e1, extra: null, members: group });
+    out.push({ id: newId(), kind: 'teaching', guide: e1, extras: [], members: group });
   }
   if (!rest.length) return free;
 
@@ -847,7 +885,7 @@ function assignGuided(divers: Diver[], guides: Diver[], outingMax: Depth, out: P
       return;
     }
     free.splice(free.indexOf(guide), 1);
-    out.push({ id: newId(), kind: 'guided', guide, extra: null, members: group });
+    out.push({ id: newId(), kind: 'guided', guide, extras: [], members: group });
   });
   return free;
 }
@@ -874,7 +912,7 @@ function splitWithSpareInstructors(out: Palanquee[], free: Diver[], outingMax: D
       const pick = spare.filter((i) => fits(i, shallow)).sort((a, b) => GUIDE_RANK[a.guide!] - GUIDE_RANK[b.guide!] || a.teach - b.teach)[0];
       if (!pick || !fits(p.guide!, deep)) continue;
       p.members = deep;
-      out.push({ id: newId(), kind: p.kind, guide: pick, extra: null, members: shallow });
+      out.push({ id: newId(), kind: p.kind, guide: pick, extras: [], members: shallow });
       spare.splice(spare.indexOf(pick), 1);
       changed = true;
       break;
@@ -908,11 +946,11 @@ function groupAutonomous(autos: Diver[], instructors: Diver[], outingMax: Depth,
       const target = groups.find((g) => g.length < 2) ?? [...groups].filter((g) => g.length < 3).sort((a, b) => instructorsIn(a) - instructorsIn(b))[0]!;
       target.push(ins);
     }
-    for (const g of groups) out.push({ id: newId(), kind: 'autonomous', guide: null, extra: null, members: g });
+    for (const g of groups) out.push({ id: newId(), kind: 'autonomous', guide: null, extras: [], members: g });
     return;
   }
   // Moins d'encadrants que de palanquées : chacun fait binôme avec un autonome du plus haut niveau.
-  for (const ins of I) out.push({ id: newId(), kind: 'autonomous', guide: null, extra: null, members: [ins, A.shift()!] });
+  for (const ins of I) out.push({ id: newId(), kind: 'autonomous', guide: null, extras: [], members: [ins, A.shift()!] });
   groupByTier(A, outingMax, out, unassigned);
 }
 
@@ -930,7 +968,7 @@ function groupByTier(pool: Diver[], outingMax: Depth, out: Palanquee[], unassign
     if (list.length === 1) carry = list;
     else if (list.length > 1) {
       for (const group of balancedChunks(list, Math.ceil(list.length / 3))) {
-        out.push({ id: newId(), kind: 'autonomous', guide: null, extra: null, members: group });
+        out.push({ id: newId(), kind: 'autonomous', guide: null, extras: [], members: group });
       }
     }
   }
@@ -945,11 +983,12 @@ function groupByTier(pool: Diver[], outingMax: Depth, out: Palanquee[], unassign
     host.members.push(lone);
     return;
   }
-  // Un moniteur seul assiste une formation qui n'a pas encore d'encadrant supplémentaire et qu'il peut
-  // suivre : hors des 4 élèves, sans changer la profondeur de la formation.
-  const teachingHost = canAssist(lone) && out.find((p) => acceptsExtra(p) && lone.pe >= depthOf(p, outingMax));
+  // Un moniteur seul assiste une formation qu'il peut suivre, de préférence une qui n'a pas encore
+  // d'encadrant supplémentaire : hors des 4 élèves, sans changer la profondeur de la formation.
+  const teachingHosts = canAssist(lone) ? out.filter((p) => acceptsExtra(p) && lone.pe >= depthOf(p, outingMax)) : [];
+  const teachingHost = teachingHosts.find((p) => !p.extras.length) ?? teachingHosts[0];
   if (teachingHost) {
-    teachingHost.extra = lone;
+    teachingHost.extras = [...teachingHost.extras, lone];
     return;
   }
   const guidedHost = guidedDepthOf(lone) && out.find((p) => p.kind === 'guided' && p.members.length < 4);
@@ -982,7 +1021,7 @@ function assignTeaching(trainees: Diver[], guides: Diver[], outingMax: Depth, ou
       continue;
     }
     free.splice(free.indexOf(teacher), 1);
-    out.push({ id: newId(), kind: 'teaching', guide: teacher, extra: null, members: group });
+    out.push({ id: newId(), kind: 'teaching', guide: teacher, extras: [], members: group });
   }
   return free;
 }

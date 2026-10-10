@@ -7,9 +7,11 @@ import type { Target } from './format';
  * Déplacer vers une palanquée : comme plongeur ; comme enseignant ou encadrant
  * si le plongeur peut l'être de cette palanquée-là (jamais un élève ; en
  * formation un enseignant qui suffit, en exploration un N4/GP au moins) ;
- * comme encadrant supplémentaire d'une formation qui n'en a pas, pour un
- * N4/GP ou un enseignant, qu'il soit disponible ou déjà placé ailleurs (il
- * assiste, hors effectif) ; vers une nouvelle palanquée ; ou retirer.
+ * comme encadrant supplémentaire d'une formation, qu'elle en ait déjà ou non,
+ * pour un N4/GP ou un enseignant, qu'il soit disponible ou déjà placé ailleurs
+ * (il assiste, hors effectif) ; vers une nouvelle palanquée ; ou retirer. Sa
+ * propre palanquée n'est jamais parmi les cibles : pour y changer de place,
+ * on le retire puis on le replace.
  */
 export function MoveSelect({
   targets,

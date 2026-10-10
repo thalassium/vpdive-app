@@ -111,8 +111,10 @@ export function PalanqueeCard({
             <DiverRow key={m.id} d={m} own={own.label} limiting={limiting} locked={locked} targets={targets} onMove={onMove} />
           );
         })}
-        {/* Encadrant supplémentaire d'une formation : il assiste, hors effectif. */}
-        {p.extra && <DiverRow d={p.extra} own={extraLabel(p.extra, p)} role="Encadrant supplémentaire" locked={locked} targets={targets} onMove={onMove} />}
+        {/* Encadrants supplémentaires d'une formation : ils assistent, hors effectif, avec leur prérogative d'encadrant (GP, E#). */}
+        {p.extras.map((x) => (
+          <DiverRow key={x.id} d={x} own={extraLabel(x)} role="Encadrant supplémentaire" locked={locked} targets={targets} onMove={onMove} />
+        ))}
         {p.members.length === 0 && <li className="text-muted">Aucun plongeur.</li>}
       </ul>
 

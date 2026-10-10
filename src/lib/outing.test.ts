@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addedMemberId, adoptRegistrations, companionByComment, divingIds, mustBePlaced, parseDepth, pruneOrphans, sameContent, setGuideNote, guideNoteOf, toggleCompanion, dayParticipants, defaultRoles, guestEntry, memberEntry, headerFromRoles, newGuest, normalizeOuting, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
+import { addedMemberId, adoptRegistrations, companionByComment, diversInWater, divingIds, mustBePlaced, parseDepth, pruneOrphans, sameContent, setGuideNote, guideNoteOf, toggleCompanion, dayParticipants, defaultRoles, guestEntry, memberEntry, headerFromRoles, newGuest, normalizeOuting, normalizePlans, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
 import { aptitudesFromLabels, type Diver } from './palanquees';
 import type { RosterEntry } from '../services/vpdive';
 
@@ -63,14 +63,14 @@ const outing = (): OutingDoc => ({
       gas: { a: 'Nx32', gone1: 'air' },
       plan: {
         palanquees: [
-          { id: 'p1', kind: 'guided', guide: diver('gone1', 'E3'), extra: null, members: [diver('a', 'P1'), diver('b', 'P1')] },
-          { id: 'p2', kind: 'autonomous', guide: null, extra: null, members: [diver('gone2', 'P2'), diver('c', 'P2')] },
-          { id: 'p3', kind: 'autonomous', guide: null, extra: null, members: [diver('gone3', 'P3')] },
+          { id: 'p1', kind: 'guided', guide: diver('gone1', 'E3'), extras: [], members: [diver('a', 'P1'), diver('b', 'P1')] },
+          { id: 'p2', kind: 'autonomous', guide: null, extras: [], members: [diver('gone2', 'P2'), diver('c', 'P2')] },
+          { id: 'p3', kind: 'autonomous', guide: null, extras: [], members: [diver('gone3', 'P3')] },
         ],
         unassigned: [{ diver: diver('gone4', 'P1'), reason: 'x' }],
       },
     },
-    { id: 'd2', label: 'Plongée 2', validated: { by: 'DP', at: '2026-10-10' }, sheets: {}, gas: {}, plan: { palanquees: [{ id: 'q1', kind: 'autonomous', guide: null, extra: null, members: [diver('a', 'P1'), diver('c', 'P2')] }], unassigned: [] } },
+    { id: 'd2', label: 'Plongée 2', validated: { by: 'DP', at: '2026-10-10' }, sheets: {}, gas: {}, plan: { palanquees: [{ id: 'q1', kind: 'autonomous', guide: null, extras: [], members: [diver('a', 'P1'), diver('c', 'P2')] }], unassigned: [] } },
   ],
   roles: { dp: ['gone1'], securite: ['a'] },
   volunteers: { matelotage: ['gone2', 'c'] },
@@ -155,7 +155,7 @@ test('liste d’attente : toujours hors de l’eau, même arrivée après la fic
   const settings = { excluded: [] as string[] };
   assert.deepEqual([...outOfWater(roster, settings)], ['w']);
   const g: Diver = { ...aptitudesFromLabels(['E3']), id: 'w', name: 'w', labels: ['E3'] };
-  const doc = { settings, header: {} as OutingDoc['header'], dives: [{ id: 'd', label: 'P1', plan: { palanquees: [{ id: 'p', kind: 'guided' as const, guide: g, extra: null, members: [{ ...g, id: 'a', name: 'a' }] }], unassigned: [] }, validated: null, sheets: {}, gas: {} }] };
+  const doc = { settings, header: {} as OutingDoc['header'], dives: [{ id: 'd', label: 'P1', plan: { palanquees: [{ id: 'p', kind: 'guided' as const, guide: g, extras: [], members: [{ ...g, id: 'a', name: 'a' }] }], unassigned: [] }, validated: null, sheets: {}, gas: {} }] };
   assert.equal(syncWithRoster(doc, roster).doc.dives[0]!.plan!.palanquees[0]!.guide, null, 'en attente : retiré des palanquées');
   assert.deepEqual(toggleDiving(settings, 'a', false).excluded, ['a']);
   assert.deepEqual(toggleDiving({ excluded: ['a'] }, 'a', true).excluded, []);
@@ -240,4 +240,60 @@ test('qui plonge réellement : les placés s’il y a une composition, sinon les
   assert.deepEqual([...divingIds(noPlan, [person('a'), person('x'), person('w', [], true)])], ['a'], 'x décoché, w en liste d’attente');
   assert.ok(sameContent(doc, { ...doc, rev: 4, updatedAt: 'hier', updatedBy: 'Lucas' }));
   assert.ok(!sameContent(doc, { ...doc, header: { ...doc.header, lieu: 'Riou' } }));
+});
+
+test('fiche enregistrée avant la liste des encadrants supplémentaires : relue, synchronisée et réenregistrée sans l’ancien champ', () => {
+  const d = (id: string, ...labels: string[]): Diver => ({ ...aptitudesFromLabels(labels), id, name: id, labels });
+  const sup = d('sup', 'N4');
+  const header = { etablissement: '', reference: '', bateau: '', pilote: '', dp: '', securite: '', date: '', creneau: '', lieu: 'Riou', accompagnants: '' };
+  // Telle que le serveur la rend : `extra` (un plongeur, ou null), pas de `extras`.
+  const saved = JSON.parse(JSON.stringify({
+    rev: 3,
+    settings: { excluded: [], seen: ['prof', 'sup', 'f1', 'g', 'a'] },
+    header,
+    dives: [
+      {
+        id: 'd1', label: 'Plongée 1', validated: { by: 'DP', at: '2026-10-01' }, sheets: {}, gas: {},
+        plan: {
+          palanquees: [
+            { id: 't', kind: 'teaching', guide: d('prof', 'MF1'), extra: sup, members: [d('f1', 'FN1')] },
+            { id: 'g', kind: 'guided', guide: d('g', 'N4'), extra: null, members: [d('a', 'P1')] },
+          ],
+          unassigned: [],
+        },
+      },
+      { id: 'd2', label: 'Plongée 2', validated: null, sheets: {}, gas: {}, plan: null },
+    ],
+  })) as OutingDoc;
+  const doc = normalizeOuting(saved, { title: 'Sortie club' });
+  const [t, g] = doc.dives[0]!.plan!.palanquees;
+  assert.deepEqual(t!.extras.map((x) => x.id), ['sup']);
+  assert.deepEqual(g!.extras, []);
+  assert.equal(doc.dives[1], saved.dives[1], 'une plongée sans composition n’est pas touchée');
+  assert.equal(doc.dives[0]!.validated?.by, 'DP', 'la validation est gardée');
+  assert.ok(!JSON.stringify(doc).includes('"extra"'), 'on n’écrit plus l’ancien champ');
+  assert.equal(diversInWater(doc.dives[0]!), 5, 'l’encadrant supplémentaire compte parmi les plongeurs à l’eau');
+  // Le reste de l’appli lit la fiche comme une autre : qui plonge, synchronisation avec les inscrits.
+  const roster = ['prof', 'sup', 'f1', 'g', 'a'].map((id) => person(id));
+  assert.ok(divingIds(doc, roster).has('sup'));
+  assert.equal(syncWithRoster(doc, roster).doc, doc, 'rien n’a changé chez les inscrits : la fiche reste telle quelle');
+  const left = syncWithRoster(doc, roster.filter((r) => r.id !== 'sup'));
+  assert.deepEqual(left.departed, ['sup']);
+  assert.deepEqual(left.doc.dives[0]!.plan!.palanquees[0]!.extras, []);
+  assert.equal(left.doc.dives[0]!.validated, null, 'composition changée : à revalider');
+  // Déjà à la forme actuelle (fiche du jour, brouillon récent) : le même objet.
+  assert.equal(normalizePlans(doc), doc);
+  assert.equal(normalizeOuting(doc, { title: 'Sortie club' }), doc);
+});
+
+test('inscrits : un des deux encadrants supplémentaires se désinscrit, l’autre reste ; une palanquée qui n’a plus qu’eux reste', () => {
+  const d = (id: string, ...labels: string[]): Diver => ({ ...aptitudesFromLabels(labels), id, name: id, labels });
+  const plan = { palanquees: [{ id: 't', kind: 'teaching' as const, guide: d('prof', 'MF1'), extras: [d('s1', 'N4'), d('s2', 'MF1')], members: [d('f1', 'FN1')] }], unassigned: [] };
+  const doc: OutingDoc = { settings: { excluded: [] }, header: {} as OutingDoc['header'], dives: [{ id: 'd', label: 'Plongée 1', plan, validated: null, sheets: {}, gas: {} }] };
+  assert.equal(diversInWater(doc.dives[0]!), 4);
+  const one = syncWithRoster(doc, ['prof', 's2', 'f1'].map((id) => person(id)));
+  assert.deepEqual(one.departed, ['s1']);
+  assert.deepEqual(one.doc.dives[0]!.plan!.palanquees[0]!.extras.map((x) => x.id), ['s2']);
+  const alone = syncWithRoster(doc, [person('s1'), person('s2')]).doc.dives[0]!.plan!.palanquees;
+  assert.deepEqual(alone.map((p) => p.extras.map((x) => x.id)), [['s1', 's2']], 'pas vide tant qu’il reste quelqu’un');
 });

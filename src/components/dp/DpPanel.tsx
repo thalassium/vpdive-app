@@ -12,6 +12,7 @@ import {
   newOuting,
   nextDive,
   normalizeOuting,
+  normalizePlans,
   parseDepth,
   pruneOrphans,
   sameContent,
@@ -304,7 +305,11 @@ const drafts = sessionCache(
   (v): v is Draft => isRecord(v) && isRecord(v.doc) && Array.isArray(v.doc.dives) && typeof v.baseRev === 'number' && typeof v.by === 'string',
   { field: '', storage: () => localStorage },
 );
-const readDraft = (token: string) => drafts.read(token);
+/** Le brouillon de la sortie, ses palanquées relues à la forme actuelle : il peut dater d'avant un changement de la fiche (normalizePlans). */
+const readDraft = (token: string): Draft | null => {
+  const draft = drafts.read(token);
+  return draft && { ...draft, doc: normalizePlans(draft.doc) };
+};
 const writeDraft = (token: string, draft: Draft) => drafts.write(token, draft);
 const clearDraft = (token: string) => drafts.forget(token);
 
@@ -421,7 +426,7 @@ function OutingWorkspace({
       const draft = readDraft(token);
       if (draft && draft.by === me) {
         // Déjà enregistrée telle quelle (la page s'est fermée juste après) : rien à proposer.
-        if (res.doc && sameContent(draft.doc, res.doc)) clearDraft(token);
+        if (res.doc && sameContent(draft.doc, normalizePlans(res.doc))) clearDraft(token);
         else setDraftOffer(draft);
       }
     };

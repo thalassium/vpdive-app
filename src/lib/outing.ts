@@ -4,7 +4,7 @@
  * ressourcedev/Fiche-securite-plongee.xlsx. Enregistrée sur le serveur de
  * l'appli (server/handler.ts), partagée entre les admins et le DP de la sortie.
  */
-import type { Diver, Plan } from './palanquees';
+import { normalizePlan, type Diver, type Plan } from './palanquees';
 import type { DiverSettings } from './palanqueeEdit';
 import { type CalendarEvent, type RosterEntry } from '../services/vpdive';
 import { DP_ROLE, SURFACE_ROLES } from './outingRoles';
@@ -435,8 +435,8 @@ export function syncWithRoster(doc: OutingDoc, roster: RosterEntry[]): { doc: Ou
     if (!dive.plan) return Object.keys(gas).length === Object.keys(dive.gas).length ? dive : { ...dive, gas };
     const before = gone.size + waiting.size + moved;
     const palanquees = dive.plan.palanquees
-      .map((p) => ({ ...p, guide: keep(p.guide), extra: keep(p.extra), members: p.members.filter((m) => keep(m) !== null) }))
-      .filter((p) => p.guide || p.extra || p.members.length > 0);
+      .map((p) => ({ ...p, guide: keep(p.guide), extras: p.extras.filter((x) => keep(x) !== null), members: p.members.filter((m) => keep(m) !== null) }))
+      .filter((p) => p.guide || p.extras.length > 0 || p.members.length > 0);
     const unassigned = dive.plan.unassigned.filter((u) => keep(u.diver) !== null);
     const changed = gone.size + waiting.size + moved > before || palanquees.length !== dive.plan.palanquees.length;
     if (!changed) return Object.keys(gas).length === Object.keys(dive.gas).length ? dive : { ...dive, gas };
@@ -535,7 +535,7 @@ export function parseDepth(text: string): number | undefined {
 export function divingIds(doc: OutingDoc, roster: RosterEntry[]): Set<string> {
   const plans = doc.dives.map((d) => d.plan).filter((p): p is Plan => !!p && p.palanquees.length > 0);
   if (plans.length) {
-    return new Set(plans.flatMap((p) => p.palanquees.flatMap((x) => [x.guide, x.extra, ...x.members])).filter((d): d is Diver => !!d).map((d) => d.id));
+    return new Set(plans.flatMap((p) => p.palanquees.flatMap((x) => [x.guide, ...x.extras, ...x.members])).filter((d): d is Diver => !!d).map((d) => d.id));
   }
   const out = outOfWater(roster, doc.settings);
   return new Set(roster.filter((r) => !out.has(r.id)).map((r) => r.id));
@@ -565,16 +565,35 @@ function sameIds(a: Record<string, string[] | undefined>, b: Record<string, stri
 }
 
 /**
- * Sorties enregistrées avant un changement de la fiche : champs ajoutés depuis
- * (accompagnants) et lieu pré-rempli avec le titre de la sortie, effacé — le
- * lieu se choisit désormais (liste à venir), il n'est plus deviné.
+ * Compositions enregistrées avant la liste des encadrants supplémentaires :
+ * chaque palanquée relue à la forme actuelle (normalizePalanquee, l'ancien
+ * `extra` unique devient la liste `extras`). À appeler partout où une fiche
+ * entre dans l'appli (serveur, brouillon gardé sur l'appareil) : le reste du
+ * code ne connaît que `extras`, et l'enregistrement n'écrit plus l'ancien
+ * champ. Rien à reprendre : la même fiche est rendue.
  */
-export function normalizeOuting(doc: OutingDoc, event: Pick<CalendarEvent, 'title'>): OutingDoc {
-  const header = { ...doc.header, accompagnants: doc.header.accompagnants ?? '' };
-  if (header.lieu === event.title) header.lieu = '';
-  return header.accompagnants === doc.header.accompagnants && header.lieu === doc.header.lieu ? doc : { ...doc, header };
+export function normalizePlans(doc: OutingDoc): OutingDoc {
+  const dives = doc.dives.map((dive) => {
+    if (!dive.plan) return dive;
+    const plan = normalizePlan(dive.plan);
+    return plan === dive.plan ? dive : { ...dive, plan };
+  });
+  return dives.every((d, i) => d === doc.dives[i]) ? doc : { ...doc, dives };
 }
 
-/** Nombre de plongeurs à l'eau pour une plongée (en-tête de la fiche). */
+/**
+ * Sorties enregistrées avant un changement de la fiche : champs ajoutés depuis
+ * (accompagnants), lieu pré-rempli avec le titre de la sortie, effacé — le
+ * lieu se choisit désormais (liste à venir), il n'est plus deviné —, et
+ * palanquées à l'ancienne forme (normalizePlans).
+ */
+export function normalizeOuting(doc: OutingDoc, event: Pick<CalendarEvent, 'title'>): OutingDoc {
+  const base = normalizePlans(doc);
+  const header = { ...base.header, accompagnants: base.header.accompagnants ?? '' };
+  if (header.lieu === event.title) header.lieu = '';
+  return header.accompagnants === base.header.accompagnants && header.lieu === base.header.lieu ? base : { ...base, header };
+}
+
+/** Nombre de plongeurs à l'eau pour une plongée (en-tête de la fiche) : encadrants supplémentaires compris. */
 export const diversInWater = (dive: Dive) =>
-  dive.plan?.palanquees.reduce((n, p) => n + p.members.length + (p.guide ? 1 : 0) + (p.extra ? 1 : 0), 0) ?? 0;
+  dive.plan?.palanquees.reduce((n, p) => n + p.members.length + (p.guide ? 1 : 0) + p.extras.length, 0) ?? 0;

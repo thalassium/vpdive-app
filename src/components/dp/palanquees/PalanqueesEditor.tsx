@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, Lock, Pencil, Plus, Share2, ShieldCheck, Sparkles } from 'lucide-react';
 import type { MemberMatch, RosterEntry } from '../../../services/vpdive';
 import { acceptsExtra, isInstructor, proposePalanquees, studentsOf, validate, type Diver, type Plan } from '../../../lib/palanquees';
-import { assignGuide, composePalanquee, deletePalanquee, buddyPairs, moveDiver, planToText, refreshDivers, rosterToDivers, setExtra, removeGuide, setType } from '../../../lib/palanqueeEdit';
+import { assignGuide, composePalanquee, deletePalanquee, buddyPairs, moveDiver, planToText, refreshDivers, rosterToDivers, addExtra, removeGuide, setType } from '../../../lib/palanqueeEdit';
 import { defaultRoles, mustBePlaced, outOfWater, rolesOf, type AddedMember, type Dive, type DiveRole, type Guest, type OutingDoc, type Roles } from '../../../lib/outing';
 import { useConfirm } from '../../../hooks/useConfirm';
 import { FreeList } from './FreeList';
@@ -76,7 +76,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
   // Qui est où dans le plan ; ceux qui plongent sans y figurer sont « disponibles ». Recalculé quand le plan ou la liste change seulement.
   const { free, instructors } = useMemo(() => {
     const placed = new Map<string, Diver>();
-    for (const p of plan?.palanquees ?? []) for (const d of [p.guide, p.extra, ...p.members]) if (d) placed.set(d.id, d);
+    for (const p of plan?.palanquees ?? []) for (const d of [p.guide, ...p.extras, ...p.members]) if (d) placed.set(d.id, d);
     return {
       free: plan
         ? [
@@ -131,7 +131,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
   const moveTo = (d: Diver, target: string) => {
     if (!plan) return;
     if (target.startsWith('guide:')) onPlan(assignGuide(plan, target.slice(6), d));
-    else if (target.startsWith('extra:')) onPlan(setExtra(plan, target.slice(6), d));
+    else if (target.startsWith('extra:')) onPlan(addExtra(plan, target.slice(6), d));
     else onPlan(moveDiver(plan, d, target));
   };
   const targetsFor = (exclude?: string): Target[] =>
@@ -273,7 +273,7 @@ export function PalanqueesEditor({ title, roster, doc, dive, readOnly = false, o
                 onType={(t) => onPlan(setType(plan, p.id, t))}
                 onRemoveGuide={() => onPlan(removeGuide(plan, p.id))}
                 onDelete={async () => {
-                  const people = [p.guide, p.extra, ...p.members].filter(Boolean).length;
+                  const people = [p.guide, ...p.extras, ...p.members].filter(Boolean).length;
                   if (
                     people &&
                     !(await confirm({
