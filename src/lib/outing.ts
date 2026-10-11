@@ -14,6 +14,14 @@ export interface DiveParams {
   duration: string;
   depth: string;
   time: string;
+  /**
+   * Durée totale de remontée (min) : paramètres prévus seulement. Paliers à 3 m et à 6 m (min) :
+   * paramètres réalisés seulement. Absents des fiches enregistrées avant : lus vides (sheetOf),
+   * sans réécrire la fiche.
+   */
+  dtr: string;
+  stop3: string;
+  stop6: string;
 }
 
 export interface PalanqueeSheet {
@@ -333,8 +341,18 @@ export function postsByPerson(v: Volunteers): Map<string, VolunteerPost[]> {
   return out;
 }
 
-export const emptyParams = (): DiveParams => ({ duration: '', depth: '', time: '' });
+export const emptyParams = (): DiveParams => ({ duration: '', depth: '', time: '', dtr: '', stop3: '', stop6: '' });
 export const emptySheet = (): PalanqueeSheet => ({ planned: emptyParams(), actual: emptyParams() });
+
+/**
+ * Les paramètres d'une palanquée tels que l'écran et le PDF les lisent : tous les champs, vides
+ * s'ils manquent (palanquée sans fiche, ou fiche enregistrée avant la DTR et les paliers).
+ * Lire ne change rien à la sortie : ouvrir une fiche ancienne ne la modifie pas.
+ */
+export function sheetOf(dive: Pick<Dive, 'sheets'>, palanqueeId: string): PalanqueeSheet {
+  const saved: Partial<PalanqueeSheet> | undefined = dive.sheets?.[palanqueeId];
+  return { planned: { ...emptyParams(), ...saved?.planned }, actual: { ...emptyParams(), ...saved?.actual } };
+}
 
 /** Nouvelle sortie : en-tête et rôles pré-remplis depuis VPDive, personne en liste d'attente ni à terre dans l'eau. */
 export function newOuting(event: CalendarEvent, roster: RosterEntry[], clubName: string): OutingDoc {
@@ -554,7 +572,9 @@ export function sameContent(a: OutingDoc, b: OutingDoc): boolean {
         .map((k) => [k, stable(o[k])]),
     );
   };
-  const strip = ({ rev: _r, updatedAt: _a, updatedBy: _b, ...rest }: OutingDoc) => rest;
+  // Un champ de paramètres absent (fiche d'avant la DTR et les paliers) vaut un champ vide : pas de différence fantôme.
+  const full = (d: Dive) => ({ ...d, sheets: Object.fromEntries(Object.keys(d.sheets ?? {}).map((id) => [id, sheetOf(d, id)])) });
+  const strip = ({ rev: _r, updatedAt: _a, updatedBy: _b, ...rest }: OutingDoc) => ({ ...rest, dives: rest.dives.map(full) });
   return JSON.stringify(stable(strip(a))) === JSON.stringify(stable(strip(b)));
 }
 

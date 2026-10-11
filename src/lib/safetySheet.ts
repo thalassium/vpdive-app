@@ -1,10 +1,10 @@
 import { depthOf, extraLabel, guideLabel, memberLabel, type Diver, type Palanquee } from './palanquees';
-import { parseDepth, type Dive, type GuideNote, type SafetyHeader } from './outing';
+import { parseDepth, type Dive, type DiveParams, type GuideNote, type PalanqueeSheet, type SafetyHeader } from './outing';
 
 /**
  * Contenu de la fiche de sécurité, commun à l'écran et au PDF : en-tête, et
  * pour chaque palanquée ses lignes (encadrant, plongeurs 1 à 4 ou plus,
- * encadrants suppl. en formation).
+ * encadrants suppl. en formation) et les colonnes de ses paramètres.
  */
 
 export const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: string; options?: string[] }[] = [
@@ -19,6 +19,31 @@ export const HEADER_FIELDS: { key: keyof SafetyHeader; label: string; type?: str
   { key: 'lieu', label: 'Lieu de plongée' },
   { key: 'accompagnants', label: 'Accompagnants' },
 ];
+
+/** Les deux lignes de paramètres d'une palanquée. */
+export const PARAM_ROWS: { key: keyof PalanqueeSheet; label: string }[] = [
+  { key: 'planned', label: 'Prévus' },
+  { key: 'actual', label: 'Réalisés' },
+];
+
+/**
+ * Colonnes des paramètres, dans l'ordre de la fiche : libellé à l'écran, libellé court du PDF
+ * et de l'impression (six colonnes dans la largeur d'une palanquée). `only` : la colonne ne se
+ * remplit que sur cette ligne — la DTR (durée totale de remontée) se prévoit, les paliers se
+ * relèvent après la plongée ; sur l'autre ligne, la case reste vide et ne se saisit pas.
+ * Espaces insécables dans les libellés des paliers : « 3 m » ne se coupe pas.
+ */
+export const PARAM_COLUMNS: { key: keyof DiveParams; label: string; short: string; only?: keyof PalanqueeSheet }[] = [
+  { key: 'duration', label: 'Durée (min)', short: 'Durée' },
+  { key: 'depth', label: 'Prof. (m)', short: 'Prof.' },
+  { key: 'time', label: 'H. mise à l’eau', short: 'Mise à l’eau' },
+  { key: 'dtr', label: 'DTR (min)', short: 'DTR', only: 'planned' },
+  { key: 'stop3', label: 'Palier 3 m', short: 'P. 3 m', only: 'actual' },
+  { key: 'stop6', label: 'Palier 6 m', short: 'P. 6 m', only: 'actual' },
+];
+
+/** La colonne se remplit-elle sur cette ligne (prévus ou réalisés) ? */
+export const paramApplies = (column: { only?: keyof PalanqueeSheet }, row: keyof PalanqueeSheet) => !column.only || column.only === row;
 
 export type SheetSlot = 'guide' | 'member' | 'extra';
 /** Ligne d'un encadrant supplémentaire d'une formation (N4/GP ou enseignant qui assiste, hors effectif). */
