@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { aptitudesFromLabels, type Diver, type Palanquee } from './palanquees';
-import { emptySheet, type Dive, type OutingDoc } from './outing';
-import { headerText, missingHeader, noteText, overDepth, printWarnings, sheetApt, sheetRows } from './safetySheet';
+import { emptyParams, emptySheet, type Dive, type OutingDoc } from './outing';
+import { PARAM_COLUMNS, headerText, missingHeader, noteText, overDepth, paramApplies, printWarnings, sheetApt, sheetRows } from './safetySheet';
 import { safetySheetFileName, safetySheetPdf } from './safetySheetPdf';
 
 let n = 0;
@@ -128,7 +128,7 @@ test('avant d’imprimer : DP, pilote, date et lieu manquants ; profondeur prév
   assert.deepEqual(missingHeader(header), ['Pilote', 'Lieu de plongée']);
   const n1: Palanquee = { id: 'a', kind: 'guided', guide: diver('G', 'N4'), extras: [], members: [diver('Z', 'P1')] };
   const n3: Palanquee = { id: 'b', kind: 'autonomous', guide: null, extras: [], members: [diver('X', 'P3'), diver('Y', 'P3')] };
-  const sheet = (depth: string) => ({ ...emptySheet(), planned: { duration: '', depth, time: '' } });
+  const sheet = (depth: string) => ({ ...emptySheet(), planned: { ...emptyParams(), depth } });
   const dive = { plan: { palanquees: [n1, n3], unassigned: [] }, sheets: { a: sheet('25 m'), b: sheet('45') } };
   assert.deepEqual(overDepth(dive), [{ label: 'P1', planned: 25, legal: 20 }]);
   assert.deepEqual(printWarnings(header, dive), ['Non renseigné : Pilote, Lieu de plongée.', 'P1 : 25 m prévus, au-delà de sa prérogative (20 m).']);
@@ -145,4 +145,45 @@ test('fiche PDF : le commentaire sur l’encadrant est imprimé', () => {
   const pdf = safetySheetPdf({ settings: {} as OutingDoc['settings'], header, dives: [dive] }, dive, 'Sortie');
   const raw = Buffer.from(pdf.output('arraybuffer')).toString('latin1');
   assert.match(raw, /Stagiaire GP/);
+});
+
+test('paramètres : la DTR se prévoit, les paliers à 3 m et à 6 m se relèvent après la plongée', () => {
+  assert.deepEqual(PARAM_COLUMNS.map((c) => c.key), ['duration', 'depth', 'time', 'dtr', 'stop3', 'stop6']);
+  const rows = (key: 'planned' | 'actual') => PARAM_COLUMNS.filter((c) => paramApplies(c, key)).map((c) => c.key);
+  assert.deepEqual(rows('planned'), ['duration', 'depth', 'time', 'dtr']);
+  assert.deepEqual(rows('actual'), ['duration', 'depth', 'time', 'stop3', 'stop6']);
+});
+
+test('fiche PDF : DTR prévue et paliers réalisés imprimés, en-têtes entiers, rien dans les cases sans objet', () => {
+  const p: Palanquee = { id: 'p', kind: 'guided', guide: diver('Guide', 'P4'), extras: [], members: [diver('Zoé', 'P1')] };
+  const header = { etablissement: 'Club', reference: '', bateau: '', pilote: '', dp: '', securite: '', date: '2026-10-08', creneau: '', lieu: '', accompagnants: '' };
+  const sheets = {
+    p: {
+      // 77 et 88 : valeurs hors de leur ligne (paliers prévus, DTR réalisée), que l’écran ne laisse pas saisir.
+      planned: { duration: '45', depth: '20 m max', time: '09:30', dtr: '14', stop3: '77', stop6: '77' },
+      actual: { duration: '43', depth: '19', time: '09:34', dtr: '88', stop3: '13', stop6: '12' },
+    },
+  };
+  const dive: Dive = { id: 'd1', label: 'Plongée 1', plan: { palanquees: [p], unassigned: [] }, validated: null, sheets, gas: {} };
+  const pdf = safetySheetPdf({ settings: {} as OutingDoc['settings'], header, dives: [dive] }, dive, 'Sortie');
+  const raw = Buffer.from(pdf.output('arraybuffer')).toString('latin1');
+  for (const head of ['Durée', 'Prof.', 'Mise à l\'eau', 'DTR', 'P. 3 m', 'P. 6 m']) assert.ok(raw.includes(`(${head})`), `en-tête « ${head} » entier`);
+  for (const value of ['45', '09:30', '14', '43', '19', '09:34', '13', '12']) assert.ok(raw.includes(`(${value})`), `valeur ${value} imprimée`);
+  assert.ok(raw.includes('(20 m max)'), 'une valeur longue est écrite plus petit, pas tronquée');
+  assert.ok(!raw.includes('(77)') && !raw.includes('(88)'), 'pas de palier prévu ni de DTR réalisée');
+  assert.equal(pdf.getNumberOfPages(), 1);
+});
+
+test('fiche PDF : une fiche enregistrée avant la DTR et les paliers s’imprime, ces cases vides', () => {
+  const g = diver('Guide', 'P4');
+  const palanquees: Palanquee[] = Array.from({ length: 7 }, (_, i) => ({ id: `p${i}`, kind: 'guided', guide: g, extras: [], members: [diver('Zoé', 'P1')] }));
+  const header = { etablissement: 'Club', reference: '', bateau: '', pilote: '', dp: '', securite: '', date: '2026-10-08', creneau: '', lieu: '', accompagnants: '' };
+  const old = { planned: { duration: '40', depth: '20', time: '09:30' }, actual: { duration: '', depth: '', time: '' } } as Dive['sheets'][string];
+  const dive: Dive = { id: 'd1', label: 'Plongée 1', plan: { palanquees, unassigned: [] }, validated: null, sheets: { p0: old }, gas: {} };
+  const pdf = safetySheetPdf({ settings: {} as OutingDoc['settings'], header, dives: [dive] }, dive, 'Sortie');
+  const raw = Buffer.from(pdf.output('arraybuffer')).toString('latin1');
+  assert.ok(raw.includes('(40)') && raw.includes('(09:30)'));
+  assert.ok(!raw.includes('undefined'));
+  assert.equal(pdf.getNumberOfPages(), 2, 'six palanquées par page, comme avant les nouvelles colonnes');
+  assert.deepEqual(dive.sheets.p0, old, 'la fiche n’est pas réécrite');
 });

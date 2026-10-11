@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addedMemberId, adoptRegistrations, companionByComment, diversInWater, divingIds, mustBePlaced, parseDepth, pruneOrphans, sameContent, setGuideNote, guideNoteOf, toggleCompanion, dayParticipants, defaultRoles, guestEntry, memberEntry, headerFromRoles, newGuest, normalizeOuting, normalizePlans, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
+import { addedMemberId, adoptRegistrations, companionByComment, diversInWater, divingIds, emptyParams, emptySheet, mustBePlaced, sheetOf, parseDepth, pruneOrphans, sameContent, setGuideNote, guideNoteOf, toggleCompanion, dayParticipants, defaultRoles, guestEntry, memberEntry, headerFromRoles, newGuest, normalizeOuting, normalizePlans, outOfWater, postsByPerson, rolesOf, setVolunteer, stillUnregistered, syncWithRoster, toggleDiving, toggleRole, withGuests, type OutingDoc, type Volunteers } from './outing';
 import { aptitudesFromLabels, type Diver } from './palanquees';
 import type { RosterEntry } from '../services/vpdive';
 
@@ -59,7 +59,7 @@ const outing = (): OutingDoc => ({
       id: 'd1',
       label: 'Plongée 1',
       validated: { by: 'DP', at: '2026-10-10' },
-      sheets: { p1: { planned: { duration: '40', depth: '20', time: '09:00' }, actual: { duration: '', depth: '', time: '' } }, p2: { planned: { duration: '', depth: '', time: '' }, actual: { duration: '', depth: '', time: '' } } },
+      sheets: { p1: { planned: { ...emptyParams(), duration: '40', depth: '20', time: '09:00' }, actual: emptyParams() }, p2: emptySheet() },
       gas: { a: 'Nx32', gone1: 'air' },
       plan: {
         palanquees: [
@@ -296,4 +296,47 @@ test('inscrits : un des deux encadrants supplémentaires se désinscrit, l’aut
   assert.deepEqual(one.doc.dives[0]!.plan!.palanquees[0]!.extras.map((x) => x.id), ['s2']);
   const alone = syncWithRoster(doc, [person('s1'), person('s2')]).doc.dives[0]!.plan!.palanquees;
   assert.deepEqual(alone.map((p) => p.extras.map((x) => x.id)), [['s1', 's2']], 'pas vide tant qu’il reste quelqu’un');
+});
+
+test('fiche enregistrée avant la DTR et les paliers : lue avec des champs vides, ni modifiée à l’ouverture ni différente d’elle-même', () => {
+  const d = (id: string, ...labels: string[]): Diver => ({ ...aptitudesFromLabels(labels), id, name: id, labels });
+  const header = { etablissement: '', reference: '', bateau: '', pilote: '', dp: '', securite: '', date: '', creneau: '', lieu: 'Riou', accompagnants: '' };
+  // Telle que le serveur la rend : durée, profondeur et heure seulement.
+  const saved = JSON.parse(JSON.stringify({
+    rev: 7,
+    settings: { excluded: [], seen: ['g', 'a'] },
+    header,
+    dives: [
+      {
+        id: 'd1', label: 'Plongée 1', validated: { by: 'DP', at: '2026-10-01' }, gas: {},
+        sheets: { p1: { planned: { duration: '40', depth: '20', time: '09:30' }, actual: { duration: '38', depth: '19', time: '09:34' } } },
+        plan: { palanquees: [{ id: 'p1', kind: 'guided', guide: d('g', 'N4'), extras: [], members: [d('a', 'P1')] }], unassigned: [] },
+      },
+    ],
+  })) as OutingDoc;
+  const before = JSON.stringify(saved);
+
+  // Ouvrir la fiche (relecture, rapprochement avec les inscrits) : le même objet, rien à enregistrer.
+  const opened = normalizeOuting(saved, { title: 'Sortie club' });
+  assert.equal(opened, saved);
+  assert.equal(syncWithRoster(opened, [person('g'), person('a')]).doc, saved);
+
+  // L’écran et le PDF la lisent avec tous les champs, vides ; la fiche elle-même n’est pas réécrite.
+  const dive = saved.dives[0]!;
+  assert.deepEqual(sheetOf(dive, 'p1').planned, { duration: '40', depth: '20', time: '09:30', dtr: '', stop3: '', stop6: '' });
+  assert.deepEqual(sheetOf(dive, 'p1').actual, { duration: '38', depth: '19', time: '09:34', dtr: '', stop3: '', stop6: '' });
+  assert.deepEqual(sheetOf(dive, 'sans-fiche'), emptySheet());
+  assert.deepEqual(emptySheet().planned, { duration: '', depth: '', time: '', dtr: '', stop3: '', stop6: '' });
+  assert.equal(JSON.stringify(saved), before);
+  assert.ok(!before.includes('dtr') && !before.includes('stop3'));
+
+  // Un champ absent vaut un champ vide : un brouillon où ces champs sont apparus vides n’est pas une saisie à reprendre.
+  const touched: OutingDoc = { ...saved, dives: [{ ...dive, sheets: { p1: sheetOf(dive, 'p1') } }] };
+  assert.ok(sameContent(saved, touched));
+  assert.ok(sameContent(touched, saved));
+  // Une vraie saisie, elle, compte.
+  const planned: OutingDoc = { ...saved, dives: [{ ...dive, sheets: { p1: { ...sheetOf(dive, 'p1'), planned: { ...sheetOf(dive, 'p1').planned, dtr: '8' } } } }] };
+  assert.ok(!sameContent(saved, planned));
+  const actual: OutingDoc = { ...saved, dives: [{ ...dive, sheets: { p1: { ...sheetOf(dive, 'p1'), actual: { ...sheetOf(dive, 'p1').actual, stop3: '3' } } } }] };
+  assert.ok(!sameContent(saved, actual));
 });
