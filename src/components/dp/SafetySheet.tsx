@@ -188,60 +188,56 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
                 </table>
               </div>
               {/*
-                Paramètres : six colonnes, en deux tables. Quand la carte est assez large (tablette) et à l'impression,
-                elles se suivent sur une ligne : Durée, Prof., Heure, DTR, Palier 3 m, Palier 6 m. Sinon (deux cartes de
-                front sur ordinateur, téléphone), la seconde passe sous la première : tout reste visible sans défiler.
-                Sur un téléphone très étroit, chaque table défile plutôt que de rogner ses champs.
+                Paramètres : la table Prévus / Réalisés (durée, profondeur, heure), puis une bande d'une seule
+                ligne : la DTR prévue et les paliers à 3 m et à 6 m réalisés, en minutes sans le redire.
+                Sur un téléphone très étroit, la table défile plutôt que de rogner ses champs.
               */}
-              <div className="@container border-t-2 border-line print:border-black">
-              <div className="@xl:flex print:flex">
-              {PARAM_GROUPS.map((columns, g) => (
-              <div
-                key={columns[0]!.key}
-                className={`overflow-x-auto print:overflow-visible ${g ? 'border-t border-line @xl:border-t-0 @xl:flex-[2_1_0%] print:border-t-0 print:flex-[2_1_0%]' : '@xl:flex-[3_1_0%] print:flex-[3_1_0%]'}`}
-              >
-              <table className="w-full text-sm">
-                <thead>
-                  {/* À l'impression, un en-tête peut passer sur deux lignes : même hauteur dans les deux tables, leurs lignes restent face à face. */}
-                  <tr className="text-left align-bottom text-sm print:text-xs print:h-12 text-muted @xl:whitespace-nowrap">
-                    {/* Le libellé des lignes n'est pas répété quand les deux tables se suivent. */}
-                    <th className={`pl-3 pr-2 py-1.5 font-semibold print:pl-2 print:pr-1 ${g ? '@xl:hidden print:hidden' : ''}`}>
-                      {/*
-                        Dans la seconde table, le mot ne se voit pas : il donne à la colonne la même largeur que dans la première.
-                        Pas imprimé : la place va aux six colonnes.
-                      */}
-                      <span aria-hidden={g ? true : undefined} className={`print:hidden ${g ? 'text-transparent select-none' : ''}`}>
-                        Paramètres
-                      </span>
-                    </th>
-                    {columns.map((c, n) => (
-                      <th key={c.key} className={`py-1.5 pr-1.5 last:pr-3 font-semibold ${PARAM_SLOTS[n]!.share}`}>
-                        {/* Libellés courts à l'impression, ceux du PDF : six colonnes dans un tiers de page. */}
-                        <span className="print:hidden">{c.label}</span>
-                        <span className="hidden print:inline">{c.short}</span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {PARAM_ROWS.map((row) => (
-                    <tr key={row.key} className="border-t border-line print:border-black/30">
-                      <th className={`pl-3 pr-2 py-1.5 text-left text-sm print:text-xs font-semibold text-muted print:pl-2 print:pr-1 ${g ? '@xl:hidden print:hidden' : ''}`}>{row.label}</th>
-                      <ParamsCells
-                        row={row}
-                        columns={columns}
-                        value={sheet[row.key]}
-                        depthHint={row.key === 'planned' ? String(chosenDepth(p) || '') : ''}
-                        depthAlert={row.key === 'planned' && tooDeep}
-                        onChange={(v) => onSheet(p.id, { ...sheet, [row.key]: v })}
-                      />
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-              ))}
-              </div>
+              <div className="border-t-2 border-line print:border-black">
+                <div className="overflow-x-auto print:overflow-visible">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left align-bottom text-sm print:text-xs text-muted">
+                        <th className="pl-3 pr-2 py-1.5 font-semibold print:pl-2 print:pr-1">Paramètres</th>
+                        {MAIN_PARAMS.map((c, n) => (
+                          <th key={c.key} className={`py-1.5 pr-1.5 last:pr-3 font-semibold ${PARAM_SLOTS[n]!.share}`}>
+                            {c.label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {PARAM_ROWS.map((row) => (
+                        <tr key={row.key} className="border-t border-line print:border-black/30">
+                          <th className="pl-3 pr-2 py-1.5 text-left text-sm print:text-xs font-semibold text-muted print:pl-2 print:pr-1">{row.label}</th>
+                          <ParamsCells
+                            row={row}
+                            columns={MAIN_PARAMS}
+                            value={sheet[row.key]}
+                            depthHint={row.key === 'planned' ? String(chosenDepth(p) || '') : ''}
+                            depthAlert={row.key === 'planned' && tooDeep}
+                            onChange={(v) => onSheet(p.id, { ...sheet, [row.key]: v })}
+                          />
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="grid grid-cols-3 gap-2 px-3 py-2 border-t border-line print:border-black/30 print:px-2">
+                  {BAND_PARAMS.map((c) => {
+                    const row = c.only!;
+                    return (
+                      <label key={c.key} className="min-w-0">
+                        <span className="block mb-1 text-sm print:text-xs font-semibold text-muted">{c.label}</span>
+                        <input
+                          value={sheet[row][c.key]}
+                          onChange={(e) => onSheet(p.id, { ...sheet, [row]: { ...sheet[row], [c.key]: e.target.value } })}
+                          inputMode="numeric"
+                          className="field w-full sm:h-9 px-2 text-sm tabular-nums print:h-auto print:border-0 print:p-0"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
               {tooDeep && (
                 <p role="alert" className="px-3 py-2 border-t border-line text-sm text-danger flex items-start gap-1.5 print:text-black">
@@ -268,8 +264,10 @@ export function SafetySheet({ title, doc, dive, readOnly = false, onHeader, onSh
   );
 }
 
-/** Les six colonnes de paramètres en deux tables : durée, profondeur, heure ; puis DTR et paliers. */
-const PARAM_GROUPS = [PARAM_COLUMNS.slice(0, 3), PARAM_COLUMNS.slice(3)];
+/** Durée, profondeur et heure : une ligne Prévus, une ligne Réalisés. */
+const MAIN_PARAMS = PARAM_COLUMNS.filter((c) => !c.only);
+/** La bande sous la table : DTR prévue, paliers à 3 m et à 6 m réalisés (un seul champ chacun). */
+const BAND_PARAMS = PARAM_COLUMNS.filter((c) => c.only);
 
 /**
  * Les trois colonnes d'une table de paramètres, par position : leur part de la table (le libellé

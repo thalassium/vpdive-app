@@ -37,7 +37,7 @@ export const PARAM_COLUMNS: { key: keyof DiveParams; label: string; short: strin
   { key: 'duration', label: 'Durée (min)', short: 'Durée' },
   { key: 'depth', label: 'Prof. (m)', short: 'Prof.' },
   { key: 'time', label: 'H. mise à l’eau', short: 'Mise à l’eau' },
-  { key: 'dtr', label: 'DTR (min)', short: 'DTR', only: 'planned' },
+  { key: 'dtr', label: 'DTR prév.', short: 'DTR', only: 'planned' },
   { key: 'stop3', label: 'Palier 3 m', short: 'P. 3 m', only: 'actual' },
   { key: 'stop6', label: 'Palier 6 m', short: 'P. 6 m', only: 'actual' },
 ];
