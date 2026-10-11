@@ -336,23 +336,33 @@ export async function saveEmergencyContact(c: EmergencyContact): Promise<void> {
   form.append('mobile_urgency_form[phone_emergency]', c.phone.trim());
   form.append('mobile_urgency_form[cellphone_emergency]', c.cellphone.trim());
   form.append('mobile_urgency_form[link_emergency]', c.link.trim());
-  await request('/user', { method: 'POST', body: form });
+  // La fiche gardée 30 s (myFile, contact d'urgence) est périmée.
+  await request('/user', { method: 'POST', body: form, invalidates: ['/user'] });
 }
 
 /**
- * Ma fiche, telle que la page « Mon profil » de VPDive la lit (/user/member/<mon
- * jeton d'adhésion>) : niveaux, et les documents que j'ai déposés.
+ * Ma fiche : niveaux, informations et documents que j'ai déposés. Lue comme la
+ * page « Mon profil » de VPDive, par GET /user (sans paramètre), ouvert à tout
+ * membre. La page de gestion d'un membre (/user/member/<jeton d'adhésion>) est
+ * réservée aux admins : elle ne sert que de repli, un simple membre n'y voyait
+ * rien (ni niveaux, ni documents). Une session expirée reste une erreur.
  */
 export async function myFile(uct: string): Promise<{ profile: MemberProfile; documents: MemberDocument[]; info: MemberInfo }> {
-  const res = await request(`/user/member/${encodeURIComponent(uct)}`, { ttl: TTL.myFile });
+  let res: Json;
+  try {
+    res = await request('/user', { ttl: TTL.myFile });
+  } catch (e) {
+    if (e instanceof SessionExpiredError) throw e;
+    res = await request(`/user/member/${encodeURIComponent(uct)}`, { ttl: TTL.myFile });
+  }
   const u = obj(res.data) ?? res;
   return { profile: profileOf(u), documents: documentsOf(u), info: infoOf(u) };
 }
 
 /**
  * Mes niveaux tels que le moteur des palanquées les lit (P4, E3…), pour savoir
- * si je peux m'inscrire comme encadrant : ma fiche (/user/member/<uct>), à
- * défaut la fiche membre (/user?uct_token=). Gardés 6 h dans l'onglet. Null si
+ * si je peux m'inscrire comme encadrant : ma fiche (myFile), à défaut la
+ * fiche membre (/user?uct_token=). Gardés 6 h dans l'onglet. Null si
  * VPDive ne les donne pas ; une session expirée reste une erreur.
  */
 export async function myAptitudeLabels(): Promise<string[] | null> {
