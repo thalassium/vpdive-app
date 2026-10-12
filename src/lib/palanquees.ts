@@ -154,6 +154,8 @@ export interface Diver extends Aptitudes {
   lastname?: string;
   /** Photo VPDive, pour la vignette à côté du nom ; absente si VPDive n'a que son avatar par défaut. */
   picture?: string;
+  /** Jeton d'adhésion au club, quand la liste des inscrits le donne : relie sa fiche de suivi de formation à sa fiche membre. */
+  uct?: string;
 }
 
 /**

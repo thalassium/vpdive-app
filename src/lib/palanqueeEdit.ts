@@ -112,6 +112,7 @@ export function rosterToDivers(roster: RosterEntry[], settings: DiverSettings = 
       firstname: r.firstname,
       lastname: r.lastname,
       ...(r.picture ? { picture: r.picture } : {}),
+      ...(r.uct ? { uct: r.uct } : {}),
       labels: fn ? [...base, fn] : base,
       display: r.display,
       ...(forced ? { original: r.display } : {}),

@@ -33,6 +33,14 @@
  *   GET  ?action=member_writes            admin : journal des écritures de fiches VPDive (corrections rapides)
  *   POST ?action=member_writes {uct, name, kinds, ok, message, before}  admin : une fiche écrite (ou refusée),
  *                                         avec ce qu'elle contenait avant (pour revenir en arrière à la main ; 8 Ko au plus)
+ *   GET  ?action=training                 fiches de suivi de formation ({fiches, admin, me}) : toutes pour un admin,
+ *                                         celles de ses élèves pour un encadrant (server/training.ts)
+ *   POST ?action=training {op: 'create', uct, name, level, content?}  admin : fiche créée à la main pour un membre
+ *                                         (content : fiche reprise du classeur du club) ; 409 si elle existe déjà
+ *   GET  ?action=training&fiche=<id>      une fiche : admin, ou enseignant d'une de ses séances
+ *   POST ?action=training&fiche=<id> {op, …}  remplir une séance, ajouter une séance, cours théoriques, validations
+ *                                         (applyFicheOp). Les séances naissent d'elles-mêmes à l'enregistrement
+ *                                         d'une sortie dont les palanquées de formation sont validées.
  *   POST ?action=client_error {message, stack?, url?, where?}  tout membre identifié : erreur de l'appli
  *                                         dans le navigateur, journalisée (ligne JSON) ; répond 204
  *
@@ -68,7 +76,9 @@
  *                                    en tête, les 300 dernières [chaque entrée 1 an]
  *   club:<id>:member-writes          ancien journal (un tableau dans une clé), repris dans la liste puis effacé
  *   club:<id>:brevet-map             correspondance des brevets
- *   <clé>:lock                       verrou le temps d'une lecture-modification-écriture
+ *   club:<id>:fiche:<fiche>          fiche de suivi de formation d'un élève [3 ans après le dernier enregistrement]
+ *   club:<id>:fiches                 résumé de chaque fiche de suivi (liste, séances à remplir, qui la voit)
+ *   <clé>:lock                      verrou le temps d'une lecture-modification-écriture
  *   app:helloasso-token              jeton HelloAsso en cours [le temps de sa validité]
  */
 import { HttpError, forget, identify, isDpOf, type Caller } from './auth.js';
@@ -76,6 +86,25 @@ import { acquireLock, getStore, type SetOptions, type Store } from './store.js';
 import { helloassoConfigured, membershipItems } from './helloasso.js';
 import { decideRegistration, registrationRequests, type Decision } from './legacy.js';
 import { errorFields, log } from './log.js';
+import {
+  FICHE_ID,
+  FicheError,
+  applyFicheOp,
+  applyOutingSessions,
+  callerIds,
+  createFiche,
+  ficheIdOf,
+  isEmptyFiche,
+  newFiche,
+  outingSessions,
+  summarize,
+  teachesIn,
+  type Fiche,
+  type FicheIndex,
+  type FicheLevel,
+  type FicheSession,
+  type OutingSession,
+} from './training.js';
 
 export { acquireLock };
 
@@ -119,6 +148,8 @@ const checksKey = (c: Caller) => `club:${c.clubId}:arbitrage-checks`;
 /** Ancien journal : un tableau dans une seule clé (jusqu'à 18 Mo), repris dans la liste. */
 const oldWritesKey = (c: Caller) => `club:${c.clubId}:member-writes`;
 const writesKey = (c: Caller) => `club:${c.clubId}:member-writes-log`;
+const ficheKey = (c: Caller, id: string) => `club:${c.clubId}:fiche:${id}`;
+const fichesKey = (c: Caller) => `club:${c.clubId}:fiches`;
 export interface MemberWrite {
   uct: string;
   name: string;
@@ -191,6 +222,7 @@ export const RETENTION: [RegExp, number][] = [
   [/^club:[^:]+:outing:[^:]+$/, 730 * DAY_S], // fiches de sortie : 2 ans
   [/^club:[^:]+:ffessm(-brevets)?$/, 395 * DAY_S], // exports FFESSM : remplacés à chaque saison, ~13 mois
   [/^club:[^:]+:member-links$/, 395 * DAY_S], // rapprochements : refaits à chaque saison, ~13 mois
+  [/^club:[^:]+:fiche:[^:]+$/, 1095 * DAY_S], // fiches de suivi de formation : 3 ans
 ];
 export const WRITES_MAX = 300;
 export const WRITES_TTL_S = 365 * DAY_S;
@@ -364,6 +396,82 @@ export function stampOuting(current: Record<string, unknown> | null, incoming: R
       })
     : incoming.unregistered;
   return { ...incoming, dives, ...(unregistered !== undefined ? { unregistered } : {}) };
+}
+
+// ── Fiches de suivi de formation (server/training.ts) ──
+
+/**
+ * Lecture-modification-écriture d'une fiche de suivi, sous verrou. `change`
+ * rend la fiche d'après, ou null : elle est alors effacée. Le résumé de la
+ * liste (club:<id>:fiches) reste à mettre à jour (indexFiches).
+ */
+async function changeFiche(store: Store, caller: Caller, id: string, change: (current: Fiche | null) => Fiche | null): Promise<Fiche | null> {
+  const key = ficheKey(caller, id);
+  const lockKey = `${key}:lock`;
+  if (!(await acquireLock(store, lockKey))) throw new HttpError(409, BUSY);
+  try {
+    const next = change(await store.get<Fiche>(key));
+    if (next) await store.set(key, next);
+    else await store.del(key);
+    return next;
+  } finally {
+    await store.unlock(lockKey).catch((e) => log('warn', { action: 'unlock', message: errorFields(e).message }));
+  }
+}
+
+/** Le résumé des fiches qui viennent de changer (null : fiche effacée), en une écriture. */
+async function indexFiches(store: Store, caller: Caller, changed: [string, Fiche | null][]): Promise<void> {
+  if (!changed.length) return;
+  await updateShared<FicheIndex>(store, fichesKey(caller), (current) => {
+    const next = current ?? {};
+    for (const [id, fiche] of changed) {
+      if (fiche) next[id] = summarize(fiche);
+      else delete next[id];
+    }
+    return next;
+  });
+}
+
+/**
+ * Les fiches de suivi mises d'accord avec la sortie qu'on vient d'enregistrer :
+ * chaque élève d'une palanquée de formation validée a sa séance « à remplir »
+ * (et sa fiche, si c'est sa première) ; celui qui n'y est plus perd la séance
+ * qu'il n'avait pas encore remplie. Rien à faire tant que les séances que la
+ * sortie donne n'ont pas changé : c'est le cas de presque tous les enregistrements.
+ */
+export async function syncTraining(store: Store, caller: Caller, event: string, before: unknown, after: unknown, who: string, now: string): Promise<void> {
+  const was = outingSessions(event, before);
+  const wanted = outingSessions(event, after);
+  if (JSON.stringify(was) === JSON.stringify(wanted)) return;
+  const byFiche = new Map<string, { student: OutingSession['student']; level: FicheLevel; sessions: FicheSession[] }>();
+  for (const [list, keep] of [
+    [wanted, true],
+    [was, false],
+  ] as const) {
+    for (const o of list) {
+      const id = ficheIdOf(o.student.id, o.level);
+      const entry = byFiche.get(id) ?? byFiche.set(id, { student: o.student, level: o.level, sessions: [] }).get(id)!;
+      if (keep) entry.sessions.push(o.session);
+    }
+  }
+  const changed: [string, Fiche | null][] = [];
+  for (const [id, { student, level, sessions }] of byFiche) {
+    let touched = false;
+    const next = await changeFiche(store, caller, id, (current) => {
+      if (!current && !sessions.length) return null;
+      // Nom, photo et jeton d'adhésion : ceux de la sortie, plus récents que ceux de la fiche.
+      const base = current
+        ? { ...current, name: student.name || current.name, ...(student.uct ? { uct: student.uct } : {}), ...(student.picture ? { picture: student.picture } : {}) }
+        : newFiche(student, level, who, now);
+      const synced = applyOutingSessions(base, event, sessions);
+      // Séances déjà à jour (seule une autre fiche de la sortie a changé) : la fiche n'est pas réécrite.
+      if (current && JSON.stringify(synced.sessions) === JSON.stringify(current.sessions)) return current;
+      touched = true;
+      return isEmptyFiche(synced) ? null : { ...synced, updatedAt: now, updatedBy: who };
+    });
+    if (touched) changed.push([id, next]);
+  }
+  await indexFiches(store, caller, changed);
 }
 
 /**
@@ -686,6 +794,67 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
       }
     }
 
+    // Fiches de suivi de formation : un admin les voit toutes ; un encadrant, celles des élèves dont il
+    // a encadré une séance, et n'y remplit que ses séances.
+    if (action === 'training') {
+      const ids = callerIds(caller.id, caller.uct);
+      const admin = role !== 'member';
+      const id = url.searchParams.get('fiche') ?? '';
+      if (!id && request.method === 'GET') {
+        const all = Object.values((await store.get<FicheIndex>(fichesKey(caller))) ?? {});
+        return json({ fiches: admin ? all : all.filter((f) => teachesIn(f.teachers, ids)), admin, me: ids });
+      }
+      // Fiche créée à la main pour un membre de l'annuaire (élève qui n'a pas encore plongé en formation
+      // depuis l'appli, ou fiche reprise du classeur avec son contenu) : admins seulement.
+      if (!id && request.method === 'POST') {
+        if (!admin) throw new HttpError(403, 'Réservé aux admins.');
+        const text = await request.text();
+        if (text.length > MAX_DOC_BYTES) throw new HttpError(413, 'Fiche trop volumineuse.');
+        const body = parseBody(text);
+        if (body?.op !== 'create') throw new HttpError(400, 'Opération inconnue.');
+        let fresh: Fiche;
+        try {
+          fresh = createFiche(body, caller.name || caller.email, new Date().toISOString());
+        } catch (e) {
+          if (e instanceof FicheError) throw new HttpError(e.status, e.message);
+          throw e;
+        }
+        let created = false;
+        const fiche = await changeFiche(store, caller, fresh.id, (current) => {
+          // Sans contenu à reprendre, la fiche qui existe déjà est simplement rendue ; on ne l'écrase jamais.
+          if (current && body.content) throw new HttpError(409, 'Ce membre a déjà une fiche pour ce niveau.');
+          created = !current;
+          return current ?? fresh;
+        });
+        if (created) await indexFiches(store, caller, [[fresh.id, fiche]]);
+        return json({ fiche, created, admin, me: ids });
+      }
+      if (!FICHE_ID.test(id)) throw new HttpError(400, 'Fiche inconnue.');
+      const DENIED = 'Réservé aux admins et aux encadrants de l’élève.';
+      /** Fiche absente ou fiche d'un autre : la même réponse pour un membre, qui n'apprend pas qu'elle existe. */
+      const open = (fiche: Fiche | null): Fiche => {
+        if (!admin && !(fiche && teachesIn(fiche.sessions.map((s) => s.teacher.id), ids))) throw new HttpError(403, DENIED);
+        if (!fiche) throw new HttpError(404, 'Fiche introuvable.');
+        return fiche;
+      };
+      if (request.method === 'GET') return json({ fiche: open(await store.get<Fiche>(ficheKey(caller, id))), admin, me: ids });
+      if (request.method === 'POST') {
+        const text = await request.text();
+        if (text.length > 60_000) throw new HttpError(413, 'Saisie trop volumineuse.');
+        const body = parseBody(text);
+        const actor = { admin, ids, who: caller.name || caller.email, now: new Date().toISOString() };
+        let fiche: Fiche | null;
+        try {
+          fiche = await changeFiche(store, caller, id, (current) => applyFicheOp(open(current), String(body?.op ?? ''), body, actor));
+        } catch (e) {
+          if (e instanceof FicheError) throw new HttpError(e.status, e.message);
+          throw e;
+        }
+        await indexFiches(store, caller, [[id, fiche]]);
+        return json({ fiche, admin, me: ids });
+      }
+    }
+
     // Statistiques : rôles de la sortie (DP, pilote, sécurité) tels que l'appli les a enregistrés,
     // pour plusieurs sorties d'un coup (admins seulement). Sortie sans fiche : null.
     if (action === 'outing_roles' && request.method === 'GET') {
@@ -782,6 +951,11 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
           const now = new Date().toISOString();
           const doc = { ...stampOuting(current, body.doc!, who, now), rev: rev + 1, updatedAt: now, updatedBy: who };
           await store.set(key, doc);
+          // Les fiches de suivi suivent la sortie. Un échec ici ne refuse pas l'enregistrement de la
+          // sortie : les fiches seront remises d'accord au prochain changement de ses palanquées.
+          await syncTraining(store, caller, event, current, doc, who, now).catch((e) =>
+            log('warn', { action: 'training_sync', message: errorFields(e).message, club: caller.clubId }),
+          );
           return json({ doc });
         });
       }

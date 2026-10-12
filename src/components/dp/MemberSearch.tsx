@@ -12,8 +12,8 @@ const tooShort = (text: string) => text.trim().replace(/\s/g, '').length < 3;
  * Chercher un membre du club par son nom, comme le champ binôme (BuddyField) :
  * fautes, accents et ordre prénom/nom tolérés. `onPick` reçoit le membre choisi.
  */
-export function MemberSearch({ onPick, exclude = [] }: { onPick: (m: MemberMatch) => void; exclude?: string[] }) {
-  const [typed, setTyped] = useState('');
+export function MemberSearch({ onPick, exclude = [], initial = '' }: { onPick: (m: MemberMatch) => void; exclude?: string[]; /** Nom déjà connu, cherché d'emblée. */ initial?: string }) {
+  const [typed, setTyped] = useState(initial);
   const [search, setSearch] = useState<State>({ state: 'idle' });
   const requestId = useRef(0);
 

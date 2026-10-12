@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "test": "tsx --test \"src/**/*.test.ts\" \"server/**/*.test.ts\"",
     "probe": "tsx scripts/probe.ts",
-    "restore": "tsx scripts/restore.ts"
+    "restore": "tsx scripts/restore.ts",
+    "fiches": "tsx scripts/fiches-classeur.ts"
   },
   "dependencies": {
     "@upstash/redis": "^1.39.0",

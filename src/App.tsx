@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, RefreshCw, Settings, UserRound, Users, Wind, BarChart3 } from 'lucide-react';
+import { BookOpenCheck, ExternalLink, ClipboardList, Eye, CalendarDays, FileWarning, GraduationCap, MessageCircle, Package, RefreshCw, Settings, UserRound, Users, Wind, BarChart3 } from 'lucide-react';
 import { Logo } from './components/Brand';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './components/LoginPage';
@@ -24,6 +24,7 @@ import { useMe } from './hooks/useMe';
 import { useDpEvents } from './hooks/useDpEvents';
 import { useViewAs } from './hooks/useViewAs';
 import { useUnread } from './hooks/useUnread';
+import { useTraining } from './hooks/useTraining';
 import { useTab, TABS, type Tab } from './hooks/useTab';
 import { useAgenda } from './hooks/useAgenda';
 import { MemberSheetProvider } from './components/member/MemberSheetContext';
@@ -39,6 +40,7 @@ const screens = {
   stats: () => import('./components/admin/StatsPanel'),
   weather: () => import('./components/admin/WeatherPanel'),
   members: () => import('./components/MembersPanel'),
+  training: () => import('./components/training/TrainingPanel'),
   messages: () => import('./components/views/MessagesView'),
   profile: () => import('./components/views/ProfileView'),
 };
@@ -48,16 +50,18 @@ const DocsPanel = lazy(() => screens.docs().then((m) => ({ default: m.DocsPanel 
 const StatsPanel = lazy(() => screens.stats().then((m) => ({ default: m.StatsPanel })));
 const WeatherPanel = lazy(() => screens.weather().then((m) => ({ default: m.WeatherPanel })));
 const MembersPanel = lazy(() => screens.members().then((m) => ({ default: m.MembersPanel })));
+const TrainingPanel = lazy(() => screens.training().then((m) => ({ default: m.TrainingPanel })));
 const MessagesView = lazy(() => screens.messages().then((m) => ({ default: m.MessagesView })));
 const ProfileView = lazy(() => screens.profile().then((m) => ({ default: m.ProfileView })));
 
 type Screen = keyof typeof screens;
 
 /** Les écrans qu'un rôle peut ouvrir : seuls ceux-là sont préchargés (un membre ne télécharge pas l'administration). */
-function screensFor(role: AppRole, isDp: boolean): Screen[] {
+function screensFor(role: AppRole, isDp: boolean, teaches: boolean): Screen[] {
   const list: Screen[] = ['messages', 'profile'];
   if (role !== 'member' || isDp) list.push('dp', 'weather');
   if (role !== 'member') list.push('material', 'docs', 'members');
+  if (role !== 'member' || teaches) list.push('training');
   if (role === 'superadmin') list.push('stats');
   return list;
 }
@@ -105,7 +109,7 @@ export default function App() {
 function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { session: Session; onLogout: () => void; onSessionLost: (e: unknown) => boolean }) {
   const { month, setMonth, events, isLoading, error, loadEvents } = useAgenda(handleSessionLost);
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
-  const [panel, setPanel] = useState<'dp' | 'weather' | 'material' | 'members' | 'docs' | 'stats' | null>(null);
+  const [panel, setPanel] = useState<'dp' | 'weather' | 'material' | 'members' | 'docs' | 'stats' | 'training' | null>(null);
   const [dpEvent, setDpEvent] = useState<CalendarEvent | null>(null);
   const { me, meError, fetchMe, retryMe } = useMe(handleSessionLost);
   /** Photo relue sur VPDive pour les sessions enregistrées avant que la session la garde. */
@@ -137,10 +141,20 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
   const dpUnchecked = viewAs ? viewAs.role === 'member' && viewAs.failed : dp.failed;
   /** « Réessayer » la recherche des sorties DP : la sienne, ou celle du membre vu « en tant que ». */
   const retryDp = () => (viewAs ? retryViewAs() : dp.retry());
+  // Fiches de suivi de formation : un admin les voit toutes (menu Admin) ; un encadrant, celles de
+  // ses élèves (menu Gestion de sortie), dès qu'il a encadré une séance de formation.
+  const training = useTraining(!!me, handleSessionLost);
+  const canTrain = isAdmin || training.teaches;
+  const trainingItem = {
+    icon: <BookOpenCheck className="w-4 h-4" />,
+    label: 'Formations',
+    hint: training.todo > 0 ? `${training.todo} séance${training.todo > 1 ? 's' : ''} à remplir` : 'Fiches de suivi',
+    onClick: () => setPanel('training'),
+  };
 
   // Les autres écrans arrivent en tâche de fond, une fois l'agenda affiché : ceux que le rôle
   // permet d'ouvrir (l'administration et le menu DP seulement pour qui y a accès).
-  useEffect(() => preloadScreens(screensFor(realRole, isDp)), [realRole, isDp]);
+  useEffect(() => preloadScreens(screensFor(realRole, isDp, training.teaches)), [realRole, isDp, training.teaches]);
 
   // Photo du compte : les sessions enregistrées avant ce champ la relisent une fois sur VPDive.
   const sessionPicture = session.picture;
@@ -199,11 +213,11 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                 <span className="sr-only">{vpdiveStatus}</span>
               </span>
 
-              {(canDp || dpUnchecked) && (
+              {(canDp || dpUnchecked || (!isAdmin && training.teaches)) && (
                 <HeaderMenu
                   icon={<CaptainHat className="w-5 h-5" />}
                   label="Gestion de sortie"
-                  active={panel === 'dp' || panel === 'weather' || panel === 'material'}
+                  active={panel === 'dp' || panel === 'weather' || panel === 'material' || (!isAdmin && panel === 'training')}
                   items={[
                     // Une liste d'inscrits illisible : on ne sait pas si le membre est DP, on le dit ici.
                     ...(dpUnchecked ? [{ icon: <RefreshCw className="w-4 h-4" />, label: `${DP_SCAN_FAILED}, réessayer`, onClick: retryDp }] : []),
@@ -216,6 +230,8 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                     ...(isAdmin
                       ? [{ icon: <Package className="w-4 h-4" />, label: 'Matériel', hint: 'Gilets, combinaisons, bouteilles', onClick: () => setPanel('material') }]
                       : []),
+                    // Encadrant qui n'est pas admin : les fiches de suivi de ses élèves (un admin les a au menu Admin).
+                    ...(!isAdmin && training.teaches ? [trainingItem] : []),
                   ]}
                 />
               )}
@@ -223,10 +239,11 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
                 <HeaderMenu
                   icon={<Settings className="w-5 h-5" />}
                   label="Admin"
-                  active={panel === 'members' || panel === 'docs' || panel === 'stats'}
+                  active={panel === 'members' || panel === 'docs' || panel === 'stats' || panel === 'training'}
                   items={[
                     { icon: <Users className="w-4 h-4" />, label: 'Gestion des membres', hint: realRole === 'superadmin' ? 'Rôles et doublons' : 'Doublons', onClick: () => setPanel('members') },
                     { icon: <FileWarning className="w-4 h-4" />, label: 'Gestion des adhésions', hint: 'HelloAsso, FFESSM, VPDive, relances', onClick: () => setPanel('docs') },
+                    trainingItem,
                     ...(realRole === 'superadmin'
                       ? [{ icon: <BarChart3 className="w-4 h-4" />, label: 'Statistiques', hint: 'Sorties, plongeurs, niveaux, âges', onClick: () => setPanel('stats') }]
                       : []),
@@ -370,6 +387,16 @@ function SignedIn({ session, onLogout, onSessionLost: handleSessionLost }: { ses
           {panel === 'weather' && canDp && <WeatherPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
           {panel === 'material' && isAdmin && <MaterialPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
           {panel === 'stats' && realRole === 'superadmin' && <StatsPanel onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />}
+          {panel === 'training' && canTrain && (
+            <TrainingPanel
+              onClose={() => {
+                setPanel(null);
+                // Des séances ont pu être remplies : le compteur du menu est relu.
+                training.refreshTraining();
+              }}
+              onSessionLost={handleSessionLost}
+            />
+          )}
           {panel === 'docs' && isAdmin && me && (
             <DocsPanel me={{ uct: me.uct, name: displayName, picture: picture ?? '' }} onClose={() => setPanel(null)} onSessionLost={handleSessionLost} />
           )}

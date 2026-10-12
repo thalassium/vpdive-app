@@ -6,6 +6,8 @@
 import { vpdive, SessionExpiredError } from './vpdive';
 import type { OutingDoc } from '../lib/outing';
 import type { CaseCheck, FfessmBrevet, FfessmRow, HaItem, LinkChoice } from '../lib/membership';
+import type { Fiche, FicheLevel, FicheSession, FicheSummary, ReviewStatus } from '../lib/training';
+import type { SheetFiche } from '../lib/trainingSheets';
 
 /** Une demande d'inscription au club en attente de réponse. */
 export interface RegistrationRequest {
@@ -73,6 +75,22 @@ export interface OutingLock {
 }
 
 export type IgnoredDocs =Record<string, { name: string; by: string; at: string }>;
+
+/** Ce que l'appelant peut faire des fiches de suivi : tout (admin), ou remplir les séances qu'il a encadrées (`me`). */
+export interface FicheAccess {
+  admin: boolean;
+  me: string[];
+}
+
+/** Ce qu'on peut demander sur une fiche de suivi (server/training.ts, applyFicheOp). */
+export type FicheOp =
+  | { op: 'session'; session: string; patch: Partial<Pick<FicheSession, 'slot' | 'depth' | 'duration' | 'weight' | 'comment' | 'evals' | 'date'>> & { teacher?: string } }
+  | { op: 'add_session'; date: string; slot: string; teacher?: string }
+  | { op: 'remove_session'; session: string }
+  | { op: 'theory'; key: string; date: string; teacher: string; note: string }
+  | { op: 'general'; text?: string; model?: string }
+  | { op: 'review'; status: Record<string, ReviewStatus>; theoryDate: string; certDate: string; responsable: string }
+  | { op: 'delete' };
 
 export class AppApiError extends Error {
   constructor(
@@ -164,6 +182,21 @@ export const appApi = {
     call<{ ok: true }>('action=member_writes', { method: 'POST', body: w }),
   /** Le journal des écritures, dans l'ordre où elles ont été faites (les 300 dernières). */
   memberWrites: () => call<{ writes: MemberWriteLog[] }>('action=member_writes').then((r) => r.writes),
+  /**
+   * Fiches de suivi de formation : toutes pour un admin, celles de ses élèves pour un encadrant.
+   * `me` : les identifiants sous lesquels l'appelant figure comme enseignant d'une séance.
+   */
+  fiches: () => call<FicheAccess & { fiches: FicheSummary[] }>('action=training'),
+  fiche: (id: string) => call<FicheAccess & { fiche: Fiche }>(`action=training&fiche=${encodeURIComponent(id)}`),
+  /**
+   * Fiche créée à la main pour un membre de l'annuaire (admins). `content` : une fiche du classeur du
+   * club à reprendre (lib/trainingSheets.ts) ; refusé avec 409 si ce membre a déjà une fiche de ce
+   * niveau. Sans `content`, la fiche déjà là est rendue telle quelle (`created` : false).
+   */
+  createFiche: (input: { uct: string; name: string; picture?: string; level: FicheLevel; content?: Pick<SheetFiche, 'model' | 'sessions' | 'theory' | 'general' | 'review'> }) =>
+    call<{ fiche: Fiche; created: boolean }>('action=training', { method: 'POST', body: { op: 'create', ...input } }),
+  /** Une opération sur une fiche (server/training.ts, applyFicheOp) ; rend la fiche d'après, null si elle est supprimée. */
+  ficheOp: (id: string, op: FicheOp) => call<{ fiche: Fiche | null }>(`action=training&fiche=${encodeURIComponent(id)}`, { method: 'POST', body: op }).then((r) => r.fiche),
   docsIgnored: () => call<{ ignored: IgnoredDocs }>('action=docs_ignored').then((r) => r.ignored),
   setDocsIgnored: (uct: string, name: string, ignore: boolean) =>
     call<{ ignored: IgnoredDocs }>('action=docs_ignored', { method: 'POST', body: { uct, name, ignore } }).then((r) => r.ignored),
