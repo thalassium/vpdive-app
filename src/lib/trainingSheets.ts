@@ -58,7 +58,7 @@ const norm = (s: string) =>
     .trim();
 const compact = (s: string) => norm(s).replace(/ /g, '');
 
-/** « N1_Noé-SwynghedawV », « Sophie_HEUDE(ficheCD) », « Hilaire Barbot V » → le nom de l'élève. */
+/** « N1_Prénom-NomV », « Prénom_NOM(ficheCD) », « Prénom Nom V » → le nom de l'élève. */
 export function studentName(tab: string): string {
   return tab
     .replace(/\(.*?\)/g, ' ')
