@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { EyeOff, RotateCcw, Trash2 } from 'lucide-react';
 import { Dialog, DialogHeader } from '../Dialog';
 import { Spinner } from '../Spinner';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -14,7 +14,8 @@ type Patch = Extract<FicheOp, { op: 'session' }>['patch'];
  * Une séance à remplir par son enseignant : paramètres de la plongée, chaque
  * compétence de la grille (NA, ECA, A, NE ; un second appui retire
  * l'évaluation), commentaire. À côté de chaque compétence, où elle en était
- * avant cette séance. Rien n'est enregistré avant « Enregistrer ».
+ * avant cette séance. Rien n'est enregistré avant « Enregistrer ». Un admin
+ * peut ignorer une séance à remplir dont il n'y a rien à attendre.
  */
 export function SessionEditor({
   fiche,
@@ -24,6 +25,7 @@ export function SessionEditor({
   admin,
   onSave,
   onRemove,
+  onIgnore,
   onClose,
 }: {
   fiche: Fiche;
@@ -35,6 +37,8 @@ export function SessionEditor({
   onSave: (patch: Patch) => Promise<boolean>;
   /** Séance ajoutée à la main seulement. */
   onRemove?: () => Promise<boolean>;
+  /** Séance à remplir, pour un admin : l'ignorer, ou la remettre à remplir. */
+  onIgnore?: (ignored: boolean) => Promise<boolean>;
   onClose: () => void;
 }) {
   const titleId = useId();
@@ -83,6 +87,14 @@ export function SessionEditor({
     if (!onRemove || !(await confirm({ title: `Supprimer la séance ${number} ?`, confirmLabel: 'Supprimer', danger: true }))) return;
     setSaving(true);
     const ok = await onRemove();
+    setSaving(false);
+    if (ok) onClose();
+  };
+
+  const ignore = async () => {
+    if (!onIgnore) return;
+    setSaving(true);
+    const ok = await onIgnore(!session.ignored);
     setSaving(false);
     if (ok) onClose();
   };
@@ -200,10 +212,15 @@ export function SessionEditor({
             <textarea value={draft.comment} onChange={(e) => set('comment', e.target.value)} rows={5} maxLength={2000} className="field w-full h-auto py-2.5 leading-snug" />
           </label>
         </div>
-        <footer className="shrink-0 border-t border-line px-4 sm:px-6 py-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] flex items-center gap-2">
+        <footer className="shrink-0 border-t border-line px-4 sm:px-6 py-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] flex flex-wrap items-center gap-2">
           {manual && onRemove && (
             <button type="button" onClick={() => void remove()} disabled={saving} className="btn btn-quiet text-danger">
               <Trash2 className="w-4 h-4" /> Supprimer
+            </button>
+          )}
+          {onIgnore && (
+            <button type="button" onClick={() => void ignore()} disabled={saving} className="btn btn-quiet">
+              {session.ignored ? <RotateCcw className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />} {session.ignored ? 'À remplir' : 'Ignorer'}
             </button>
           )}
           <button type="button" onClick={() => void save()} disabled={saving} aria-busy={saving} className="btn btn-primary ml-auto max-sm:flex-1">

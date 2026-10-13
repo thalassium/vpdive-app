@@ -18,10 +18,11 @@ export function EvalMark({ code, className = '' }: { code: EvalCode | undefined;
   );
 }
 
-/** Où en est une séance : à remplir (rose, c'est ce qu'on cherche), à venir, remplie. */
+/** Où en est une séance : à remplir (rose, c'est ce qu'on cherche), à venir, ignorée (mise de côté par un admin), remplie. */
 export function SessionPill({ state }: { state: SessionState }) {
   if (state === 'todo') return <span className="shrink-0 px-2 py-0.5 rounded-md bg-pink text-on-pink text-sm font-bold whitespace-nowrap">À remplir</span>;
   if (state === 'upcoming') return <span className="shrink-0 px-2 py-0.5 rounded-md bg-raised text-muted text-sm font-semibold whitespace-nowrap">À venir</span>;
+  if (state === 'ignored') return <span className="shrink-0 px-2 py-0.5 rounded-md bg-raised text-muted text-sm font-semibold whitespace-nowrap">Ignorée</span>;
   return (
     <span className="shrink-0 inline-flex items-center gap-1 text-sm font-semibold text-ok whitespace-nowrap">
       <Check aria-hidden className="w-4 h-4" /> Remplie

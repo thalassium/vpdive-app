@@ -48,6 +48,8 @@ export interface FicheSession {
   comment: string;
   /** Qui a rempli la séance, et quand ; null : à remplir. */
   filled: { by: string; at: string } | null;
+  /** Séance à remplir qu'un admin a mise de côté (rien à en attendre) : elle n'est plus comptée « à remplir ». */
+  ignored?: { by: string; at: string };
 }
 
 /** Un cours théorique (ou l'examen : `note`). */
@@ -253,8 +255,9 @@ export function newFiche(student: OutingSession['student'], level: FicheLevel, b
  * (`wanted` : ses séances pour cet élève, aucune s'il n'y est plus en
  * formation). Une séance remplie reste telle quelle ; une séance à remplir
  * prend la forme actuelle (enseignant, date, profondeur réalisée) ou disparaît
- * si la sortie ne la donne plus. Les séances des autres sorties, et celles
- * ajoutées à la main, ne sont pas touchées.
+ * si la sortie ne la donne plus ; mise de côté par un admin, elle le reste.
+ * Les séances des autres sorties, et celles ajoutées à la main, ne sont pas
+ * touchées.
  */
 export function applyOutingSessions(fiche: Fiche, event: string, wanted: FicheSession[]): Fiche {
   const fresh = new Map(wanted.map((s) => [s.id, s]));
@@ -263,7 +266,7 @@ export function applyOutingSessions(fiche: Fiche, event: string, wanted: FicheSe
     const now = fresh.get(s.id);
     fresh.delete(s.id);
     if (s.filled) return [s];
-    return now ? [now] : [];
+    return now ? [s.ignored ? { ...now, ignored: s.ignored } : now] : [];
   });
   return { ...fiche, sessions: sortSessions([...kept, ...fresh.values()]) };
 }
@@ -292,7 +295,7 @@ export function summarize(f: Fiche): FicheSummary {
     level: f.level,
     ...(f.model ? { model: f.model } : {}),
     sessions: f.sessions.length,
-    todo: f.sessions.filter((s) => !s.filled).map((s) => ({ id: s.id, date: s.date, teacher: s.teacher.id })),
+    todo: f.sessions.filter((s) => !s.filled && !s.ignored).map((s) => ({ id: s.id, date: s.date, teacher: s.teacher.id })),
     teachers: [...new Set(f.sessions.map((s) => s.teacher.id).filter(Boolean))],
     last: f.sessions.reduce((max, s) => (s.date > max ? s.date : max), ''),
     certified: f.review.status.certification === 'VALIDE',
@@ -394,6 +397,7 @@ export interface FicheActor {
  *   session         {session, patch}   remplir ou corriger une séance : son enseignant, ou un admin
  *   add_session     {date, slot, teacher?}   séance ajoutée à la main (rattrapage d'une fiche papier)
  *   remove_session  {session}          retirer une séance ajoutée à la main
+ *   ignore          {session, ignored} mettre de côté une séance à remplir, ou la remettre à remplir : réservé aux admins
  *   theory          {key, date, teacher, note}   un cours théorique, ou l'examen
  *   general         {text?, model?}    commentaire général, variante de grille
  *   review          {status, theoryDate, certDate, responsable}   réservé aux admins
@@ -422,6 +426,7 @@ export function applyFicheOp(fiche: Fiche, op: string, body: Record<string, unkn
         evals: 'evals' in patch ? cleanEvals(patch.evals) : s.evals,
         filled: { by: actor.who, at: actor.now },
       };
+      delete next.ignored;
       // Une séance née d'une sortie garde la date et l'enseignant de la sortie.
       if (!s.event) {
         if (date(patch.date)) next.date = date(patch.date);
@@ -454,6 +459,15 @@ export function applyFicheOp(fiche: Fiche, op: string, body: Record<string, unkn
       const s = find();
       if (s.event) throw new FicheError(400, 'Cette séance vient d’une sortie : elle suit ses palanquées.');
       return { ...fiche, sessions: fiche.sessions.filter((x) => x !== s), ...stamp };
+    }
+    case 'ignore': {
+      if (!actor.admin) throw new FicheError(403, 'Réservé aux responsables plongée.');
+      const s = find();
+      if (s.filled) throw new FicheError(400, 'Cette séance est déjà remplie.');
+      const next: FicheSession = { ...s };
+      if (body?.ignored === true) next.ignored = { by: actor.who, at: actor.now };
+      else delete next.ignored;
+      return { ...fiche, sessions: fiche.sessions.map((x) => (x === s ? next : x)), ...stamp };
     }
     case 'theory': {
       const key = str(body?.key, 48);

@@ -87,6 +87,7 @@ export type FicheOp =
   | { op: 'session'; session: string; patch: Partial<Pick<FicheSession, 'slot' | 'depth' | 'duration' | 'weight' | 'comment' | 'evals' | 'date'>> & { teacher?: string } }
   | { op: 'add_session'; date: string; slot: string; teacher?: string }
   | { op: 'remove_session'; session: string }
+  | { op: 'ignore'; session: string; ignored: boolean }
   | { op: 'theory'; key: string; date: string; teacher: string; note: string }
   | { op: 'general'; text?: string; model?: string }
   | { op: 'review'; status: Record<string, ReviewStatus>; theoryDate: string; certDate: string; responsable: string }

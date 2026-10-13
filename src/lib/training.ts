@@ -309,9 +309,10 @@ export const VARIANTS: Record<FicheLevel, string[]> = { N1: ['N1'], N2: ['N2', '
 
 export const modelOf = (f: Pick<Fiche, 'level' | 'model'>): FicheModel => (f.model && VARIANTS[f.level].includes(f.model) ? MODELS[f.model]! : MODELS[f.level]!);
 
-export type SessionState = 'filled' | 'todo' | 'upcoming';
-/** Remplie, à remplir, ou à venir (la plongée n'a pas encore eu lieu). `today` : AAAA-MM-JJ. */
-export const sessionState = (s: { filled: unknown; date: string }, today: string): SessionState => (s.filled ? 'filled' : s.date > today ? 'upcoming' : 'todo');
+export type SessionState = 'filled' | 'ignored' | 'todo' | 'upcoming';
+/** Remplie, mise de côté par un admin, à remplir, ou à venir (la plongée n'a pas encore eu lieu). `today` : AAAA-MM-JJ. */
+export const sessionState = (s: { filled: unknown; ignored?: unknown; date: string }, today: string): SessionState =>
+  s.filled ? 'filled' : s.ignored ? 'ignored' : s.date > today ? 'upcoming' : 'todo';
 
 /** Séances à remplir aujourd'hui (les plongées à venir ne comptent pas) ; avec `ids`, seulement celles de cet encadrant. */
 export function todoCount(f: Pick<FicheSummary, 'todo'>, today: string, ids?: string[]): number {

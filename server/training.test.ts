@@ -180,6 +180,26 @@ test('applyFicheOp : séance ajoutée à la main, cours théorique, variante de 
   assert.equal(applyFicheOp(fiche, 'remove_session', { session: manual.id }, admin)!.sessions.length, 1);
 });
 
+test('applyFicheOp : un admin met de côté une séance à remplir ; la remplir, ou la sortie revalidée, ne la perd pas', () => {
+  const fiche = ficheOf();
+  const sid = fiche.sessions[0]!.id;
+  const admin = actor({ admin: true, ids: ['1', 'uct:admin'], who: 'Fred' });
+  assert.throws(() => applyFicheOp(fiche, 'ignore', { session: sid, ignored: true }, actor()), (e) => e instanceof FicheError && e.status === 403);
+
+  const ignored = applyFicheOp(fiche, 'ignore', { session: sid, ignored: true }, admin)!;
+  assert.deepEqual([ignored.sessions[0]!.ignored, ignored.sessions[0]!.filled], [{ by: 'Fred', at: '2026-10-11T10:00:00.000Z' }, null]);
+  assert.equal(summarize(ignored).todo.length, 0, 'elle n’est plus à remplir');
+  // La sortie revalidée redonne la séance : elle reste mise de côté.
+  const [anna] = outingSessions(EV, outing());
+  assert.ok(applyOutingSessions(ignored, EV, [anna!.session]).sessions[0]!.ignored);
+
+  const back = applyFicheOp(ignored, 'ignore', { session: sid, ignored: false }, admin)!;
+  assert.deepEqual(['ignored' in back.sessions[0]!, summarize(back).todo.length], [false, 1]);
+  const done = applyFicheOp(ignored, 'session', { session: sid, patch: { comment: 'Finalement remplie' } }, actor())!;
+  assert.deepEqual(['ignored' in done.sessions[0]!, done.sessions[0]!.filled?.by], [false, 'Lucas']);
+  assert.throws(() => applyFicheOp(done, 'ignore', { session: sid, ignored: true }, admin), (e) => e instanceof FicheError && e.status === 400, 'une séance remplie ne se met pas de côté');
+});
+
 // ── Par l'API : la sortie enregistrée crée les fiches, chacun voit ce qui le regarde ──
 
 const caller = (over: Partial<Caller> = {}): Caller => ({ id: 1, uct: 'uct-admin-'.padEnd(24, 'x'), email: 'admin@club.fr', name: 'Fred Admin', clubId: '12', vpdiveAdmin: true, headers: {}, ...over });

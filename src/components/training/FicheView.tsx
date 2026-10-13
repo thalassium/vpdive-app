@@ -254,6 +254,7 @@ export function FicheView({
           admin={admin}
           onSave={async (patch) => !!(await run({ op: 'session', session: edited.id, patch }))}
           onRemove={edited.event ? undefined : async () => !!(await run({ op: 'remove_session', session: edited.id }))}
+          onIgnore={admin && !edited.filled ? async (ignored) => !!(await run({ op: 'ignore', session: edited.id, ignored })) : undefined}
           onClose={() => setEditing(null)}
         />
       )}

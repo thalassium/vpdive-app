@@ -49,6 +49,7 @@ test('sessionState et todoCount : une plongée à venir n’est pas encore à re
   assert.equal(sessionState(session('s', '2026-10-10', {}), '2026-10-12'), 'filled');
   assert.equal(sessionState(session('s', '2026-10-10', {}, false), '2026-10-12'), 'todo');
   assert.equal(sessionState(session('s', '2026-10-17', {}, false), '2026-10-12'), 'upcoming');
+  assert.equal(sessionState({ ...session('s', '2026-10-10', {}, false), ignored: { by: 'Fred', at: '2026-10-12' } }, '2026-10-12'), 'ignored');
   const todo = [
     { id: 'a', date: '2026-10-10', teacher: '7' },
     { id: 'b', date: '2026-10-10', teacher: '9' },
