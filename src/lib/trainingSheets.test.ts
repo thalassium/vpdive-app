@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MODELS } from './training';
-import { cellDate, readSheetExport, sheetToFiche, studentName } from './trainingSheets';
+import { cellDate, readSheetExport, sheetToFiche, studentName, withTeachers } from './trainingSheets';
 
 /** Un onglet comme ceux du classeur : en-tête, grille de la fiche (titres de section compris), commentaires, bloc des responsables. */
 function tab(modelId: string, columns: Record<string, string[]>, extra: { theory?: string[][]; review?: string[][]; drop?: number } = {}): string[][] {
@@ -99,6 +99,22 @@ test('sheetToFiche : un onglet dont une ligne manque est rapproché par les libe
   assert.equal(fiche.warnings.length, 2);
   assert.match(fiche.warnings[0]!, /33 lignes de compétences au lieu de 34/);
   assert.match(fiche.warnings[1]!, /évaluation « zz » non reconnue/);
+});
+
+test('withTeachers : un moniteur reconnu prend son nom de membre et son jeton, les autres sont signalés', () => {
+  const first = MODELS.N2!.sections[0]!.items[0]!;
+  const rows = tab('N2', { date: ['46208.0', '46209.0', '46210.0'], teacher: ['ab', 'Zoé', ''], [first.id]: ['A', 'A', 'A'] }, { theory: [['Réglementation', 'Date :', '46257.0', 'Moniteur :', 'AB']] });
+  const fiche = withTeachers(sheetToFiche('Prénom Nom', rows, 2026)!, { AB: { uct: 'jeton-ab', name: 'Alix BERNARD' } });
+  assert.deepEqual(
+    fiche.sessions.map((s) => [s.teacher, s.teacherUct]),
+    [
+      ['Alix BERNARD', 'jeton-ab'],
+      ['Zoé', undefined],
+      ['', undefined],
+    ],
+  );
+  assert.equal(fiche.theory.reglementation!.teacher, 'Alix BERNARD');
+  assert.deepEqual(fiche.warnings, ['Moniteur « Zoé » : pas de membre connu, repris tel quel.']);
 });
 
 test('studentName, cellDate, readSheetExport', () => {

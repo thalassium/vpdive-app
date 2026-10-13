@@ -13,6 +13,12 @@
  * fichier .xlsx déjà téléchargé. Sans argument : ceux de FICHES_CLASSEURS
  * (séparés par des virgules), dans l'environnement ou dans .env.local.
  *
+ * Moniteurs : le classeur n'en écrit que des initiales ou un prénom. Ceux que
+ * imports/moniteurs.json fait correspondre à un membre prennent son nom, et
+ * leurs séances son jeton d'adhésion (il voit alors la fiche de l'élève) :
+ *   { "AB": { "uct": "<jeton d'adhésion>", "name": "Prénom NOM" }, … }
+ * Les autres restent en texte et sont signalés.
+ *
  * Le fichier produit se dépose dans l'appli : Admin → Formations → Nouvelle
  * fiche → « Reprendre une fiche du classeur ». On y choisit le membre VPDive
  * de chaque élève : le classeur ne connaît que son nom. Il contient des noms
@@ -21,9 +27,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
-import { sheetToFiche, type SheetExport, type SheetFiche } from '../src/lib/trainingSheets.js';
+import { sheetToFiche, withTeachers, type SheetExport, type SheetFiche, type SheetTeachers } from '../src/lib/trainingSheets.js';
 
 const ROOT = join(import.meta.dirname, '..');
+const TEACHERS = join(ROOT, 'imports', 'moniteurs.json');
 
 /** FICHES_CLASSEURS dans .env.local, si l'environnement ne l'a pas déjà. */
 function envSheets(): string[] {
@@ -105,7 +112,7 @@ const args = process.argv.slice(2);
 const asJson = args.includes('--json');
 const outAt = args.indexOf('--out');
 const out = outAt >= 0 ? args[outAt + 1] : undefined;
-const named = args.filter((a, i) => !a.startsWith('--') && i !== outAt + 1);
+const named = args.filter((a, i) => !a.startsWith('--') && (outAt < 0 || i !== outAt + 1));
 const sources = named.length ? named : envSheets();
 if (!sources.length || (outAt >= 0 && !out)) {
   console.error('Usage : npx tsx scripts/fiches-classeur.ts [--json] [--out fichier.json] <adresse ou identifiant Google Sheet | fichier.xlsx>…');
@@ -113,12 +120,13 @@ if (!sources.length || (outAt >= 0 && !out)) {
 }
 
 const year = new Date().getFullYear();
+const teachers = existsSync(TEACHERS) ? (JSON.parse(readFileSync(TEACHERS, 'utf8')) as SheetTeachers) : null;
 const fiches: SheetFiche[] = [];
 for (const source of sources) {
   try {
     for (const sheet of sheetsOf(await load(source))) {
       const fiche = sheetToFiche(sheet.name, sheet.rows, year);
-      if (fiche) fiches.push(fiche);
+      if (fiche) fiches.push(teachers ? withTeachers(fiche, teachers) : fiche);
     }
   } catch (e) {
     console.error(`${source} : ${e instanceof Error ? e.message : String(e)}`);

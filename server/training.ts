@@ -334,7 +334,10 @@ const cleanModel = (input: unknown, level: FicheLevel): string => (/^[A-Z0-9]{2,
  * `{uct, name, picture?, level, content?}`. `content` reprend une fiche tenue
  * ailleurs (le classeur du club, lu par scripts/fiches-classeur.ts) : grille,
  * séances déjà faites, cours théoriques, commentaire général, validations.
- * Ces séances sont des séances ajoutées à la main, déjà remplies.
+ * Ces séances sont des séances ajoutées à la main ; celle qui n'a ni
+ * évaluation ni commentaire reste à remplir. Un moniteur reconnu parmi les
+ * membres (`teacherUct`, son jeton d'adhésion) est l'enseignant de la séance
+ * comme s'il venait d'une sortie : il voit la fiche et remplit sa séance.
  */
 export function createFiche(input: Record<string, unknown> | null, who: string, now: string): Fiche {
   const uct = str(input?.uct, 80);
@@ -351,20 +354,25 @@ export function createFiche(input: Record<string, unknown> | null, who: string, 
     .slice(0, MAX_SESSIONS)
     .map(rec)
     .filter((s): s is Record<string, unknown> => !!s)
-    .map((s, i): FicheSession => ({
-      id: `m-${i + 1}-${Date.parse(now).toString(36)}`,
-      label: '',
-      date: date(s.date),
-      slot: SLOTS.includes(str(s.slot, 20)) ? str(s.slot, 20) : '',
-      objective: '',
-      teacher: { id: '', name: str(s.teacher, 120) },
-      depth: str(s.depth, 30),
-      duration: str(s.duration, 30),
-      weight: str(s.weight, 60),
-      evals: cleanEvals(s.evals),
-      comment: str(s.comment, 2000),
-      filled: { by: who, at: now },
-    }));
+    .map((s, i): FicheSession => {
+      const teacherUct = str(s.teacherUct, 80);
+      const evals = cleanEvals(s.evals);
+      const comment = str(s.comment, 2000);
+      return {
+        id: `m-${i + 1}-${Date.parse(now).toString(36)}`,
+        label: '',
+        date: date(s.date),
+        slot: SLOTS.includes(str(s.slot, 20)) ? str(s.slot, 20) : '',
+        objective: '',
+        teacher: { id: /^[\w-]{20,80}$/.test(teacherUct) ? `uct:${teacherUct}` : '', name: str(s.teacher, 120) },
+        depth: str(s.depth, 30),
+        duration: str(s.duration, 30),
+        weight: str(s.weight, 60),
+        evals,
+        comment,
+        filled: Object.keys(evals).length || comment ? { by: who, at: now } : null,
+      };
+    });
   const theory: Record<string, TheoryCourse> = {};
   for (const [k, v] of Object.entries(rec(content.theory) ?? {}).slice(0, 30)) if (KEY.test(k) && !emptyCourse(cleanCourse(v))) theory[k] = cleanCourse(v);
   return { ...fiche, ...(model ? { model } : {}), sessions: sortSessions(sessions), theory, general: str(content.general, 2000), review: cleanReview(content.review) };

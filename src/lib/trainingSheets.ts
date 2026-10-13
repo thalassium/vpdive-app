@@ -20,6 +20,8 @@ export interface SheetSession {
   date: string;
   slot: string;
   teacher: string;
+  /** Jeton d'adhésion du moniteur, s'il a été reconnu parmi les membres (withTeachers). */
+  teacherUct?: string;
   depth: string;
   duration: string;
   weight: string;
@@ -248,6 +250,30 @@ export function sheetToFiche(tab: string, rows: string[][], year: number): Sheet
   }
 
   return { tab, name: studentName(tab), level, model: model.id, sessions, theory, general: general.filter(Boolean).join('\n'), review, warnings };
+}
+
+/** Les moniteurs du classeur qui sont des membres : ce que le classeur en écrit (« AB », un prénom) → son nom et son jeton d'adhésion. */
+export type SheetTeachers = Record<string, { uct: string; name: string }>;
+
+/**
+ * La fiche avec ses moniteurs reconnus : le classeur n'en garde que des
+ * initiales ou un prénom. Un moniteur reconnu prend son nom de membre, et la
+ * séance son jeton d'adhésion ; les autres restent tels quels, et la fiche le dit.
+ */
+export function withTeachers(fiche: SheetFiche, teachers: SheetTeachers): SheetFiche {
+  const known = new Map(Object.entries(teachers).map(([text, member]) => [compact(text), member]));
+  const unknown = new Set<string>();
+  const member = (text: string) => {
+    const hit = known.get(compact(text));
+    if (!hit && text) unknown.add(text);
+    return hit;
+  };
+  const sessions = fiche.sessions.map((s) => {
+    const hit = member(s.teacher);
+    return hit ? { ...s, teacher: hit.name, teacherUct: hit.uct } : s;
+  });
+  const theory = Object.fromEntries(Object.entries(fiche.theory).map(([key, course]) => [key, { ...course, teacher: member(course.teacher)?.name ?? course.teacher }]));
+  return { ...fiche, sessions, theory, warnings: [...fiche.warnings, ...[...unknown].map((text) => `Moniteur « ${text} » : pas de membre connu, repris tel quel.`)] };
 }
 
 /** Le fichier du script relu par l'écran : les fiches qui ont la bonne forme, ou null si ce n'en est pas un. */

@@ -70,7 +70,7 @@ test('outingSessions : élève et enseignant sont connus par leur jeton d’adh�
   assert.equal(created.id, ficheIdOf(outingSessions(EV, outing({ members: [{ ...ANNA, uct }] }))[0]!.student.id, 'N2'));
 });
 
-test('createFiche : fiche vide, ou reprise du classeur avec ses séances déjà remplies', () => {
+test('createFiche : fiche vide, ou reprise du classeur avec ses séances et leurs moniteurs', () => {
   const uct = 'jeton-de-membre-'.padEnd(24, 'x');
   const now = '2026-10-12T08:00:00.000Z';
   const empty = createFiche({ uct, name: 'Anna Eleve', level: 'N1' }, 'Fred', now);
@@ -83,7 +83,8 @@ test('createFiche : fiche vide, ou reprise du classeur avec ses séances déjà 
     general: 'Conso à surveiller',
     sessions: [
       { date: '2026-10-10', slot: 'Après-midi', teacher: 'Lucas', depth: '20m', duration: '43', weight: '3', evals: { '1-check': 'ECA', bad: 'ZZ' }, comment: 'Orientation' },
-      { date: '2026-10-10', slot: 'Matin', teacher: 'Lucas', depth: '20m', evals: {}, comment: '' },
+      { date: '2026-10-10', slot: 'Matin', teacher: 'Lucas Moniteur', teacherUct: 'jeton-lucas-'.padEnd(24, 'x'), depth: '20m', evals: {}, comment: '' },
+      { date: '2026-10-11', teacher: 'Zoé', teacherUct: 'court', evals: {}, comment: 'Reprise en douceur' },
       'pas une séance',
     ],
     theory: { examen: { date: '2026-09-01', teacher: 'FH', note: '17/20' }, vide: {} },
@@ -91,14 +92,17 @@ test('createFiche : fiche vide, ou reprise du classeur avec ses séances déjà 
   };
   const taken = createFiche({ uct, name: 'Quentin Eleve', level: 'N2', content }, 'Fred', now);
   assert.equal(taken.model, 'N2L');
+  // Sans évaluation ni commentaire : à remplir, par son moniteur s'il est reconnu parmi les membres.
   assert.deepEqual(taken.sessions.map((s) => [s.slot, s.teacher, s.filled?.by, s.event]), [
-    ['Matin', { id: '', name: 'Lucas' }, 'Fred', undefined],
+    ['Matin', { id: `uct:${'jeton-lucas-'.padEnd(24, 'x')}`, name: 'Lucas Moniteur' }, undefined, undefined],
     ['Après-midi', { id: '', name: 'Lucas' }, 'Fred', undefined],
+    ['', { id: '', name: 'Zoé' }, 'Fred', undefined],
   ]);
   assert.deepEqual(taken.sessions[1]!.evals, { '1-check': 'ECA' });
   assert.deepEqual(taken.theory, { examen: { date: '2026-09-01', teacher: 'FH', note: '17/20' } });
   assert.deepEqual(taken.review, { status: { pratique: 'VALIDE' }, theoryDate: '', certDate: '2026-10-11', responsable: 'Fred' });
-  assert.equal(summarize(taken).todo.length, 0);
+  assert.deepEqual(summarize(taken).todo.map((t) => [t.date, t.teacher]), [['2026-10-10', `uct:${'jeton-lucas-'.padEnd(24, 'x')}`]]);
+  assert.deepEqual(summarize(taken).teachers, [`uct:${'jeton-lucas-'.padEnd(24, 'x')}`]);
 });
 
 test('outingSessions : rien tant que les palanquées ne sont pas validées, ni sur une fiche illisible', () => {
