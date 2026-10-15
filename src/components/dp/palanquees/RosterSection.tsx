@@ -15,6 +15,7 @@ import { SectionTitle } from '../../SectionTitle';
 import { APT_COL, FN_COL, RolesContext, byName, byRank, hasRows } from './format';
 import { OutingMemberAvatar, OutingMemberButton } from '../../member/MemberLink';
 import { GuideNoteRow } from './GuideNoteRow';
+import { CommentBubble } from './CommentBubble';
 
 interface Props {
   roster: RosterEntry[];
@@ -95,9 +96,13 @@ export function RosterSection({ roster, doc, divers, diving, excluded, readOnly,
           />
           <OutingMemberAvatar id={d.id} name={d.name} picture={d.picture} size="md" mobile="none" />
           <div className="min-w-0 flex-1 ml-1">
-            <label htmlFor={`plonge-${d.id}`} className="block font-medium text-ink leading-snug break-words line-clamp-2 sm:line-clamp-none sm:truncate cursor-pointer">
-              {d.name}
-            </label>
+            {/* Le nom, et la bulle du commentaire laissé à l'inscription VPDive (celui d'un invité hors VPDive est sous le nom). */}
+            <span className="flex items-center gap-1 min-w-0">
+              <label htmlFor={`plonge-${d.id}`} className="min-w-0 font-medium text-ink leading-snug break-words line-clamp-2 sm:line-clamp-none sm:truncate cursor-pointer">
+                {d.name}
+              </label>
+              {r.comment && !r.outside && <CommentBubble text={r.comment} name={d.name} />}
+            </span>
             {/* Sous le nom : rôles, niveau ; sur téléphone, l'icône « fiche » au bout (la photo y est cachée). */}
             <span className="flex items-start gap-1.5 mt-0.5 empty:hidden">
               {hasRoles && <RoleBadges id={d.id} />}
