@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { beaufort, compass, dayWeather, level, metres, preferModels, toSlots, windColor, worstIn, type Slot } from './marine';
+import { beaufort, compass, dayWeather, level, metres, outingWeather, outingWindow, preferModels, toSlots, windColor, worstIn, type Slot } from './marine';
 
 test('compass : rose des 16 directions en français', () => {
   assert.equal(compass(0), 'N');
@@ -110,4 +110,18 @@ test('windColor : paliers exacts, interpolation, bornes', () => {
 test('metres : virgule décimale', () => {
   assert.equal(metres(0.64), '0,6 m');
   assert.equal(metres(null), '–');
+});
+
+test('outingWindow : heures de la sortie, la journée de plongée si « journée »', () => {
+  assert.deepEqual(outingWindow('2026-10-11 09:00:00', '2026-10-11 12:00:00', false), ['2026-10-11T09:00', '2026-10-11T12:00']);
+  assert.deepEqual(outingWindow('2026-10-11', '', true), ['2026-10-11T06:00', '2026-10-11T21:00']);
+});
+
+test('outingWeather : le pire créneau des heures de la sortie, null hors prévisions', () => {
+  const s = (time: string, wind: number, gusts: number): Slot => ({
+    time, wind, gusts, windDir: 225, waves: 0.4, windWaves: null, swell: null, swellPeriod: null, swellDir: null, water: null,
+  });
+  const slots = [s('2026-10-11T08:00', 25, 32), s('2026-10-11T09:00', 10, 14), s('2026-10-11T11:00', 17, 20), s('2026-10-11T14:00', 30, 38)];
+  assert.deepEqual(outingWeather(slots, '2026-10-11 09:00:00', '2026-10-11 12:00:00', false), { wind: 17, gusts: 20, dir: 'SO', waves: 0.4, level: 'jaune' });
+  assert.equal(outingWeather(slots, '2026-10-20 09:00:00', '2026-10-20 12:00:00', false), null);
 });

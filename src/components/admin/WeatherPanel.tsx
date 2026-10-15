@@ -3,7 +3,7 @@ import { Wind } from 'lucide-react';
 import { vpdive, type CalendarEvent } from '../../services/vpdive';
 import { ymd } from '../../lib/dates';
 import { SPOTS, forecastAt, type Spot } from '../../services/marineWeather';
-import { SEUILS, beaufort, compass, level, metres, windColor, worstIn, type Level, type Slot } from '../../lib/marine';
+import { SEUILS, beaufort, compass, level, metres, outingWindow, windColor, worstIn, type Level, type Slot } from '../../lib/marine';
 import { GabianLoader } from '../Gabian';
 import { message } from '../../lib/errors';
 import { Dialog, DialogHeader } from '../Dialog';
@@ -15,19 +15,6 @@ const WeatherMap = lazy(() => import('./WeatherMap'));
 const p2 = (n: number) => String(n).padStart(2, '0');
 const HOURS = ['06', '09', '12', '15', '18', '21'] as const;
 const PICKED_ID = 'carte';
-
-/** Date locale → « 2026-10-11T09:00 ». */
-const localKey = (d: Date) => `${ymd(d)}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
-
-/** Date VPDive (locale, ou ISO avec fuseau) → « 2026-10-11T09:00 » local. */
-function toLocal(s: string): string {
-  if (!s) return '';
-  if (/(Z|[+-]\d\d:?\d\d)$/.test(s)) {
-    const d = new Date(s);
-    return Number.isNaN(d.getTime()) ? s : localKey(d);
-  }
-  return s.replace(' ', 'T').slice(0, 16);
-}
 
 /** « 2026-10-11T09:00 » ou « 2026-10-11 » → Date locale. */
 function fromLocal(k: string): Date {
@@ -131,14 +118,6 @@ function SlotRow({ s, active, onSelect }: { s: Slot; active: boolean; onSelect: 
   );
 }
 
-/** Créneaux d'une sortie : la journée de plongée pour une sortie « journée ». */
-function outingWindow(e: CalendarEvent): [string, string] {
-  const start = toLocal(e.start);
-  const day = start.slice(0, 10);
-  if (e.allDay || start.length < 16) return [`${day}T06:00`, `${day}T21:00`];
-  return [start, toLocal(e.end)];
-}
-
 /**
  * Météo (admin et DP) : vent, rafales et mer sur 7 jours au point choisi,
  * niveau de chaque sortie VPDive de la semaine, carte du vent.
@@ -215,7 +194,7 @@ export function WeatherPanel({ onClose, onSessionLost }: { onClose: () => void; 
     const first = days[0]!;
     const last = days[days.length - 1]!;
     return (events ?? [])
-      .map((e) => ({ event: e, window: outingWindow(e) }))
+      .map((e) => ({ event: e, window: outingWindow(e.start, e.end, e.allDay) }))
       .filter(({ window: [a] }) => a.slice(0, 10) >= first && a.slice(0, 10) <= last)
       .sort((a, b) => a.window[0].localeCompare(b.window[0]));
   }, [events, days]);

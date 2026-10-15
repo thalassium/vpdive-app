@@ -3,6 +3,8 @@
  * créneaux horaires, niveaux d'alerte pour décider d'une sortie.
  */
 
+import { ymd } from './dates';
+
 /** Seuils de la décision de sortie : le seul endroit où ils se règlent. */
 export const SEUILS = {
   /** Jaune : la règle ⚠️ de l'agenda pour le vent, puis rafales et vagues. */
@@ -152,6 +154,37 @@ export interface DayWeather {
  */
 export function dayWeather(slots: Slot[], day: string): DayWeather | null {
   const w = worstIn(slots, `${day}T${DAY_HOURS.from}`, `${day}T${DAY_HOURS.to}`);
+  if (!w) return null;
+  return { wind: w.wind, gusts: w.gusts, dir: compass(w.windDir), waves: w.waves, level: level(w) };
+}
+
+const p2 = (n: number) => String(n).padStart(2, '0');
+
+/** Date VPDive (locale, ou ISO avec fuseau) → « 2026-10-11T09:00 » local. */
+export function toLocal(s: string): string {
+  if (!s) return '';
+  if (/(Z|[+-]\d\d:?\d\d)$/.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? s : `${ymd(d)}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  }
+  return s.replace(' ', 'T').slice(0, 16);
+}
+
+/** Créneaux d'une sortie : la journée de plongée pour une sortie « journée ». */
+export function outingWindow(start: string, end: string, allDay: boolean): [string, string] {
+  const a = toLocal(start);
+  const day = a.slice(0, 10);
+  if (allDay || a.length < 16) return [`${day}T${DAY_HOURS.from}`, `${day}T${DAY_HOURS.to}`];
+  return [a, toLocal(end)];
+}
+
+/**
+ * Météo d'une sortie (fiche de sortie) : le pire créneau de ses heures, la
+ * journée de plongée si elle dure toute la journée. null hors prévisions.
+ */
+export function outingWeather(slots: Slot[], start: string, end: string, allDay: boolean): DayWeather | null {
+  const [a, b] = outingWindow(start, end, allDay);
+  const w = worstIn(slots, a, b);
   if (!w) return null;
   return { wind: w.wind, gusts: w.gusts, dir: compass(w.windDir), waves: w.waves, level: level(w) };
 }
