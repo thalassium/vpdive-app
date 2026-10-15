@@ -33,6 +33,34 @@
         } catch (e) {}
       })();
     </script>
+    <script>
+      // Page gardée d'une ancienne version : ses fichiers (assets/) n'existent plus
+      // depuis la mise en ligne et l'appli resterait blanche. Tant que rien n'est
+      // affiché, on recharge une fois (même garde que src/lib/clientErrors.ts),
+      // sinon on dit quoi faire. Ensuite, clientErrors.ts prend le relais.
+      window.addEventListener(
+        'error',
+        function (e) {
+          var el = e.target;
+          var root = document.getElementById('root');
+          if (!el || (el.tagName !== 'SCRIPT' && el.tagName !== 'LINK') || !/\/assets\//.test(el.src || el.href || '')) return;
+          if (!root || root.firstChild) return;
+          try {
+            var last = Number(sessionStorage.getItem('gabian:auto-reload') || 0);
+            if (navigator.onLine !== false && Date.now() - last > 5 * 60000) {
+              sessionStorage.setItem('gabian:auto-reload', String(Date.now()));
+              location.reload();
+              return;
+            }
+          } catch (x) {}
+          root.innerHTML =
+            '<p style="max-width:22rem;margin:20vh auto 0;padding:0 1rem;text-align:center;line-height:1.5">' +
+            'Gabian n’a pas pu se charger. Vérifiez la connexion, puis ' +
+            '<a href="" style="font-weight:600;text-decoration:underline">rechargez la page</a>.</p>';
+        },
+        true,
+      );
+    </script>
   </head>
   <body class="bg-canvas text-ink font-sans antialiased selection:bg-fill selection:text-white">
     <div id="root"></div>
