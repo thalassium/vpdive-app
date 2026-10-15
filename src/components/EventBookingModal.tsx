@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, Pencil, Users } from 'lucide-react';
+import { Check, CheckCircle2, AlertCircle, Calendar as CalendarIcon, ExternalLink, RefreshCw, MapPin, Clock, Pencil, Users, Wind } from 'lucide-react';
 import { vpdive, type CalendarEvent, type EventDetail, type MaterialOption, type RoleOption } from '../services/vpdive';
 import { BuddyField } from './BuddyField';
 import { useConfirm } from '../hooks/useConfirm';
@@ -8,6 +8,8 @@ import { BOTTLES, DEFAULT_BOTTLE, SIZES, SIZED_KINDS, SIZED_LABEL, composeCommen
 import { asksFor, canSupervise, classifyRoles, cleanRoleLabel, entryFromRole, roleKeyFor, volunteerTotal, type Entry, type InstructorMode } from '../lib/registration';
 import { isCancelledTitle } from '../lib/agenda';
 import { message } from '../lib/errors';
+import { metres, outingWeather, type DayWeather, type Slot } from '../lib/marine';
+import { SPOTS, forecastAt } from '../services/marineWeather';
 import { Dialog, DialogHeader } from './Dialog';
 import { SectionTitle } from './SectionTitle';
 
@@ -47,6 +49,19 @@ type Status = { kind: 'idle' } | { kind: 'success'; text: string } | { kind: 'er
 export function EventBookingModal({ event, onClose, onChanged, onSessionLost, onOpenPalanquees }: Props) {
   const [detail, setDetail] = useState<EventDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** Prévisions de Pointe Rouge (le port), comme l'agenda : un bonus, absent si Open-Meteo ne répond pas. */
+  const [slots, setSlots] = useState<Slot[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    const port = SPOTS[0];
+    forecastAt(port.lat, port.lon).then(
+      (s) => live && setSlots(s),
+      (e) => console.warn('Météo indisponible :', e),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
 
   /** Étape « Je viens comme… » : plongeur, encadrant (et s'il encadre ou plonge pour lui), bénévole (et son poste). */
   const [entry, setEntry] = useState<Entry | null>(null);
@@ -333,6 +348,7 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
   const start = detail?.start || event.start;
   const end = detail?.end || event.end;
   const location = detail?.location || event.location;
+  const weather = slots && start ? outingWeather(slots, start, end, event.allDay) : null;
   /** Section numbers, in the order the sections show (some are conditional). */
   const nextStep = stepCounter();
 
@@ -364,10 +380,15 @@ export function EventBookingModal({ event, onClose, onChanged, onSessionLost, on
               {location || 'Lieu non précisé'}
             </p>
           </div>
-          {onOpenPalanquees && (
-            <button type="button" onClick={onOpenPalanquees} disabled={busy} className="btn btn-quiet sm:h-9 text-sm mt-3.5">
-              <Users className="w-4 h-4" /> Palanquées
-            </button>
+          {(onOpenPalanquees || weather) && (
+            <div className="flex flex-wrap items-center gap-2 mt-3.5">
+              {onOpenPalanquees && (
+                <button type="button" onClick={onOpenPalanquees} disabled={busy} className="btn btn-quiet sm:h-9 text-sm">
+                  <Users className="w-4 h-4" /> Palanquées
+                </button>
+              )}
+              {weather && <OutingWeather w={weather} allDay={event.allDay} />}
+            </div>
           )}
         </DialogHeader>
 
@@ -993,6 +1014,26 @@ function stepCounter(): () => number {
 function formatEuro(n: number): string {
   if (n === 0) return 'Gratuit';
   return n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: n % 1 ? 2 : 0 });
+}
+
+/**
+ * Météo de la sortie à Pointe Rouge : le pire créneau de ses heures (vent,
+ * rafales, vagues), en orange avec ⚠️ en vigilance, en rouge au-delà.
+ */
+function OutingWeather({ w, allDay }: { w: DayWeather; allDay: boolean }) {
+  const warn = w.level !== 'ok';
+  const tone = w.level === 'rouge' ? 'bg-danger-soft text-danger font-semibold' : warn ? 'bg-warn-soft text-warn font-semibold' : 'bg-tint text-muted';
+  const text =
+    `Météo ${allDay ? '6 h – 21 h' : 'pendant la sortie'} (Pointe Rouge) : vent ${w.wind} nd (${w.dir}), rafales ${w.gusts} nd` +
+    (w.waves !== null ? `, vagues ${metres(w.waves)}` : '') +
+    (w.level === 'rouge' ? ' : sortie très menacée' : warn ? ' : sortie menacée' : '');
+  return (
+    <span role="img" aria-label={text} title={text} className={`inline-flex items-center gap-1.5 text-sm tabular-nums px-2.5 py-1.5 rounded-md ${tone}`}>
+      {warn ? <span aria-hidden>⚠️</span> : <Wind className="w-4 h-4 shrink-0" aria-hidden />}
+      {w.wind} nd {w.dir} · raf. {w.gusts}
+      {w.waves !== null && ` · ${metres(w.waves)}`}
+    </span>
+  );
 }
 
 function formatRange(start: string, end: string, allDay: boolean): string {
