@@ -273,21 +273,25 @@ test('encadrant supplémentaire à la main : vers une formation seulement, hors 
 test('changer de type : l’encadrant supplémentaire reste en formation, redevient plongeur en exploration', () => {
   const e3 = diverOf('E3', 'MF1');
   const sup = diverOf('Sup', 'N4');
-  const n2 = diverOf('N2', 'P2');
+  const n1 = diverOf('N1', 'P1');
   // Une formation sans élève FN# (le DP peut la repasser en exploration).
-  const plan: Plan = { palanquees: [{ id: 't', kind: 'teaching', guide: e3, extras: [sup], members: [n2] }], unassigned: [] };
+  const plan: Plan = { palanquees: [{ id: 't', kind: 'teaching', guide: e3, extras: [sup], members: [n1] }], unassigned: [] };
   const explo = setType(plan, 't', 'exploration').palanquees[0]!;
   assert.equal(explo.kind, 'guided');
   assert.deepEqual(explo.extras, []);
-  assert.deepEqual(explo.members.map((m) => m.id), [n2.id, sup.id], 'il plonge dans l’effectif');
+  assert.deepEqual(explo.members.map((m) => m.id), [n1.id, sup.id], 'il plonge dans l’effectif');
   assert.deepEqual(validate(explo), []);
+  // Avec un autonome à la place du N1, l'encadrant plonge en autonome avec eux : palanquée autonome.
+  const autos = setType({ palanquees: [{ id: 'a', kind: 'teaching', guide: e3, extras: [sup], members: [diverOf('N2', 'P2')] }], unassigned: [] }, 'a', 'exploration').palanquees[0]!;
+  assert.equal(autos.kind, 'autonomous');
+  assert.equal(autos.members.length, 3);
   // Une ancienne exploration avec un plongeur supplémentaire, passée en formation : il reste à sa place.
-  const old: Plan = { palanquees: [{ id: 'o', kind: 'guided', guide: e3, extras: [sup], members: [n2] }], unassigned: [] };
+  const old: Plan = { palanquees: [{ id: 'o', kind: 'guided', guide: e3, extras: [sup], members: [n1] }], unassigned: [] };
   const teaching = setType(old, 'o', 'teaching').palanquees[0]!;
   assert.equal(teaching.kind, 'teaching');
   assert.equal(teaching.guide?.id, e3.id);
   assert.deepEqual(teaching.extras.map((x) => x.id), [sup.id]);
-  assert.deepEqual(teaching.members.map((m) => m.id), [n2.id]);
+  assert.deepEqual(teaching.members.map((m) => m.id), [n1.id]);
   // Avec un élève FN#, pas d’exploration : la formation et son encadrant supplémentaire restent tels quels.
   const withStudent: Plan = { palanquees: [{ id: 's', kind: 'teaching', guide: e3, extras: [sup], members: [diverOf('F', 'P1', 'FN2')] }], unassigned: [] };
   const kept = setType(withStudent, 's', 'exploration').palanquees[0]!;
