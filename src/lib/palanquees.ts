@@ -461,7 +461,8 @@ export function chosenDepth(p: Palanquee): number {
 /**
  * Deux types de palanquée pour le DP : Formation ou Exploration. En exploration,
  * encadrée ou autonome n'est pas un choix : la palanquée est encadrée (PE) dès
- * qu'elle a un encadrant, autonome (PA) sinon (cf. settleKind).
+ * qu'elle a un encadrant, autonome (PA) sinon, ou quand son encadrant plonge
+ * avec des autonomes (cf. settleKind).
  */
 export type PalanqueeType = 'teaching' | 'exploration';
 export const TYPE_LABEL: Record<PalanqueeType, string> = { teaching: 'Formation', exploration: 'Exploration' };
@@ -534,7 +535,22 @@ export function toTeaching(p: Palanquee): Palanquee {
 }
 
 /**
- * Exploration : encadrée s'il y a un encadrant, autonome sinon. Une palanquée
+ * Un encadrant qui plonge avec des autonomes est autonome lui aussi (règle du
+ * club) : une exploration dont tous, encadrant compris, ont une aptitude PA et
+ * qui tient dans l'effectif d'une palanquée autonome (2 ou 3) est autonome.
+ * Au-delà de 3, elle reste encadrée : 3 autonomes et un encadrant ne font pas
+ * une palanquée autonome.
+ */
+export function plungesAutonomous(p: Palanquee): boolean {
+  if (p.kind === 'teaching' || !p.guide || !p.members.length) return false;
+  const all = [p.guide, ...p.members, ...p.extras];
+  return all.length <= 3 && all.every((d) => d.pa > 0 && !d.training);
+}
+
+/**
+ * Exploration : encadrée s'il y a un encadrant, autonome sinon. Un encadrant
+ * avec des autonomes plonge en autonome, la palanquée aussi (plungesAutonomous) :
+ * il devient l'un des plongeurs. Une palanquée
  * autonome n'a pas d'encadrant supplémentaire : ceux d'une ancienne
  * composition redeviennent plongeurs. En exploration encadrée, ils sont laissés
  * en place et signalés (validate) : au DP de les replacer. Avec un élève FN#, la
@@ -545,6 +561,7 @@ export function toTeaching(p: Palanquee): Palanquee {
 export function settleKind(p: Palanquee): Palanquee {
   if (p.kind === 'teaching') return p.guide && canTeach(p.guide, studentsOf(p)) && p.extras.every(canAssist) ? p : toTeaching(p);
   if (hasStudent(p)) return toTeaching(p);
+  if (plungesAutonomous(p)) return { ...p, kind: 'autonomous', guide: null, extras: [], members: [p.guide!, ...p.members, ...p.extras] };
   if (p.guide) return p.kind === 'guided' ? p : { ...p, kind: 'guided' };
   return { ...p, kind: 'autonomous', extras: [], members: p.extras.length ? [...p.members, ...p.extras] : p.members };
 }

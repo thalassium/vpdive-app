@@ -225,7 +225,8 @@ const canLead = (d: Diver, p: Palanquee): boolean => !d.training && (p.kind === 
 /**
  * Désigne l'encadrant (ou l'enseignant) d'une palanquée, qu'il vienne d'une
  * autre palanquée, des disponibles ou de la palanquée elle-même. Une
- * palanquée autonome devient encadrée. S'il encadrait une autre palanquée,
+ * palanquée autonome devient encadrée, sauf s'il plonge avec des autonomes
+ * (2 ou 3 en tout, tous PA) : il est alors autonome avec eux (settleKind). S'il encadrait une autre palanquée,
  * l'ancien encadrant d'ici prend sa place là-bas quand il le peut (deux E3
  * échangent leurs palanquées en un seul déplacement) ; sinon il redevient
  * disponible (un E2 ne reprend pas une formation FN3).

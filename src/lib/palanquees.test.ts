@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptsExtra, aptitudesFromLabels, canAssist, chosenDepth, depthOf, extraLabel, guideLabel, kindLabel, lowestTeacher, memberLabel, minTeachFor, normalizePalanquee, normalizePlan, studentsOf, trainingLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
+import { acceptsExtra, aptitudesFromLabels, canAssist, chosenDepth, depthOf, extraLabel, guideLabel, kindLabel, lowestTeacher, memberLabel, minTeachFor, normalizePalanquee, normalizePlan, plungesAutonomous, studentsOf, trainingLabel, settleKind, toTeaching, prerogativeCode, prerogativeLabel, proposePalanquees, validate, type Diver, type Palanquee, type Plan } from './palanquees';
 
 let n = 0;
 const diver = (name: string, ...labels: string[]): Diver => ({ id: `d${++n}`, name, labels, ...aptitudesFromLabels(labels) });
@@ -716,4 +716,32 @@ test('fiche ancienne : l’encadrant supplémentaire unique (extra) est relu com
   const old = normalizePlan({ palanquees: [{ ...bare, extra: sup }, current], unassigned: [] });
   assert.deepEqual(old.palanquees[0]!.extras, [sup]);
   assert.equal(old.palanquees[1], current);
+});
+
+test('encadrant avec des autonomes : il est autonome, la palanquée aussi', () => {
+  const gp = diver('GP', 'N4');
+  const n2a = diver('A', 'N2');
+  const n2b = diver('B', 'N2');
+  const p = settleKind({ id: 'p', kind: 'guided', guide: gp, extras: [], members: [n2a, n2b] });
+  assert.equal(p.kind, 'autonomous');
+  assert.equal(p.guide, null);
+  assert.deepEqual(p.members, [gp, n2a, n2b]);
+  assert.equal(prerogativeLabel(p), 'PA20', 'la prérogative du moins autonome');
+  assert.equal(memberLabel(gp, p), 'PA20', 'il n’est plus noté GP');
+  assert.deepEqual(validate(p), []);
+  // Avec un seul autonome aussi : un binôme.
+  assert.equal(settleKind({ id: 'q', kind: 'guided', guide: gp, extras: [], members: [n2a] }).kind, 'autonomous');
+});
+
+test('encadrant avec des autonomes : encadrée si un plongeur n’est pas PA ou au-delà de 3', () => {
+  const gp = diver('GP', 'N4');
+  const n2 = diver('A', 'N2');
+  const n1 = diver('N1', 'N1');
+  const mixed: Palanquee = { id: 'p', kind: 'guided', guide: gp, extras: [], members: [n2, n1] };
+  assert.equal(plungesAutonomous(mixed), false);
+  assert.equal(settleKind(mixed), mixed, 'un N1 sans PA : reste encadrée');
+  const four: Palanquee = { id: 'q', kind: 'guided', guide: gp, extras: [], members: [n2, diver('B', 'N2'), diver('C', 'N3')] };
+  assert.equal(settleKind(four).kind, 'guided', '4 en tout : pas de palanquée autonome');
+  // Une formation n'est jamais concernée.
+  assert.equal(plungesAutonomous({ ...mixed, kind: 'teaching', members: [n2] }), false);
 });
