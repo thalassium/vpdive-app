@@ -247,10 +247,13 @@ export async function fetchPricesForRole(eventToken: string, roleKey: string | n
 /**
  * Register the logged-in member.
  *
- * Field names follow codehelp/docapi.txt (`front_calendarbundle_calendar_material`
- * with calendar / user / people / tariff_plan / comment / role_suggestion).
- * The encoding follows VPDive's own web app rather than the spec: a multipart
- * form with rental gear as `material_<id>` = quantity. The spec documents a
+ * Field names follow VPDive's own web app, which renamed « material » to
+ * « prestation » (October 2026): `front_calendarbundle_calendar_prestation` with
+ * calendar / user / people / tariff_plan / comment / role_suggestion. Under the
+ * old `…_calendar_material` prefix VPDive reads no field at all and answers
+ * « No entity found for token and club » (the event token arrives empty).
+ * The encoding is the web app's rather than the spec's: a multipart
+ * form with rental gear as `prestation_<id>` = quantity. The spec documents a
  * JSON body with `materials: [ids]`, which cannot express quantities, and the
  * web app's form is what VPDive serves to every member in production.
  *
@@ -263,7 +266,7 @@ export async function fetchPricesForRole(eventToken: string, roleKey: string | n
 export async function register(b: BookingRequest, opts: { modification?: boolean } = {}): Promise<{ message: string; waitingList: boolean }> {
   const f = new FormData();
   const field = (name: string, value: string) =>
-    f.append(`front_calendarbundle_calendar_material[${name}]`, value);
+    f.append(`front_calendarbundle_calendar_prestation[${name}]`, value);
 
   f.append('_method', 'POST');
   field('action', 'or');
@@ -272,15 +275,14 @@ export async function register(b: BookingRequest, opts: { modification?: boolean
   field('people', String(b.people));
   field('comment', b.comment);
   field('tariff_plan', b.tariffToken ?? '');
-  // « diver » is VPDive's label for the default role, not a role token: its web
-  // app sends no role for a diver (roles_token stays empty), and a role_suggestion
-  // « diver » fails with « No entity found for token and club ».
+  // « diver » is VPDive's label for the default role, not a role token: a diver
+  // registered on VPDive has no role (roles_token stays empty).
   if (b.roleKey && b.roleKey !== 'diver') field('role_suggestion', b.roleKey);
   for (const [id, qty] of Object.entries(b.materials)) {
-    if (qty > 0) field(`material_${id}`, String(qty));
+    if (qty > 0) field(`prestation_${id}`, String(qty));
   }
   // Sizes: VPDive's web app sends a chosen variant as choice_<material>_<choice>
-  // instead of material_<material>.
+  // instead of prestation_<material>.
   for (const [key, qty] of Object.entries(b.choices)) {
     if (qty > 0) field(`choice_${key}`, String(qty));
   }
@@ -390,7 +392,7 @@ export function rosterFrom(res: Json): RosterEntry[] {
         email: str(u.email).trim(),
         uct: str(u.uct_token).trim(),
         socket: str(u.is_ghost === true || u.is_guest === true ? u.socket : u.uct_socket).trim(),
-        material: (Array.isArray(u.material) ? u.material : []).map((m) => str(m).trim()).filter(Boolean),
+        material: rentedLines(u),
         licences: values(u.licences).map((l) => ({
           number: str(l.licence).trim(),
           until: str(obj(l.until)?.date).slice(0, 10) || null,
@@ -455,13 +457,13 @@ export function mapDetail(token: string, data: Json, ev: Json, userId: number | 
     label: str(label) || key,
   }));
 
-  // list_material: [{ "<id>": { obj: { id, name }, tariff: "3.00", max_selectable_quantity,
+  // list_prestation (list_material before October 2026): [{ "<id>": { obj: { id, name }, tariff: "3.00", max_selectable_quantity,
   //                             choices: [{ "<choiceId>": { obj: { name }, tariff } }] } }, ...]
   // `choices` (sizes…) is read the way VPDive's own web app reads it: an array
   // or an object of maps keyed by choice id.
   const values = (v: unknown): unknown[] => (Array.isArray(v) ? v : obj(v) ? Object.values(obj(v)!) : []);
   const materials: MaterialOption[] = [];
-  for (const wrapper of values(data.list_material)) {
+  for (const wrapper of values(data.list_prestation ?? data.list_material)) {
     for (const [key, m] of Object.entries(obj(wrapper) ?? {})) {
       const mo = obj(m);
       const item = obj(mo?.obj);
@@ -522,6 +524,16 @@ export function mapDetail(token: string, data: Json, ev: Json, userId: number | 
 }
 
 /**
+ * Rented gear of a registrant, as VPDive writes it: « 2 Détendeur ». Read from
+ * `prestation` (VPDive's name since October 2026; `material` stays empty), else
+ * `material`. A line at 0 (« 0 Gilet stabilisateur ») is gear not taken.
+ */
+function rentedLines(u: Json): string[] {
+  const lines = Array.isArray(u.prestation) && u.prestation.length ? u.prestation : Array.isArray(u.material) ? u.material : [];
+  return lines.map((m) => str(m).trim()).filter((m) => m && !/^0+\s/.test(m));
+}
+
+/**
  * The member's entry in `user_registered`: role token(s), tariff token, places,
  * message, and rented gear as display lines (« 1 Gilet stabilisateur »).
  */
@@ -534,7 +546,7 @@ export function myRegistration(u: Json | null, roles: RoleOption[], tariffs: Tar
   const tariff = str(u.tariff_plan_token);
   const flatName = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const gear: MyRegistration['gear'] = [];
-  for (const line of Array.isArray(u.material) ? u.material : []) {
+  for (const line of rentedLines(u)) {
     // « 1 Combinaison », or with a variant « 1 Combinaison - M » / « 1 Combinaison (M) »
     const text = flatName(str(line).replace(/^\s*\d+\s*x?\s*/i, ''));
     const m = [...materials].sort((a, b) => b.name.length - a.name.length).find((x) => text.startsWith(flatName(x.name)));

@@ -165,6 +165,21 @@ test('sortie de l’agenda : annulée d’après le titre ; sans jeton, ignorée
   assert.equal(mapEvent(null), null);
 });
 
+test('matériel loué : lu dans « prestation » (nom VPDive depuis octobre 2026), lignes à 0 ignorées', () => {
+  const r = myRegistration(
+    { roles_token: [], tariff_plan_token: 'tar-1', material: [], prestation: ['0 Gilet stabilisateur ', '2 Combinaison - M'] },
+    roles,
+    tariffs,
+    materials,
+  );
+  assert.deepEqual(r?.gear, [{ id: 3565, choiceId: 'c1' }]);
+});
+
+test('détail d’une sortie : ancien nom « list_material » encore lu', () => {
+  const d = mapDetail('ev-1', { list_material: [{ '10': { obj: { id: 10, name: 'Gilet' }, tariff: '3.00', max_selectable_quantity: 1 } }] }, {}, null);
+  assert.deepEqual(d.materials.map((m) => m.id), [10]);
+});
+
 test('détail d’une sortie : formules, rôles, matériel (tailles), refus et mon panier', () => {
   const d = mapDetail(
     'ev-1',
@@ -172,7 +187,7 @@ test('détail d’une sortie : formules, rôles, matériel (tailles), refus et m
       tariff_plans: { 'tar-1': 'Membre' },
       price: { 'tar-1': '32.00' },
       available_roles: { diver: 'Plongeur', 'tok-dp': 'Directeur de plongée' },
-      list_material: [
+      list_prestation: [
         { '10': { obj: { id: 10, name: 'Gilet' }, tariff: '3.00', max_selectable_quantity: 1 } },
         { '11': { obj: { id: 11, name: 'Combinaison' }, tariff: '3.00', choices: [{ c1: { obj: { name: 'M' }, tariff: '3.00' } }] } },
         { '12': { obj: { id: 12, name: 'Épuisé' }, tariff: '3.00', max_selectable_quantity: 0 } },
