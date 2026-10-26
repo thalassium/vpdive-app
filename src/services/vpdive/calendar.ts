@@ -272,7 +272,10 @@ export async function register(b: BookingRequest, opts: { modification?: boolean
   field('people', String(b.people));
   field('comment', b.comment);
   field('tariff_plan', b.tariffToken ?? '');
-  if (b.roleKey) field('role_suggestion', b.roleKey);
+  // « diver » is VPDive's label for the default role, not a role token: its web
+  // app sends no role for a diver (roles_token stays empty), and a role_suggestion
+  // « diver » fails with « No entity found for token and club ».
+  if (b.roleKey && b.roleKey !== 'diver') field('role_suggestion', b.roleKey);
   for (const [id, qty] of Object.entries(b.materials)) {
     if (qty > 0) field(`material_${id}`, String(qty));
   }
