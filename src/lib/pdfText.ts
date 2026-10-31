@@ -1,7 +1,7 @@
 /**
  * Les polices standard du PDF ne couvrent que le latin-1 : on remplace la
  * typographie qui en sort (apostrophes, guillemets, points de suspension,
- * espaces insécables des nombres à la française, tirets).
+ * espaces insécables des nombres à la française, tirets, flèches).
  */
 export const pdfText = (s: string) =>
   s
@@ -10,4 +10,5 @@ export const pdfText = (s: string) =>
     .replace(/…/g, '...')
     .replace(/ᵉ/g, 'e')
     .replace(/[  ]/g, ' ')
-    .replace(/[–—]/g, '-');
+    .replace(/[–—]/g, '-')
+    .replace(/→/g, '->');

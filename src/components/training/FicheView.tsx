@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { FileDown, Plus, Trash2 } from 'lucide-react';
 import { appApi, type FicheAccess, type FicheOp } from '../../services/appApi';
 import { MODELS, VARIANTS, modelOf, progress, sessionState, SLOTS, type Fiche, type FicheModel, type FicheSession, type ReviewStatus } from '../../lib/training';
 import { frDate, shortDay } from '../../lib/dates';
@@ -9,6 +9,7 @@ import { Avatar } from '../Avatar';
 import { GabianLoader } from '../Gabian';
 import { Failure } from '../Feedback';
 import { SectionTitle } from '../SectionTitle';
+import { Spinner } from '../Spinner';
 import { MemberSheetButton } from '../member/MemberLink';
 import { EvalMark, SessionPill } from './marks';
 import { SessionEditor } from './SessionEditor';
@@ -41,6 +42,7 @@ export function FicheView({
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [pdfState, setPdfState] = useState<'idle' | 'busy' | 'error'>('idle');
   const { confirm, confirmDialog } = useConfirm();
 
   const fetchFiche = useCallback(
@@ -97,6 +99,18 @@ export function FicheView({
   const done = progress(fiche);
   const edited = fiche.sessions.find((s) => s.id === editing);
 
+  /** La fiche en PDF, sur une page ; le générateur n'est chargé qu'au premier clic. */
+  const downloadPdf = async () => {
+    setPdfState('busy');
+    try {
+      const { downloadTrainingPdf } = await import('../../lib/trainingPdf');
+      downloadTrainingPdf(fiche, today);
+      setPdfState('idle');
+    } catch {
+      setPdfState('error');
+    }
+  };
+
   const remove = async () => {
     if (!(await confirm({ title: `Supprimer la fiche de ${fiche.name} ?`, message: `${fiche.sessions.length} séance${fiche.sessions.length > 1 ? 's' : ''}.`, confirmLabel: 'Supprimer', danger: true }))) return;
     await run({ op: 'delete' });
@@ -114,7 +128,11 @@ export function FicheView({
             </h3>
             <p className="text-sm text-muted">{model.title}</p>
           </div>
+          <button type="button" onClick={() => void downloadPdf()} disabled={pdfState === 'busy'} aria-busy={pdfState === 'busy'} title="Télécharger la fiche en PDF (une page)" className="btn btn-quiet sm:h-9 text-sm shrink-0">
+            {pdfState === 'busy' ? <Spinner /> : <FileDown className="w-4 h-4" />} PDF
+          </button>
         </div>
+        {pdfState === 'error' && <p className="text-sm text-danger">PDF indisponible, réessayez.</p>}
         <dl className="flex flex-wrap gap-x-6 gap-y-1 text-base">
           <div className="flex gap-2">
             <dt className="text-muted">Séances</dt>
