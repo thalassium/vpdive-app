@@ -41,6 +41,7 @@
  *   POST ?action=training&fiche=<id> {op, …}  remplir une séance, ajouter une séance, cours théoriques, validations
  *                                         (applyFicheOp). Les séances naissent d'elles-mêmes à l'enregistrement
  *                                         d'une sortie dont les palanquées de formation sont validées.
+ *   POST ?action=santa {op, …}            public, sans compte : Secret Santa (server/santa.ts)
  *   POST ?action=client_error {message, stack?, url?, where?}  tout membre identifié : erreur de l'appli
  *                                         dans le navigateur, journalisée (ligne JSON) ; répond 204
  *
@@ -78,6 +79,7 @@
  *   club:<id>:brevet-map             correspondance des brevets
  *   club:<id>:fiche:<fiche>          fiche de suivi de formation d'un élève [3 ans après le dernier enregistrement]
  *   club:<id>:fiches                 résumé de chaque fiche de suivi (liste, séances à remplir, qui la voit)
+ *   santa:*                          Secret Santa (server/santa.ts) [120 jours]
  *   <clé>:lock                      verrou le temps d'une lecture-modification-écriture
  *   app:helloasso-token              jeton HelloAsso en cours [le temps de sa validité]
  */
@@ -86,6 +88,7 @@ import { acquireLock, getStore, type SetOptions, type Store } from './store.js';
 import { helloassoConfigured, membershipItems } from './helloasso.js';
 import { decideRegistration, registrationRequests, type Decision } from './legacy.js';
 import { errorFields, log } from './log.js';
+import { santa } from './santa.js';
 import {
   FICHE_ID,
   FicheError,
@@ -538,6 +541,15 @@ export async function handleWith(request: Request, deps: Deps): Promise<Response
   try {
     const url = new URL(request.url);
     action = url.searchParams.get('action');
+
+    // Secret Santa : public, sans compte VPDive (server/santa.ts). Les secrets sont dans le corps, jamais dans l'adresse.
+    if (action === 'santa') {
+      if (request.method !== 'POST') throw new HttpError(405, 'Méthode refusée.');
+      const text = await request.text();
+      if (text.length > 20_000) throw new HttpError(413, 'Demande trop grosse.');
+      return json(await santa(deps.store(), parseBody(text)));
+    }
+
     const caller = await deps.identify(request);
 
     if (action === 'logout' && request.method === 'POST') {
